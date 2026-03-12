@@ -1,0 +1,65 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build & cache
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+.turbo/
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.dll
+*.exe
+*.pdb
+*.log
+.vs/
+project.lock.json
+packages/
+
+# Environment
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+
+# IDE & OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs & temp
+logs/
+*.log
+npm-debug.log*
+tmp/
+temp/
+
+# Testing & coverage
+coverage/
+.nyc_output/
+TestResults/
+
+# SQL files
+*.sql
+
+# Secrets
+appsettings.Development.json
+appsettings.Local.json
+secrets.json
+*.pfx
+client_secret*.json
+**/dp-keys/
