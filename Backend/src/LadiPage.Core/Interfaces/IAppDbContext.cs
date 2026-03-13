@@ -18,6 +18,15 @@ public interface IAppDbContext
     DbSet<ToolCategory> ToolCategories { get; }
     DbSet<ToolItem> ToolItems { get; }
     DbSet<ElementPreset> ElementPresets { get; }
+    DbSet<Media> Medias { get; }
+    DbSet<Tag> Tags { get; }
+    DbSet<Domain> Domains { get; }
+    DbSet<FormConfig> FormConfigs { get; }
+    DbSet<Notification> Notifications { get; }
+    DbSet<Product> Products { get; }
+    DbSet<Order> Orders { get; }
+    DbSet<Customer> Customers { get; }
+    DbSet<Lead> Leads { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

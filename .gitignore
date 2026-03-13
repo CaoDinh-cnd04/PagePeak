@@ -63,3 +63,6 @@ secrets.json
 *.pfx
 client_secret*.json
 **/dp-keys/
+
+# Runtime uploads
+Backend/src/LadiPage.Api/wwwroot/uploads/

@@ -21,6 +21,7 @@ public static class DependencyInjection
         services.AddSingleton<JwtService>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddSingleton<IDateTime, DateTimeService>();
+        services.AddSingleton<IEmailService, EmailService>();
 
         return services;
     }

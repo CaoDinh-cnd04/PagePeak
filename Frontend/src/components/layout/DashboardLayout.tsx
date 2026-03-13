@@ -24,7 +24,7 @@ export function DashboardLayout({
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-          <Link href="/dashboard" className="flex items-center gap-2 hover:opacity-90 transition">
+          <Link href="/dashboard/pages" className="flex items-center gap-2 hover:opacity-90 transition">
             <Image src="/logo.jpg" alt="PagePeak" width={160} height={44} className="h-10 sm:h-11 w-auto object-contain" style={{ width: "auto", height: "auto" }} />
             <span className="text-lg font-bold tracking-tight">
               <span className="text-slate-900">Page</span>
@@ -33,9 +33,9 @@ export function DashboardLayout({
           </Link>
           <nav className="flex items-center gap-6">
             <Link
-              href="/dashboard"
+              href="/dashboard/pages"
               className={`text-sm font-medium ${
-                pathname === "/dashboard"
+                pathname === "/dashboard/pages"
                   ? "text-primary-600"
                   : "text-slate-600 hover:text-slate-900"
               }`}

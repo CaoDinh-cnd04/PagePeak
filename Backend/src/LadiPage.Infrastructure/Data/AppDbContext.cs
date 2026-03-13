@@ -21,6 +21,15 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<ToolCategory> ToolCategories { get; set; }
     public DbSet<ToolItem> ToolItems { get; set; }
     public DbSet<ElementPreset> ElementPresets { get; set; }
+    public DbSet<Media> Medias { get; set; }
+    public DbSet<Tag> Tags { get; set; }
+    public DbSet<Domain> Domains { get; set; }
+    public DbSet<FormConfig> FormConfigs { get; set; }
+    public DbSet<Notification> Notifications { get; set; }
+    public DbSet<Product> Products { get; set; }
+    public DbSet<Order> Orders { get; set; }
+    public DbSet<Customer> Customers { get; set; }
+    public DbSet<Lead> Leads { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -62,6 +71,8 @@ public class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.Role).HasColumnName("VaiTro").HasMaxLength(20);
             e.Property(x => x.Status).HasColumnName("TrangThai").HasMaxLength(20);
             e.Property(x => x.EmailConfirmed).HasColumnName("EmailDaXacNhan");
+            e.Property(x => x.EmailVerificationToken).HasColumnName("MaXacThucEmail").HasMaxLength(200);
+            e.Property(x => x.EmailVerificationSentAt).HasColumnName("NgayGuiXacThucEmail");
             e.Property(x => x.PhoneConfirmed).HasColumnName("SdtDaXacNhan");
             e.Property(x => x.CurrentPlanId).HasColumnName("MaGoiHienTai");
             e.Property(x => x.PlanExpiresAt).HasColumnName("NgayHetHanGoi");
@@ -157,6 +168,10 @@ public class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.Category).HasColumnName("DanhMuc").HasMaxLength(100);
             e.Property(x => x.ThumbnailUrl).HasColumnName("AnhDaiDien").HasMaxLength(500);
             e.Property(x => x.JsonContent).HasColumnName("NoiDungJson");
+            e.Property(x => x.Description).HasColumnName("MoTa").HasMaxLength(500);
+            e.Property(x => x.DesignType).HasColumnName("LoaiThietKe").HasMaxLength(30).HasDefaultValue("responsive");
+            e.Property(x => x.IsFeatured).HasColumnName("NoiBat").HasDefaultValue(false);
+            e.Property(x => x.UsageCount).HasColumnName("SoLuotDung").HasDefaultValue(0);
             e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
             e.HasIndex(x => x.Category);
         });
@@ -282,6 +297,147 @@ public class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.DefaultHeight).HasColumnName("ChieuCaoMacDinh");
             e.Property(x => x.Order).HasColumnName("ThuTu");
             e.HasOne(x => x.ToolItem).WithMany(t => t.Presets).HasForeignKey(x => x.ToolItemId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Tag>(e =>
+        {
+            e.ToTable("NhanDan");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaNhan");
+            e.Property(x => x.WorkspaceId).HasColumnName("MaKhongGian");
+            e.Property(x => x.Name).HasColumnName("TenNhan").HasMaxLength(100);
+            e.Property(x => x.Color).HasColumnName("MauSac").HasMaxLength(20);
+            e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
+            e.HasOne(x => x.Workspace).WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Domain>(e =>
+        {
+            e.ToTable("TenMien");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaTenMien");
+            e.Property(x => x.WorkspaceId).HasColumnName("MaKhongGian");
+            e.Property(x => x.DomainName).HasColumnName("TenMien").HasMaxLength(255);
+            e.Property(x => x.Status).HasColumnName("TrangThai").HasMaxLength(20);
+            e.Property(x => x.VerifiedAt).HasColumnName("NgayXacMinh");
+            e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
+            e.HasOne(x => x.Workspace).WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<FormConfig>(e =>
+        {
+            e.ToTable("CauHinhForm");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaForm");
+            e.Property(x => x.WorkspaceId).HasColumnName("MaKhongGian");
+            e.Property(x => x.Name).HasColumnName("TenForm").HasMaxLength(200);
+            e.Property(x => x.FieldsJson).HasColumnName("TruongDuLieuJson");
+            e.Property(x => x.WebhookUrl).HasColumnName("WebhookUrl").HasMaxLength(500);
+            e.Property(x => x.EmailNotify).HasColumnName("ThongBaoEmail");
+            e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
+            e.HasOne(x => x.Workspace).WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Notification>(e =>
+        {
+            e.ToTable("ThongBao");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaThongBao");
+            e.Property(x => x.UserId).HasColumnName("MaNguoiDung");
+            e.Property(x => x.Title).HasColumnName("TieuDe").HasMaxLength(200);
+            e.Property(x => x.Message).HasColumnName("NoiDung").HasMaxLength(1000);
+            e.Property(x => x.Type).HasColumnName("Loai").HasMaxLength(20);
+            e.Property(x => x.IsRead).HasColumnName("DaDoc");
+            e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Product>(e =>
+        {
+            e.ToTable("SanPham");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaSanPham");
+            e.Property(x => x.WorkspaceId).HasColumnName("MaKhongGian");
+            e.Property(x => x.Name).HasColumnName("TenSanPham").HasMaxLength(300);
+            e.Property(x => x.Price).HasColumnName("GiaTien").HasPrecision(12, 2);
+            e.Property(x => x.Description).HasColumnName("MoTa");
+            e.Property(x => x.ImageUrl).HasColumnName("AnhSanPham").HasMaxLength(500);
+            e.Property(x => x.Category).HasColumnName("DanhMuc").HasMaxLength(100);
+            e.Property(x => x.Stock).HasColumnName("TonKho");
+            e.Property(x => x.Status).HasColumnName("TrangThai").HasMaxLength(20);
+            e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
+            e.HasOne(x => x.Workspace).WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Order>(e =>
+        {
+            e.ToTable("DonHang");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaDonHang");
+            e.Property(x => x.WorkspaceId).HasColumnName("MaKhongGian");
+            e.Property(x => x.CustomerName).HasColumnName("TenKhachHang").HasMaxLength(200);
+            e.Property(x => x.Email).HasColumnName("Email").HasMaxLength(255);
+            e.Property(x => x.Phone).HasColumnName("SoDienThoai").HasMaxLength(20);
+            e.Property(x => x.ProductId).HasColumnName("MaSanPham");
+            e.Property(x => x.Amount).HasColumnName("TongTien").HasPrecision(12, 2);
+            e.Property(x => x.Status).HasColumnName("TrangThai").HasMaxLength(20);
+            e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
+            e.HasOne(x => x.Workspace).WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Product).WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<Customer>(e =>
+        {
+            e.ToTable("KhachHang");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaKhachHang");
+            e.Property(x => x.WorkspaceId).HasColumnName("MaKhongGian");
+            e.Property(x => x.Name).HasColumnName("TenKhachHang").HasMaxLength(200);
+            e.Property(x => x.Email).HasColumnName("Email").HasMaxLength(255);
+            e.Property(x => x.Phone).HasColumnName("SoDienThoai").HasMaxLength(20);
+            e.Property(x => x.Group).HasColumnName("NhomKhach").HasMaxLength(100);
+            e.Property(x => x.Source).HasColumnName("NguonKhach").HasMaxLength(100);
+            e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
+            e.HasOne(x => x.Workspace).WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Lead>(e =>
+        {
+            e.ToTable("DuLieuLead");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaLead");
+            e.Property(x => x.WorkspaceId).HasColumnName("MaKhongGian");
+            e.Property(x => x.PageId).HasColumnName("MaTrang");
+            e.Property(x => x.FormId).HasColumnName("MaForm");
+            e.Property(x => x.DataJson).HasColumnName("DuLieuJson");
+            e.Property(x => x.IpAddress).HasColumnName("DiaChiIP").HasMaxLength(45);
+            e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
+            e.HasOne(x => x.Workspace).WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Page).WithMany().HasForeignKey(x => x.PageId).OnDelete(DeleteBehavior.NoAction);
+            e.HasOne(x => x.Form).WithMany().HasForeignKey(x => x.FormId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<Media>(e =>
+        {
+            e.ToTable("TaiNguyen");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaTaiNguyen");
+            e.Property(x => x.UserId).HasColumnName("MaNguoiDung");
+            e.Property(x => x.WorkspaceId).HasColumnName("MaKhongGian");
+            e.Property(x => x.FileName).HasColumnName("TenFile").HasMaxLength(500);
+            e.Property(x => x.OriginalName).HasColumnName("TenGoc").HasMaxLength(500);
+            e.Property(x => x.ContentType).HasColumnName("LoaiNoiDung").HasMaxLength(100);
+            e.Property(x => x.FileSize).HasColumnName("KichThuoc");
+            e.Property(x => x.Width).HasColumnName("ChieuRong");
+            e.Property(x => x.Height).HasColumnName("ChieuCao");
+            e.Property(x => x.Url).HasColumnName("DuongDan").HasMaxLength(1000);
+            e.Property(x => x.ThumbnailUrl).HasColumnName("AnhThuNho").HasMaxLength(1000);
+            e.Property(x => x.AltText).HasColumnName("MoTaAlt").HasMaxLength(500);
+            e.Property(x => x.Folder).HasColumnName("ThuMuc").HasMaxLength(200);
+            e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Workspace).WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.NoAction);
+            e.HasIndex(x => new { x.UserId, x.CreatedAt }).IsDescending(false, true);
         });
     }
 }

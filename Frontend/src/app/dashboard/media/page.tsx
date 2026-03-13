@@ -1,17 +1,38 @@
 "use client";
 
-import { Card, CardHeader } from "@/components/ui/Card";
+import { useState, useEffect } from "react";
+import MediaPanel from "@/components/editor/MediaPanel";
 
 export default function MediaLibraryPage() {
+  const [toast, setToast] = useState("");
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(""), 3000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const copyAndToast = (url: string) => {
+    navigator.clipboard.writeText(url);
+    setToast("Đã copy URL vào clipboard");
+  };
+
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader title="Media Library" subtitle="Quản lý ảnh/video/file dùng trong Landing Page." />
-        <p className="text-sm text-slate-600 dark:text-slate-300">
-          Màn hình này sẽ được hoàn thiện ở bước tiếp theo.
-        </p>
-      </Card>
+    <div className="max-w-6xl mx-auto space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Thư viện Media</h1>
+      </div>
+      {toast && (
+        <div className="fixed top-20 right-4 z-[200] px-4 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded-lg shadow-lg">
+          {toast}
+        </div>
+      )}
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden" style={{ minHeight: 600 }}>
+        <MediaPanel
+          onInsertImage={(url) => copyAndToast(url)}
+          onInsertVideo={(url) => copyAndToast(url)}
+        />
+      </div>
     </div>
   );
 }
-

@@ -10,12 +10,16 @@ public class AuthService : IAuthService
     private readonly IAppDbContext _db;
     private readonly JwtService _jwt;
     private readonly IDateTime _dateTime;
+    private readonly IEmailService _emailService;
+    private readonly string _frontendUrl;
 
-    public AuthService(IAppDbContext db, JwtService jwt, IDateTime dateTime)
+    public AuthService(IAppDbContext db, JwtService jwt, IDateTime dateTime, IEmailService emailService, Microsoft.Extensions.Configuration.IConfiguration config)
     {
         _db = db;
         _jwt = jwt;
         _dateTime = dateTime;
+        _emailService = emailService;
+        _frontendUrl = config["Frontend:BaseUrl"] ?? "http://localhost:3000";
     }
 
     private static string NewReferralCode()
@@ -43,6 +47,8 @@ public class AuthService : IAuthService
             return null;
         if (!BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
             return null;
+        if (!user.EmailConfirmed)
+            throw new InvalidOperationException("EMAIL_NOT_VERIFIED");
 
         var refreshToken = _jwt.GenerateRefreshToken();
         var expiresAt = _jwt.GetRefreshTokenExpiresAt();
@@ -75,6 +81,7 @@ public class AuthService : IAuthService
         if (await _db.Users.AsNoTracking().AnyAsync(u => u.Email == email, cancellationToken))
             return null;
 
+        var verificationToken = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
         var freePlan = await _db.Plans.AsNoTracking().FirstOrDefaultAsync(p => p.Code == "free", cancellationToken);
         var user = new User
         {
@@ -85,6 +92,8 @@ public class AuthService : IAuthService
             Role = "nguoidung",
             Status = "hoatdong",
             EmailConfirmed = false,
+            EmailVerificationToken = verificationToken,
+            EmailVerificationSentAt = _dateTime.UtcNow,
             PhoneConfirmed = false,
             CurrentPlanId = freePlan?.Id,
             ReferralCode = await GenerateUniqueReferralCodeAsync(cancellationToken),
@@ -94,7 +103,6 @@ public class AuthService : IAuthService
         _db.Users.Add(user);
         await _db.SaveChangesAsync(cancellationToken);
 
-        // Tao workspace mac dinh cho user moi (de dashboard co du lieu ngay)
         var workspace = new Workspace
         {
             OwnerId = user.Id,
@@ -117,7 +125,56 @@ public class AuthService : IAuthService
             JoinedAt = _dateTime.UtcNow
         });
         await _db.SaveChangesAsync(cancellationToken);
+
+        var verifyUrl = $"{_frontendUrl}/verify-email?token={verificationToken}";
+        _ = Task.Run(async () =>
+        {
+            try { await _emailService.SendVerificationEmailAsync(email, fullName, verifyUrl, CancellationToken.None); }
+            catch { /* logged inside EmailService */ }
+        });
+
         return user.Id;
+    }
+
+    public async Task<bool> VerifyEmailAsync(string token, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(token)) return false;
+
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.EmailVerificationToken == token, cancellationToken);
+        if (user == null) return false;
+
+        if (user.EmailConfirmed) return true;
+
+        if (user.EmailVerificationSentAt.HasValue &&
+            (_dateTime.UtcNow - user.EmailVerificationSentAt.Value).TotalHours > 24)
+            return false;
+
+        user.EmailConfirmed = true;
+        user.EmailVerificationToken = null;
+        user.UpdatedAt = _dateTime.UtcNow;
+        await _db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<bool> ResendVerificationEmailAsync(string email, CancellationToken cancellationToken = default)
+    {
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Email == email, cancellationToken);
+        if (user == null || user.EmailConfirmed) return false;
+
+        var newToken = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N");
+        user.EmailVerificationToken = newToken;
+        user.EmailVerificationSentAt = _dateTime.UtcNow;
+        user.UpdatedAt = _dateTime.UtcNow;
+        await _db.SaveChangesAsync(cancellationToken);
+
+        var verifyUrl = $"{_frontendUrl}/verify-email?token={newToken}";
+        _ = Task.Run(async () =>
+        {
+            try { await _emailService.SendVerificationEmailAsync(email, user.FullName, verifyUrl, CancellationToken.None); }
+            catch { /* logged inside EmailService */ }
+        });
+
+        return true;
     }
 
     public async Task<AuthTokenResult?> LoginOrRegisterExternalAsync(string email, string fullName, string? ipAddress = null, string? userAgent = null, CancellationToken cancellationToken = default)

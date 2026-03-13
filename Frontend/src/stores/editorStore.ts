@@ -30,6 +30,14 @@ type EditorState = {
   dirty: boolean;
   history: EditorSection[][];
   historyIndex: number;
+
+  zoom: number;
+  canvasWidth: number;
+  canvasHeight: number;
+  clipboard: EditorElement | null;
+  snapToGrid: boolean;
+  gridSize: number;
+  showGuides: boolean;
 };
 
 type EditorActions = {
@@ -56,6 +64,17 @@ type EditorActions = {
   getSelectedElement: () => EditorElement | null;
   getSelectedSection: () => EditorSection | null;
   toContentPayload: () => PageContent | null;
+
+  setZoom: (level: number) => void;
+  setCanvasWidth: (w: number) => void;
+  setCanvasHeight: (h: number) => void;
+  copyElement: () => void;
+  pasteElement: () => void;
+  cutElement: () => void;
+  setSnapToGrid: (val: boolean) => void;
+  setGridSize: (size: number) => void;
+  setShowGuides: (val: boolean) => void;
+  moveElementLayer: (id: number, direction: "front" | "back" | "forward" | "backward") => void;
 };
 
 const ELEMENT_DEFAULTS: Record<EditorElementType, Partial<EditorElement>> = {
@@ -139,6 +158,14 @@ export const useEditorStore = create<EditorState & EditorActions>()(
     history: [],
     historyIndex: -1,
 
+    zoom: 1,
+    canvasWidth: 960,
+    canvasHeight: 800,
+    clipboard: null,
+    snapToGrid: true,
+    gridSize: 10,
+    showGuides: true,
+
     loadFromContent: (content) =>
       set(() => ({
         pageId: content.pageId,
@@ -160,6 +187,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
     setDeviceType: (device) =>
       set((state) => {
         state.deviceType = device;
+        state.canvasWidth = device === "mobile" ? 420 : 960;
       }),
 
     selectPage: () =>
@@ -387,8 +415,9 @@ export const useEditorStore = create<EditorState & EditorActions>()(
     getSelectedElement: () => {
       const state = get();
       if (state.selected.type !== "element") return null;
+      const selId = state.selected.id;
       for (const section of state.sections) {
-        const el = section.elements.find((e) => e.id === state.selected.id);
+        const el = section.elements.find((e) => e.id === selId);
         if (el) return el as EditorElement;
       }
       return null;
@@ -397,7 +426,8 @@ export const useEditorStore = create<EditorState & EditorActions>()(
     getSelectedSection: () => {
       const state = get();
       if (state.selected.type !== "section") return null;
-      return (state.sections.find((s) => s.id === state.selected.id) as EditorSection) ?? null;
+      const selId = state.selected.id;
+      return (state.sections.find((s) => s.id === selId) as EditorSection) ?? null;
     },
 
     toContentPayload: () => {
@@ -416,5 +446,123 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         sections: state.sections,
       };
     },
+
+    setZoom: (level) =>
+      set((state) => {
+        state.zoom = Math.max(0.25, Math.min(3, level));
+      }),
+
+    setCanvasWidth: (w) =>
+      set((state) => {
+        state.canvasWidth = w;
+      }),
+
+    setCanvasHeight: (h) =>
+      set((state) => {
+        state.canvasHeight = h;
+      }),
+
+    copyElement: () =>
+      set((state) => {
+        if (state.selected.type !== "element") return;
+        const selId = state.selected.id;
+        for (const section of state.sections) {
+          const el = section.elements.find((e) => e.id === selId);
+          if (el) {
+            state.clipboard = JSON.parse(JSON.stringify(el));
+            break;
+          }
+        }
+      }),
+
+    pasteElement: () =>
+      set((state) => {
+        if (!state.clipboard) return;
+        const sel = state.selected;
+        const sectionId =
+          sel.type === "section"
+            ? sel.id
+            : sel.type === "element"
+            ? (() => {
+                const eid = sel.id;
+                for (const s of state.sections) {
+                  if (s.elements.some((e) => e.id === eid)) return s.id;
+                }
+                return state.sections[0]?.id;
+              })()
+            : state.sections[0]?.id;
+        if (!sectionId) return;
+        const section = state.sections.find((s) => s.id === sectionId);
+        if (!section) return;
+        const tempId = Date.now();
+        const clone: EditorElement = {
+          ...JSON.parse(JSON.stringify(state.clipboard)),
+          id: tempId,
+          sectionId,
+          x: state.clipboard.x + 20,
+          y: state.clipboard.y + 20,
+          order: (section.elements[section.elements.length - 1]?.order ?? 0) + 1,
+        };
+        section.elements.push(clone);
+        state.selected = { type: "element", id: tempId };
+        state.dirty = true;
+      }),
+
+    cutElement: () => {
+      const state = get();
+      if (state.selected.type !== "element") return;
+      const elId = state.selected.id;
+      state.copyElement();
+      state.removeElement(elId);
+      state.pushHistory();
+    },
+
+    setSnapToGrid: (val) =>
+      set((state) => {
+        state.snapToGrid = val;
+      }),
+
+    setGridSize: (size) =>
+      set((state) => {
+        state.gridSize = size;
+      }),
+
+    setShowGuides: (val) =>
+      set((state) => {
+        state.showGuides = val;
+      }),
+
+    moveElementLayer: (id, direction) =>
+      set((state) => {
+        for (const section of state.sections) {
+          const idx = section.elements.findIndex((e) => e.id === id);
+          if (idx < 0) continue;
+          const els = section.elements;
+          switch (direction) {
+            case "front":
+              els.push(els.splice(idx, 1)[0]);
+              break;
+            case "back":
+              els.unshift(els.splice(idx, 1)[0]);
+              break;
+            case "forward":
+              if (idx < els.length - 1) {
+                [els[idx], els[idx + 1]] = [els[idx + 1], els[idx]];
+              }
+              break;
+            case "backward":
+              if (idx > 0) {
+                [els[idx - 1], els[idx]] = [els[idx], els[idx - 1]];
+              }
+              break;
+          }
+          els.forEach((e, i) => {
+            e.zIndex = i + 1;
+            e.order = i + 1;
+          });
+          state.dirty = true;
+          break;
+        }
+      }),
   })),
 );

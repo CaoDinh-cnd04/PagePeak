@@ -562,7 +562,7 @@ export function LadiSidebar({
                 <button
                   key={a.key}
                   type="button"
-                  onClick={() => alert(`Cài app: ${a.label} (tích hợp sau)`)}
+                  onClick={() => {}}
                   className="rounded-xl border border-slate-200 hover:bg-slate-50 transition p-3 text-left"
                 >
                   <div className="flex items-center gap-2">

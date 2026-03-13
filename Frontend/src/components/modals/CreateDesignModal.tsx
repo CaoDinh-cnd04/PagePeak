@@ -237,10 +237,7 @@ export function CreateDesignModal({
   const handleFilePicked = async (f: File | null) => {
     if (!f) return;
     const ok = f.name.toLowerCase().endsWith(".ladipage");
-    if (!ok) {
-      alert("Vui lòng chọn đúng tệp .ladipage");
-      return;
-    }
+    if (!ok) return;
     await onUpload(f);
   };
 
@@ -251,13 +248,9 @@ export function CreateDesignModal({
   const handleConfirmUse = async () => {
     if (!confirm) return;
     const t = confirm.template;
-    const ok = window.confirm(`Bạn muốn dùng mẫu "${t.tenMau}"?`);
-    if (!ok) return;
-
     setConfirmSubmitting(true);
     try {
       if (onUseTemplate) await onUseTemplate(t);
-      else alert("Đã chọn mẫu. (Tích hợp tạo page từ template ở bước tiếp theo)");
       onClose();
     } finally {
       setConfirmSubmitting(false);
@@ -267,10 +260,7 @@ export function CreateDesignModal({
 
   const handleCreateAI = async () => {
     const desc = aiDesc.trim();
-    if (!desc) {
-      alert("Vui lòng nhập mô tả để AI tạo trang.");
-      return;
-    }
+    if (!desc) return;
     setAiSubmitting(true);
     try {
       await onCreateWithAI(desc);
@@ -526,7 +516,7 @@ export function CreateDesignModal({
                         {/* Link icon */}
                         <button
                           type="button"
-                          onClick={() => alert("Mở preview template (bước tiếp theo).")}
+                          onClick={() => { if (t.anhThumbnail) window.open(t.anhThumbnail, "_blank"); }}
                           className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/95 text-slate-700 shadow-sm border border-slate-200 opacity-0 group-hover:opacity-100 transition flex items-center justify-center"
                           aria-label="Xem trước"
                         >

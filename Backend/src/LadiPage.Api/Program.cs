@@ -147,10 +147,19 @@ BEGIN
     [DanhMuc] NVARCHAR(100) NOT NULL,
     [AnhDaiDien] NVARCHAR(500) NULL,
     [NoiDungJson] NVARCHAR(MAX) NOT NULL,
+    [MoTa] NVARCHAR(500) NULL,
+    [LoaiThietKe] NVARCHAR(30) NOT NULL DEFAULT 'responsive',
+    [NoiBat] BIT NOT NULL DEFAULT 0,
+    [SoLuotDung] INT NOT NULL DEFAULT 0,
     [NgayTao] DATETIME2 NOT NULL
   );
   CREATE INDEX [IX_MauGiaoDien_DanhMuc] ON [MauGiaoDien]([DanhMuc]);
 END
+
+IF COL_LENGTH('MauGiaoDien','MoTa') IS NULL ALTER TABLE [MauGiaoDien] ADD [MoTa] NVARCHAR(500) NULL;
+IF COL_LENGTH('MauGiaoDien','LoaiThietKe') IS NULL ALTER TABLE [MauGiaoDien] ADD [LoaiThietKe] NVARCHAR(30) NOT NULL DEFAULT 'responsive';
+IF COL_LENGTH('MauGiaoDien','NoiBat') IS NULL ALTER TABLE [MauGiaoDien] ADD [NoiBat] BIT NOT NULL DEFAULT 0;
+IF COL_LENGTH('MauGiaoDien','SoLuotDung') IS NULL ALTER TABLE [MauGiaoDien] ADD [SoLuotDung] INT NOT NULL DEFAULT 0;
 
 IF OBJECT_ID(N'Trang', N'U') IS NULL
 BEGIN
@@ -186,6 +195,10 @@ IF COL_LENGTH('Trang','ThuanThietBiDiDong') IS NULL ALTER TABLE [Trang] ADD [Thu
 IF COL_LENGTH('Trang','NgayDang') IS NULL ALTER TABLE [Trang] ADD [NgayDang] DATETIME2 NULL;
 IF COL_LENGTH('Trang','NgayHetHan') IS NULL ALTER TABLE [Trang] ADD [NgayHetHan] DATETIME2 NULL;
 IF COL_LENGTH('Trang','NgayTao') IS NULL ALTER TABLE [Trang] ADD [NgayTao] DATETIME2 NOT NULL DEFAULT GETDATE();
+
+-- Add email verification columns to NguoiDung
+IF COL_LENGTH('NguoiDung','MaXacThucEmail') IS NULL ALTER TABLE [NguoiDung] ADD [MaXacThucEmail] NVARCHAR(200) NULL;
+IF COL_LENGTH('NguoiDung','NgayGuiXacThucEmail') IS NULL ALTER TABLE [NguoiDung] ADD [NgayGuiXacThucEmail] DATETIME2 NULL;
 
 -- Ensure TrangSection table and new columns
 IF OBJECT_ID(N'TrangSection', N'U') IS NULL
@@ -288,11 +301,154 @@ BEGIN
     CONSTRAINT [FK_MauPhanTuMacDinh_CongCuMuc] FOREIGN KEY ([MaMuc]) REFERENCES [CongCuMuc]([MaMuc]) ON DELETE CASCADE
   );
 END
+
+IF OBJECT_ID(N'TaiNguyen', N'U') IS NULL
+BEGIN
+  CREATE TABLE [TaiNguyen] (
+    [MaTaiNguyen] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    [MaNguoiDung] BIGINT NOT NULL,
+    [MaKhongGian] BIGINT NULL,
+    [TenFile] NVARCHAR(500) NOT NULL,
+    [TenGoc] NVARCHAR(500) NOT NULL,
+    [LoaiNoiDung] NVARCHAR(100) NOT NULL DEFAULT 'image/png',
+    [KichThuoc] BIGINT NOT NULL DEFAULT 0,
+    [ChieuRong] INT NULL,
+    [ChieuCao] INT NULL,
+    [DuongDan] NVARCHAR(1000) NOT NULL,
+    [AnhThuNho] NVARCHAR(1000) NULL,
+    [MoTaAlt] NVARCHAR(500) NULL,
+    [ThuMuc] NVARCHAR(200) NULL,
+    [NgayTao] DATETIME2 NOT NULL,
+    CONSTRAINT [FK_TaiNguyen_NguoiDung] FOREIGN KEY ([MaNguoiDung]) REFERENCES [NguoiDung]([MaNguoiDung]) ON DELETE CASCADE
+  );
+  CREATE INDEX [IX_TaiNguyen_User_Date] ON [TaiNguyen]([MaNguoiDung], [NgayTao] DESC);
+END
+
+IF OBJECT_ID(N'NhanDan', N'U') IS NULL
+BEGIN
+  CREATE TABLE [NhanDan] (
+    [MaNhan] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    [MaKhongGian] BIGINT NOT NULL,
+    [TenNhan] NVARCHAR(100) NOT NULL,
+    [MauSac] NVARCHAR(20) NULL,
+    [NgayTao] DATETIME2 NOT NULL,
+    CONSTRAINT [FK_NhanDan_KhongGian] FOREIGN KEY ([MaKhongGian]) REFERENCES [KhongGianLamViec]([MaKhongGian]) ON DELETE CASCADE
+  );
+END
+
+IF OBJECT_ID(N'TenMien', N'U') IS NULL
+BEGIN
+  CREATE TABLE [TenMien] (
+    [MaTenMien] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    [MaKhongGian] BIGINT NOT NULL,
+    [TenMien] NVARCHAR(255) NOT NULL,
+    [TrangThai] NVARCHAR(20) NOT NULL DEFAULT 'pending',
+    [NgayXacMinh] DATETIME2 NULL,
+    [NgayTao] DATETIME2 NOT NULL,
+    CONSTRAINT [FK_TenMien_KhongGian] FOREIGN KEY ([MaKhongGian]) REFERENCES [KhongGianLamViec]([MaKhongGian]) ON DELETE CASCADE
+  );
+END
+
+IF OBJECT_ID(N'CauHinhForm', N'U') IS NULL
+BEGIN
+  CREATE TABLE [CauHinhForm] (
+    [MaForm] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    [MaKhongGian] BIGINT NOT NULL,
+    [TenForm] NVARCHAR(200) NOT NULL,
+    [TruongDuLieuJson] NVARCHAR(MAX) NOT NULL DEFAULT '[]',
+    [WebhookUrl] NVARCHAR(500) NULL,
+    [ThongBaoEmail] BIT NOT NULL DEFAULT 0,
+    [NgayTao] DATETIME2 NOT NULL,
+    CONSTRAINT [FK_CauHinhForm_KhongGian] FOREIGN KEY ([MaKhongGian]) REFERENCES [KhongGianLamViec]([MaKhongGian]) ON DELETE CASCADE
+  );
+END
+
+IF OBJECT_ID(N'ThongBao', N'U') IS NULL
+BEGIN
+  CREATE TABLE [ThongBao] (
+    [MaThongBao] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    [MaNguoiDung] BIGINT NOT NULL,
+    [TieuDe] NVARCHAR(200) NOT NULL,
+    [NoiDung] NVARCHAR(1000) NOT NULL,
+    [Loai] NVARCHAR(20) NOT NULL DEFAULT 'info',
+    [DaDoc] BIT NOT NULL DEFAULT 0,
+    [NgayTao] DATETIME2 NOT NULL,
+    CONSTRAINT [FK_ThongBao_NguoiDung] FOREIGN KEY ([MaNguoiDung]) REFERENCES [NguoiDung]([MaNguoiDung]) ON DELETE CASCADE
+  );
+END
+IF COL_LENGTH('ThongBao','Loai') IS NULL ALTER TABLE [ThongBao] ADD [Loai] NVARCHAR(20) NOT NULL DEFAULT 'info';
+
+IF OBJECT_ID(N'SanPham', N'U') IS NULL
+BEGIN
+  CREATE TABLE [SanPham] (
+    [MaSanPham] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    [MaKhongGian] BIGINT NOT NULL,
+    [TenSanPham] NVARCHAR(300) NOT NULL,
+    [GiaTien] DECIMAL(12,2) NOT NULL DEFAULT 0,
+    [MoTa] NVARCHAR(MAX) NULL,
+    [AnhSanPham] NVARCHAR(500) NULL,
+    [DanhMuc] NVARCHAR(100) NULL,
+    [TonKho] INT NOT NULL DEFAULT 0,
+    [TrangThai] NVARCHAR(20) NOT NULL DEFAULT 'active',
+    [NgayTao] DATETIME2 NOT NULL,
+    CONSTRAINT [FK_SanPham_KhongGian] FOREIGN KEY ([MaKhongGian]) REFERENCES [KhongGianLamViec]([MaKhongGian]) ON DELETE CASCADE
+  );
+END
+
+IF OBJECT_ID(N'DonHang', N'U') IS NULL
+BEGIN
+  CREATE TABLE [DonHang] (
+    [MaDonHang] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    [MaKhongGian] BIGINT NOT NULL,
+    [TenKhachHang] NVARCHAR(200) NOT NULL,
+    [Email] NVARCHAR(255) NULL,
+    [SoDienThoai] NVARCHAR(20) NULL,
+    [MaSanPham] BIGINT NULL,
+    [TongTien] DECIMAL(12,2) NOT NULL DEFAULT 0,
+    [TrangThai] NVARCHAR(20) NOT NULL DEFAULT 'pending',
+    [NgayTao] DATETIME2 NOT NULL,
+    CONSTRAINT [FK_DonHang_KhongGian] FOREIGN KEY ([MaKhongGian]) REFERENCES [KhongGianLamViec]([MaKhongGian]) ON DELETE CASCADE
+  );
+END
+
+IF OBJECT_ID(N'KhachHang', N'U') IS NULL
+BEGIN
+  CREATE TABLE [KhachHang] (
+    [MaKhachHang] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    [MaKhongGian] BIGINT NOT NULL,
+    [TenKhachHang] NVARCHAR(200) NOT NULL,
+    [Email] NVARCHAR(255) NULL,
+    [SoDienThoai] NVARCHAR(20) NULL,
+    [NhomKhach] NVARCHAR(100) NULL,
+    [NguonKhach] NVARCHAR(100) NULL,
+    [NgayTao] DATETIME2 NOT NULL,
+    CONSTRAINT [FK_KhachHang_KhongGian] FOREIGN KEY ([MaKhongGian]) REFERENCES [KhongGianLamViec]([MaKhongGian]) ON DELETE CASCADE
+  );
+END
+
+IF OBJECT_ID(N'DuLieuLead', N'U') IS NULL
+BEGIN
+  CREATE TABLE [DuLieuLead] (
+    [MaLead] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    [MaKhongGian] BIGINT NOT NULL,
+    [MaTrang] BIGINT NULL,
+    [MaForm] BIGINT NULL,
+    [DuLieuJson] NVARCHAR(MAX) NOT NULL DEFAULT '{{}}',
+    [DiaChiIP] NVARCHAR(45) NULL,
+    [NgayTao] DATETIME2 NOT NULL,
+    CONSTRAINT [FK_DuLieuLead_KhongGian] FOREIGN KEY ([MaKhongGian]) REFERENCES [KhongGianLamViec]([MaKhongGian]) ON DELETE CASCADE
+  );
+END
 ");
 
-        // Seed editor tools if empty
-        if (!await db.ToolCategories.AnyAsync())
+        // Seed editor tools - reseed if preset count is low (updated presets)
+        var presetCount = await db.ElementPresets.CountAsync();
+        if (!await db.ToolCategories.AnyAsync() || presetCount < 35)
         {
+            db.ElementPresets.RemoveRange(await db.ElementPresets.ToListAsync());
+            db.ToolItems.RemoveRange(await db.ToolItems.ToListAsync());
+            db.ToolCategories.RemoveRange(await db.ToolCategories.ToListAsync());
+            await db.SaveChangesAsync();
             var catPhanTu = new LadiPage.Core.Entities.ToolCategory { Name = "Phần tử", Icon = "layout-grid", Order = 1, IsActive = true };
             var catAssets = new LadiPage.Core.Entities.ToolCategory { Name = "Assets", Icon = "image", Order = 2, IsActive = true };
             var catSection = new LadiPage.Core.Entities.ToolCategory { Name = "Section", Icon = "layers", Order = 3, IsActive = true };
@@ -419,53 +575,102 @@ END
             await db.SaveChangesAsync();
         }
 
-        // Seed goi "free" neu chua co (can cho dang ky user)
         if (!await db.Plans.AnyAsync())
         {
-            db.Plans.Add(new LadiPage.Core.Entities.Plan
-            {
-                Name = "Miễn phí",
-                Code = "free",
-                Price = 0,
-                BillingCycle = "thang",
-                MaxPages = 10,
-                MaxMembers = 1,
-                StorageGb = 1,
-                IsActive = true,
-                CreatedAt = DateTime.UtcNow,
-                UpdatedAt = DateTime.UtcNow
-            });
+            db.Plans.AddRange(
+                new LadiPage.Core.Entities.Plan { Name = "Miễn phí", Code = "free", Price = 0, BillingCycle = "thang", MaxPages = 10, MaxMembers = 1, StorageGb = 1, IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+                new LadiPage.Core.Entities.Plan { Name = "Pro", Code = "pro", Price = 299000, BillingCycle = "thang", MaxPages = 100, MaxMembers = 5, MaxPageViews = 100000, StorageGb = 10, HasAi = true, HasEcommerce = true, HasAutomation = true, HasAbTest = true, HasCustomDomain = true, IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+                new LadiPage.Core.Entities.Plan { Name = "Enterprise", Code = "enterprise", Price = 999000, BillingCycle = "thang", MaxPages = 9999, MaxMembers = 50, MaxPageViews = 1000000, StorageGb = 100, HasAi = true, HasEcommerce = true, HasAutomation = true, HasAbTest = true, HasCustomDomain = true, IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow }
+            );
             await db.SaveChangesAsync();
         }
 
-        // Seed templates mau neu chua co
-        if (!await db.Templates.AnyAsync())
+        // Seed sample notifications for every user who has none
+        var usersWithoutNotifs = await db.Users.Where(u => !db.Notifications.Any(n => n.UserId == u.Id)).Select(u => u.Id).ToListAsync();
+        foreach (var uid in usersWithoutNotifs)
         {
+            db.Notifications.AddRange(
+                new LadiPage.Core.Entities.Notification { UserId = uid, Title = "Chào mừng đến PagePeak!", Message = "Bạn đã đăng ký thành công. Hãy bắt đầu tạo landing page đầu tiên.", Type = "success", IsRead = false, CreatedAt = DateTime.UtcNow.AddMinutes(-5) },
+                new LadiPage.Core.Entities.Notification { UserId = uid, Title = "Hướng dẫn sử dụng", Message = "Xem hướng dẫn tạo landing page chuyên nghiệp trong 5 phút.", Type = "info", IsRead = false, CreatedAt = DateTime.UtcNow.AddMinutes(-3) },
+                new LadiPage.Core.Entities.Notification { UserId = uid, Title = "Mẫu giao diện mới", Message = "30+ mẫu landing page mới đã được thêm vào thư viện.", Type = "info", IsRead = false, CreatedAt = DateTime.UtcNow.AddMinutes(-1) }
+            );
+        }
+        if (usersWithoutNotifs.Count > 0) await db.SaveChangesAsync();
+
+        // Seed templates mau neu chua co
+        if (await db.Templates.CountAsync() < 30)
+        {
+            db.Templates.RemoveRange(await db.Templates.ToListAsync());
+            await db.SaveChangesAsync();
+
+            var tpl = (string name, string cat, string thumb, string desc, bool featured, int usage) =>
+                new LadiPage.Core.Entities.Template
+                {
+                    Name = name, Category = cat, ThumbnailUrl = thumb,
+                    Description = desc, IsFeatured = featured, UsageCount = usage,
+                    JsonContent = $"{{{{\"version\":1,\"blocks\":[{{{{\"type\":\"hero\",\"title\":\"{name}\"}}}}]}}}}",
+                    CreatedAt = DateTime.UtcNow
+                };
+
             db.Templates.AddRange(
-                new LadiPage.Core.Entities.Template
-                {
-                    Name = "Bán hàng - Flash sale",
-                    Category = "Bán hàng",
-                    ThumbnailUrl = null,
-                    JsonContent = "{\"version\":1,\"blocks\":[{\"type\":\"hero\",\"title\":\"Flash Sale 50%\",\"subtitle\":\"Ưu đãi có hạn trong hôm nay\"}]}",
-                    CreatedAt = DateTime.UtcNow
-                },
-                new LadiPage.Core.Entities.Template
-                {
-                    Name = "Sự kiện - Webinar",
-                    Category = "Sự kiện",
-                    ThumbnailUrl = null,
-                    JsonContent = "{\"version\":1,\"blocks\":[{\"type\":\"hero\",\"title\":\"Đăng ký Webinar\",\"subtitle\":\"Chia sẻ kiến thức thực chiến\"}]}",
-                    CreatedAt = DateTime.UtcNow
-                },
-                new LadiPage.Core.Entities.Template
-                {
-                    Name = "Thu lead - Ebook",
-                    Category = "Lead",
-                    ThumbnailUrl = null,
-                    JsonContent = "{\"version\":1,\"blocks\":[{\"type\":\"hero\",\"title\":\"Tải Ebook miễn phí\",\"subtitle\":\"Nhận tài liệu qua email\"}]}",
-                    CreatedAt = DateTime.UtcNow
-                }
+                // Thương mại điện tử
+                tpl("Flash Sale - Siêu khuyến mãi", "Thương mại điện tử", "https://images.unsplash.com/photo-1607082349566-187342175e2f?w=600&h=400&fit=crop", "Landing page khuyến mãi sốc, đếm ngược thời gian", true, 12450),
+                tpl("Shop thời trang Online", "Thương mại điện tử", "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=600&h=400&fit=crop", "Giao diện cửa hàng thời trang hiện đại", false, 8320),
+                tpl("Mỹ phẩm - Beauty Care", "Thương mại điện tử", "https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=600&h=400&fit=crop", "Landing page sản phẩm mỹ phẩm, skincare", true, 9870),
+                tpl("Sản phẩm công nghệ", "Thương mại điện tử", "https://images.unsplash.com/photo-1468495244123-6c6c332eeece?w=600&h=400&fit=crop", "Giới thiệu smartphone, laptop, phụ kiện", false, 5410),
+                tpl("Đồ gia dụng thông minh", "Thương mại điện tử", "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=600&h=400&fit=crop", "Landing page thiết bị smarthome", false, 3200),
+                tpl("Black Friday Sale", "Thương mại điện tử", "https://images.unsplash.com/photo-1573855619003-97b4799dcd8b?w=600&h=400&fit=crop", "Template giảm giá Black Friday hoành tráng", true, 15600),
+                tpl("Thực phẩm sạch - Organic", "Thương mại điện tử", "https://images.unsplash.com/photo-1542838132-92c53300491e?w=600&h=400&fit=crop", "Landing page thực phẩm organic, healthy", false, 4150),
+                tpl("Đồ handmade - Craft", "Thương mại điện tử", "https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=600&h=400&fit=crop", "Giao diện bán đồ thủ công mỹ nghệ", false, 2900),
+
+                // Dịch vụ
+                tpl("Dịch vụ tư vấn tài chính", "Dịch vụ", "https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=600&h=400&fit=crop", "Landing page tư vấn đầu tư, bảo hiểm", true, 7640),
+                tpl("Spa & Massage", "Dịch vụ", "https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=600&h=400&fit=crop", "Giao diện spa thư giãn sang trọng", false, 6120),
+                tpl("Dịch vụ vận chuyển", "Dịch vụ", "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=600&h=400&fit=crop", "Landing page logistics, giao hàng nhanh", false, 3890),
+                tpl("Studio chụp ảnh cưới", "Dịch vụ", "https://images.unsplash.com/photo-1519741497674-611481863552?w=600&h=400&fit=crop", "Giao diện studio ảnh cưới lãng mạn", true, 8900),
+                tpl("Dịch vụ sửa chữa nhà", "Dịch vụ", "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=600&h=400&fit=crop", "Landing page dịch vụ sửa nhà, nội thất", false, 2340),
+                tpl("Agency Marketing", "Dịch vụ", "https://images.unsplash.com/photo-1552664730-d307ca884978?w=600&h=400&fit=crop", "Giao diện agency digital marketing", true, 11200),
+
+                // Giáo dục
+                tpl("Khóa học Online", "Giáo dục", "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600&h=400&fit=crop", "Landing page khóa học trực tuyến chuyên nghiệp", true, 14500),
+                tpl("Trung tâm tiếng Anh", "Giáo dục", "https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=600&h=400&fit=crop", "Landing page trung tâm ngoại ngữ", false, 5670),
+                tpl("Tuyển sinh đại học", "Giáo dục", "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=600&h=400&fit=crop", "Giao diện tuyển sinh, xét tuyển 2025", false, 4200),
+                tpl("Workshop kỹ năng", "Giáo dục", "https://images.unsplash.com/photo-1524178232363-1fb2b075b655?w=600&h=400&fit=crop", "Landing page workshop, khoá học ngắn hạn", false, 3450),
+
+                // Sự kiện
+                tpl("Webinar đăng ký", "Sự kiện", "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=600&h=400&fit=crop", "Landing page đăng ký webinar chuyên ngành", true, 10200),
+                tpl("Hội nghị thượng đỉnh", "Sự kiện", "https://images.unsplash.com/photo-1505373877841-8d25f7d46678?w=600&h=400&fit=crop", "Giao diện hội nghị, summit doanh nghiệp", false, 6780),
+                tpl("Music Festival", "Sự kiện", "https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=600&h=400&fit=crop", "Landing page sự kiện âm nhạc sôi động", true, 7890),
+                tpl("Sự kiện ra mắt sản phẩm", "Sự kiện", "https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=600&h=400&fit=crop", "Giao diện launch event hoành tráng", false, 5430),
+
+                // Bất động sản
+                tpl("Dự án căn hộ cao cấp", "Bất động sản", "https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=600&h=400&fit=crop", "Landing page bất động sản hạng sang", true, 13400),
+                tpl("Biệt thự nghỉ dưỡng", "Bất động sản", "https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=600&h=400&fit=crop", "Giao diện biệt thự, resort cao cấp", false, 6200),
+                tpl("Chung cư mini", "Bất động sản", "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=600&h=400&fit=crop", "Landing page dự án chung cư tầm trung", false, 4500),
+                tpl("Đất nền dự án", "Bất động sản", "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600&h=400&fit=crop", "Giao diện bán đất nền, phân lô", false, 3100),
+
+                // Sức khỏe
+                tpl("Fitness & Gym", "Sức khỏe", "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=600&h=400&fit=crop", "Landing page phòng gym, PT cá nhân", true, 9300),
+                tpl("Phòng khám nha khoa", "Sức khỏe", "https://images.unsplash.com/photo-1629909613654-28e377c37b09?w=600&h=400&fit=crop", "Giao diện phòng khám răng hiện đại", false, 4800),
+                tpl("Thực phẩm chức năng", "Sức khỏe", "https://images.unsplash.com/photo-1505576399279-0d309eed513e?w=600&h=400&fit=crop", "Landing page TPCN, vitamin, bổ sung", false, 5600),
+                tpl("Yoga & Thiền", "Sức khỏe", "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=600&h=400&fit=crop", "Giao diện lớp yoga, thiền định online", false, 3700),
+
+                // Nhà hàng & F&B
+                tpl("Nhà hàng - Restaurant", "Nhà hàng", "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=600&h=400&fit=crop", "Landing page nhà hàng sang trọng", true, 8700),
+                tpl("Quán cà phê", "Nhà hàng", "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=600&h=400&fit=crop", "Giao diện quán café phong cách", false, 6300),
+                tpl("Đặt đồ ăn Online", "Nhà hàng", "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=600&h=400&fit=crop", "Landing page order food delivery", false, 4100),
+                tpl("Tiệm bánh - Bakery", "Nhà hàng", "https://images.unsplash.com/photo-1486427944544-d2c246c4df14?w=600&h=400&fit=crop", "Giao diện tiệm bánh ngọt đẹp mắt", false, 3500),
+
+                // Công nghệ
+                tpl("SaaS Landing Page", "Công nghệ", "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600&h=400&fit=crop", "Landing page sản phẩm SaaS chuyên nghiệp", true, 16200),
+                tpl("App Mobile Download", "Công nghệ", "https://images.unsplash.com/photo-1551650975-87deedd944c3?w=600&h=400&fit=crop", "Giao diện giới thiệu ứng dụng mobile", true, 11800),
+                tpl("Startup - Pitch", "Công nghệ", "https://images.unsplash.com/photo-1531482615713-2afd69097998?w=600&h=400&fit=crop", "Landing page startup gọi vốn đầu tư", false, 7400),
+
+                // Tiện ích
+                tpl("Coming Soon", "Tiện ích", "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=600&h=400&fit=crop", "Trang sắp ra mắt với đếm ngược", false, 8900),
+                tpl("Thank You Page", "Tiện ích", "https://images.unsplash.com/photo-1530435460869-d13625c69bbf?w=600&h=400&fit=crop", "Trang cảm ơn sau chuyển đổi", false, 7200),
+                tpl("Thu Lead - Ebook", "Tiện ích", "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&h=400&fit=crop", "Landing page tải ebook miễn phí", true, 10500),
+                tpl("Đăng ký tư vấn", "Tiện ích", "https://images.unsplash.com/photo-1553877522-43269d4ea984?w=600&h=400&fit=crop", "Landing page form đăng ký tư vấn", false, 6800)
             );
             await db.SaveChangesAsync();
         }
@@ -696,7 +901,7 @@ app.MapPost("/api/auth/register", async (RegisterRequest req, IMediator mediator
                 return Results.BadRequest(new { error = "Xác thực reCAPTCHA không thành công." });
         }
         var result = await mediator.Send(new RegisterCommand(req.Email, req.Password, req.FullName, req.Phone, req.RecaptchaToken));
-        return Results.Ok(result);
+        return Results.Ok(new { result.UserId, result.EmailVerificationRequired, message = "Đăng ký thành công! Vui lòng kiểm tra email để xác thực tài khoản." });
     }
     catch (InvalidOperationException ex) when (ex.Message.Contains("already registered"))
     {
@@ -710,13 +915,20 @@ app.MapPost("/api/auth/register", async (RegisterRequest req, IMediator mediator
 
 app.MapPost("/api/auth/login", async (LoginRequest req, IMediator mediator, HttpContext ctx) =>
 {
-    var cmd = new LoginCommand(req.Email, req.Password,
-        ctx.Connection.RemoteIpAddress?.ToString(),
-        ctx.Request.Headers.UserAgent);
-    var result = await mediator.Send(cmd);
-    if (result == null)
-        return Results.Unauthorized();
-    return Results.Ok(result);
+    try
+    {
+        var cmd = new LoginCommand(req.Email, req.Password,
+            ctx.Connection.RemoteIpAddress?.ToString(),
+            ctx.Request.Headers.UserAgent);
+        var result = await mediator.Send(cmd);
+        if (result == null)
+            return Results.Unauthorized();
+        return Results.Ok(result);
+    }
+    catch (InvalidOperationException ex) when (ex.Message == "EMAIL_NOT_VERIFIED")
+    {
+        return Results.Json(new { error = "EMAIL_NOT_VERIFIED", message = "Email chưa được xác thực. Vui lòng kiểm tra hộp thư." }, statusCode: 403);
+    }
 }).WithName("Login");
 
 app.MapPost("/api/auth/refresh", async (RefreshTokenRequest req, IMediator mediator) =>
@@ -733,12 +945,181 @@ app.MapPost("/api/auth/revoke", async (RevokeTokenRequest req, IMediator mediato
     return ok ? Results.Ok() : Results.NotFound();
 }).RequireAuthorization();
 
+app.MapGet("/api/auth/verify-email", async (string token, IAuthService authService) =>
+{
+    var ok = await authService.VerifyEmailAsync(token);
+    if (!ok) return Results.BadRequest(new { error = "Token không hợp lệ hoặc đã hết hạn." });
+    return Results.Ok(new { ok = true, message = "Email đã được xác thực thành công!" });
+}).AllowAnonymous();
+
+app.MapPost("/api/auth/resend-verification", async (ResendVerificationRequest req, IAuthService authService) =>
+{
+    var ok = await authService.ResendVerificationEmailAsync(req.Email);
+    return Results.Ok(new { ok, message = ok ? "Email xác thực đã được gửi lại." : "Email không tồn tại hoặc đã được xác thực." });
+}).AllowAnonymous();
+
 app.MapGet("/api/auth/me", async (IMediator mediator) =>
 {
     var result = await mediator.Send(new GetProfileQuery());
     if (result == null)
         return Results.Unauthorized();
     return Results.Ok(result);
+}).RequireAuthorization();
+
+// Profile update
+app.MapPut("/api/auth/profile", async (
+    UpdateProfileRequest req,
+    LadiPage.Infrastructure.Data.AppDbContext db,
+    ICurrentUser currentUser) =>
+{
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    var user = await db.Users.FindAsync(currentUser.UserId.Value);
+    if (user == null) return Results.Unauthorized();
+
+    if (!string.IsNullOrWhiteSpace(req.FullName))
+        user.FullName = req.FullName.Trim();
+    if (req.Phone != null)
+        user.Phone = string.IsNullOrWhiteSpace(req.Phone) ? null : req.Phone.Trim();
+    if (req.AvatarUrl != null)
+        user.AvatarUrl = string.IsNullOrWhiteSpace(req.AvatarUrl) ? null : req.AvatarUrl.Trim();
+
+    user.UpdatedAt = DateTime.UtcNow;
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        id = user.Id,
+        email = user.Email,
+        fullName = user.FullName,
+        phone = user.Phone,
+        avatarUrl = user.AvatarUrl,
+        role = user.Role,
+        currentPlanId = user.CurrentPlanId,
+        planExpiresAt = user.PlanExpiresAt
+    });
+}).RequireAuthorization();
+
+// Change password
+app.MapPut("/api/auth/change-password", async (
+    ChangePasswordRequest req,
+    LadiPage.Infrastructure.Data.AppDbContext db,
+    ICurrentUser currentUser) =>
+{
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    var user = await db.Users.FindAsync(currentUser.UserId.Value);
+    if (user == null) return Results.Unauthorized();
+
+    if (!BCrypt.Net.BCrypt.Verify(req.CurrentPassword, user.PasswordHash))
+        return Results.BadRequest(new { error = "Mật khẩu hiện tại không đúng." });
+
+    if (string.IsNullOrWhiteSpace(req.NewPassword) || req.NewPassword.Length < 6)
+        return Results.BadRequest(new { error = "Mật khẩu mới phải có ít nhất 6 ký tự." });
+
+    user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword);
+    user.UpdatedAt = DateTime.UtcNow;
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new { ok = true });
+}).RequireAuthorization();
+
+// Sessions list
+app.MapGet("/api/auth/sessions", async (
+    LadiPage.Infrastructure.Data.AppDbContext db,
+    ICurrentUser currentUser) =>
+{
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    var sessions = await db.Sessions
+        .Where(s => s.UserId == currentUser.UserId.Value)
+        .OrderByDescending(s => s.CreatedAt)
+        .Select(s => new
+        {
+            id = s.Id,
+            ipAddress = s.IpAddress,
+            userAgent = s.UserAgent,
+            createdAt = s.CreatedAt,
+            expiresAt = s.ExpiresAt,
+            isExpired = s.ExpiresAt < DateTime.UtcNow
+        })
+        .ToListAsync();
+    return Results.Ok(sessions);
+}).RequireAuthorization();
+
+// Revoke specific session
+app.MapDelete("/api/auth/sessions/{id:long}", async (
+    long id,
+    LadiPage.Infrastructure.Data.AppDbContext db,
+    ICurrentUser currentUser) =>
+{
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    var session = await db.Sessions.FirstOrDefaultAsync(
+        s => s.Id == id && s.UserId == currentUser.UserId.Value);
+    if (session == null) return Results.NotFound();
+    db.Sessions.Remove(session);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { ok = true });
+}).RequireAuthorization();
+
+// Settings: plan info + usage stats
+app.MapGet("/api/settings/plan", async (
+    LadiPage.Infrastructure.Data.AppDbContext db,
+    ICurrentUser currentUser) =>
+{
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    var user = await db.Users
+        .AsNoTracking()
+        .Include(u => u.CurrentPlan)
+        .FirstOrDefaultAsync(u => u.Id == currentUser.UserId.Value);
+    if (user == null) return Results.Unauthorized();
+
+    var workspaceIds = await db.Workspaces
+        .Where(w => w.OwnerId == user.Id)
+        .Select(w => w.Id)
+        .ToListAsync();
+
+    var totalPages = workspaceIds.Count > 0
+        ? await db.Pages.CountAsync(p => workspaceIds.Contains(p.WorkspaceId))
+        : 0;
+    var publishedPages = workspaceIds.Count > 0
+        ? await db.Pages.CountAsync(p => workspaceIds.Contains(p.WorkspaceId) && p.Status == "published")
+        : 0;
+
+    var totalMembers = workspaceIds.Count > 0
+        ? await db.WorkspaceMembers.CountAsync(m => workspaceIds.Contains(m.WorkspaceId))
+        : 0;
+
+    var plan = user.CurrentPlan;
+    return Results.Ok(new
+    {
+        plan = plan == null ? null : new
+        {
+            id = plan.Id,
+            name = plan.Name,
+            code = plan.Code,
+            price = plan.Price,
+            billingCycle = plan.BillingCycle,
+            maxPages = plan.MaxPages,
+            maxMembers = plan.MaxMembers,
+            maxPageViews = plan.MaxPageViews,
+            storageGb = plan.StorageGb,
+            hasAi = plan.HasAi,
+            hasEcommerce = plan.HasEcommerce,
+            hasAutomation = plan.HasAutomation,
+            hasAbTest = plan.HasAbTest,
+            hasCustomDomain = plan.HasCustomDomain
+        },
+        usage = new
+        {
+            totalPages,
+            publishedPages,
+            totalMembers
+        },
+        planExpiresAt = user.PlanExpiresAt,
+        emailConfirmed = user.EmailConfirmed,
+        phoneConfirmed = user.PhoneConfirmed,
+        createdAt = user.CreatedAt,
+        lastLoginAt = user.LastLoginAt,
+        referralCode = user.ReferralCode
+    });
 }).RequireAuthorization();
 
 // Workspace endpoints
@@ -778,10 +1159,17 @@ app.MapPost("/api/workspaces", async (CreateWorkspaceRequest req, IMediator medi
 }).RequireAuthorization();
 
 // Templates endpoints
-app.MapGet("/api/templates", async (string? category, IMediator mediator) =>
+app.MapGet("/api/templates", async (string? category, string? search, string? designType, bool? featured, IMediator mediator) =>
 {
-    var list = await mediator.Send(new GetTemplatesQuery(category));
+    var list = await mediator.Send(new GetTemplatesQuery(category, search, designType, featured));
     return Results.Ok(list);
+}).RequireAuthorization();
+
+app.MapGet("/api/templates/categories", async (IMediator mediator) =>
+{
+    var all = await mediator.Send(new GetTemplatesQuery());
+    var cats = all.Select(t => t.Category).Distinct().OrderBy(c => c).ToList();
+    return Results.Ok(cats);
 }).RequireAuthorization();
 
 app.MapGet("/api/templates/{id:long}", async (long id, IMediator mediator) =>
@@ -816,8 +1204,11 @@ app.MapPost("/api/pages", async (CreatePageRequest req, IMediator mediator) =>
 
 app.MapPost("/api/pages/{id:long}/publish", async (long id, IMediator mediator) =>
 {
-    var ok = await mediator.Send(new PublishPageCommand(id));
-    return ok ? Results.Ok(new { ok = true }) : Results.NotFound();
+    var result = await mediator.Send(new PublishPageCommand(id));
+    if (result.Error == "Page not found") return Results.NotFound();
+    return result.Success
+        ? Results.Ok(new { ok = true, checks = result.Checks })
+        : Results.Json(new { ok = false, error = result.Error, checks = result.Checks }, statusCode: 422);
 }).RequireAuthorization();
 
 app.MapGet("/api/pages/{id:long}/content", async (long id, IMediator mediator) =>
@@ -869,7 +1260,461 @@ app.MapGet("/api/debug/db", (LadiPage.Infrastructure.Data.AppDbContext db, IConf
     });
 }).AllowAnonymous();
 
+// ===== Media API =====
+app.MapPost("/api/media/upload", async (HttpRequest request, IAppDbContext db, IWebHostEnvironment env) =>
+{
+    var userIdClaim = request.HttpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (string.IsNullOrEmpty(userIdClaim) || !long.TryParse(userIdClaim, out var userId))
+        return Results.Unauthorized();
+
+    if (!request.HasFormContentType) return Results.BadRequest(new { error = "Form content required" });
+
+    var form = await request.ReadFormAsync();
+    var file = form.Files.GetFile("file");
+    if (file == null || file.Length == 0) return Results.BadRequest(new { error = "No file uploaded" });
+
+    var allowedTypes = new[] { "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml", "video/mp4", "video/webm" };
+    if (!allowedTypes.Contains(file.ContentType))
+        return Results.BadRequest(new { error = $"File type '{file.ContentType}' not allowed" });
+
+    if (file.Length > 10 * 1024 * 1024)
+        return Results.BadRequest(new { error = "File too large (max 10MB)" });
+
+    var uploadsDir = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", userId.ToString());
+    Directory.CreateDirectory(uploadsDir);
+
+    var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+    if (string.IsNullOrEmpty(ext)) ext = ".png";
+    var fileName = $"{Guid.NewGuid():N}{ext}";
+    var filePath = Path.Combine(uploadsDir, fileName);
+
+    await using (var stream = new FileStream(filePath, FileMode.Create))
+    {
+        await file.CopyToAsync(stream);
+    }
+
+    var wsId = form.ContainsKey("workspaceId") && long.TryParse(form["workspaceId"], out var wid) ? (long?)wid : null;
+    var folder = form.ContainsKey("folder") ? form["folder"].ToString() : null;
+
+    var media = new LadiPage.Core.Entities.Media
+    {
+        UserId = userId,
+        WorkspaceId = wsId,
+        FileName = fileName,
+        OriginalName = file.FileName,
+        ContentType = file.ContentType,
+        FileSize = file.Length,
+        Url = $"/uploads/{userId}/{fileName}",
+        Folder = folder,
+        CreatedAt = DateTime.UtcNow,
+    };
+    db.Medias.Add(media);
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        media.Id,
+        media.FileName,
+        media.OriginalName,
+        media.ContentType,
+        media.FileSize,
+        media.Width,
+        media.Height,
+        media.Url,
+        media.Folder,
+        media.CreatedAt,
+    });
+}).RequireAuthorization().DisableAntiforgery();
+
+app.MapGet("/api/media", async (HttpRequest request, IAppDbContext db, string? folder, int page = 1, int pageSize = 40) =>
+{
+    var userIdClaim = request.HttpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (string.IsNullOrEmpty(userIdClaim) || !long.TryParse(userIdClaim, out var userId))
+        return Results.Unauthorized();
+
+    var query = db.Medias.Where(m => m.UserId == userId);
+    if (!string.IsNullOrEmpty(folder)) query = query.Where(m => m.Folder == folder);
+
+    var total = await query.CountAsync();
+    var items = await query
+        .OrderByDescending(m => m.CreatedAt)
+        .Skip((page - 1) * pageSize)
+        .Take(pageSize)
+        .Select(m => new
+        {
+            m.Id,
+            m.FileName,
+            m.OriginalName,
+            m.ContentType,
+            m.FileSize,
+            m.Width,
+            m.Height,
+            m.Url,
+            m.ThumbnailUrl,
+            m.AltText,
+            m.Folder,
+            m.CreatedAt,
+        })
+        .ToListAsync();
+
+    return Results.Ok(new { total, page, pageSize, items });
+}).RequireAuthorization();
+
+app.MapDelete("/api/media/{id:long}", async (long id, HttpRequest request, IAppDbContext db, IWebHostEnvironment env) =>
+{
+    var userIdClaim = request.HttpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (string.IsNullOrEmpty(userIdClaim) || !long.TryParse(userIdClaim, out var userId))
+        return Results.Unauthorized();
+
+    var media = await db.Medias.FirstOrDefaultAsync(m => m.Id == id && m.UserId == userId);
+    if (media == null) return Results.NotFound();
+
+    var filePath = Path.Combine(env.ContentRootPath, "wwwroot", media.Url.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+    if (File.Exists(filePath)) File.Delete(filePath);
+
+    db.Medias.Remove(media);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { ok = true });
+}).RequireAuthorization();
+
+// ===== Tags API =====
+app.MapGet("/api/tags", async (long workspaceId, IAppDbContext db) =>
+{
+    var items = await db.Tags.Where(t => t.WorkspaceId == workspaceId).OrderBy(t => t.Name).Select(t => new { t.Id, t.Name, t.Color, t.CreatedAt }).ToListAsync();
+    return Results.Ok(items);
+}).RequireAuthorization();
+
+app.MapPost("/api/tags", async (CreateTagRequest req, IAppDbContext db) =>
+{
+    var tag = new LadiPage.Core.Entities.Tag { WorkspaceId = req.WorkspaceId, Name = req.Name.Trim(), Color = req.Color, CreatedAt = DateTime.UtcNow };
+    db.Tags.Add(tag);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { tag.Id, tag.Name, tag.Color, tag.CreatedAt });
+}).RequireAuthorization();
+
+app.MapPut("/api/tags/{id:long}", async (long id, UpdateTagRequest req, IAppDbContext db) =>
+{
+    var tag = await db.Tags.FindAsync(id);
+    if (tag == null) return Results.NotFound();
+    if (!string.IsNullOrWhiteSpace(req.Name)) tag.Name = req.Name.Trim();
+    if (req.Color != null) tag.Color = req.Color;
+    await db.SaveChangesAsync();
+    return Results.Ok(new { tag.Id, tag.Name, tag.Color });
+}).RequireAuthorization();
+
+app.MapDelete("/api/tags/{id:long}", async (long id, IAppDbContext db) =>
+{
+    var tag = await db.Tags.FindAsync(id);
+    if (tag == null) return Results.NotFound();
+    db.Tags.Remove(tag);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { ok = true });
+}).RequireAuthorization();
+
+// ===== Domains API =====
+app.MapGet("/api/domains", async (long workspaceId, IAppDbContext db) =>
+{
+    var items = await db.Domains.Where(d => d.WorkspaceId == workspaceId).OrderByDescending(d => d.CreatedAt).Select(d => new { d.Id, d.DomainName, d.Status, d.VerifiedAt, d.CreatedAt }).ToListAsync();
+    return Results.Ok(items);
+}).RequireAuthorization();
+
+app.MapPost("/api/domains", async (CreateDomainRequest req, IAppDbContext db) =>
+{
+    var domain = new LadiPage.Core.Entities.Domain { WorkspaceId = req.WorkspaceId, DomainName = req.DomainName.Trim().ToLowerInvariant(), Status = "pending", CreatedAt = DateTime.UtcNow };
+    db.Domains.Add(domain);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { domain.Id, domain.DomainName, domain.Status, domain.CreatedAt });
+}).RequireAuthorization();
+
+app.MapDelete("/api/domains/{id:long}", async (long id, IAppDbContext db) =>
+{
+    var domain = await db.Domains.FindAsync(id);
+    if (domain == null) return Results.NotFound();
+    db.Domains.Remove(domain);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { ok = true });
+}).RequireAuthorization();
+
+// ===== Forms API =====
+app.MapGet("/api/forms", async (long workspaceId, IAppDbContext db) =>
+{
+    var items = await db.FormConfigs.Where(f => f.WorkspaceId == workspaceId).OrderByDescending(f => f.CreatedAt).Select(f => new { f.Id, f.Name, f.FieldsJson, f.WebhookUrl, f.EmailNotify, f.CreatedAt }).ToListAsync();
+    return Results.Ok(items);
+}).RequireAuthorization();
+
+app.MapPost("/api/forms", async (CreateFormRequest req, IAppDbContext db) =>
+{
+    var form = new LadiPage.Core.Entities.FormConfig { WorkspaceId = req.WorkspaceId, Name = req.Name.Trim(), FieldsJson = req.FieldsJson ?? "[]", WebhookUrl = req.WebhookUrl, EmailNotify = req.EmailNotify, CreatedAt = DateTime.UtcNow };
+    db.FormConfigs.Add(form);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { form.Id, form.Name, form.FieldsJson, form.WebhookUrl, form.EmailNotify, form.CreatedAt });
+}).RequireAuthorization();
+
+app.MapPut("/api/forms/{id:long}", async (long id, UpdateFormRequest req, IAppDbContext db) =>
+{
+    var form = await db.FormConfigs.FindAsync(id);
+    if (form == null) return Results.NotFound();
+    if (!string.IsNullOrWhiteSpace(req.Name)) form.Name = req.Name.Trim();
+    if (req.FieldsJson != null) form.FieldsJson = req.FieldsJson;
+    if (req.WebhookUrl != null) form.WebhookUrl = string.IsNullOrWhiteSpace(req.WebhookUrl) ? null : req.WebhookUrl.Trim();
+    form.EmailNotify = req.EmailNotify;
+    await db.SaveChangesAsync();
+    return Results.Ok(new { form.Id, form.Name, form.FieldsJson, form.WebhookUrl, form.EmailNotify });
+}).RequireAuthorization();
+
+app.MapDelete("/api/forms/{id:long}", async (long id, IAppDbContext db) =>
+{
+    var form = await db.FormConfigs.FindAsync(id);
+    if (form == null) return Results.NotFound();
+    db.FormConfigs.Remove(form);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { ok = true });
+}).RequireAuthorization();
+
+// ===== Notifications API =====
+app.MapGet("/api/notifications", async (HttpRequest request, IAppDbContext db) =>
+{
+    var uid = request.HttpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (string.IsNullOrEmpty(uid) || !long.TryParse(uid, out var userId)) return Results.Unauthorized();
+    var items = await db.Notifications.Where(n => n.UserId == userId).OrderByDescending(n => n.CreatedAt).Take(50).Select(n => new { n.Id, n.Title, n.Message, n.Type, n.IsRead, n.CreatedAt }).ToListAsync();
+    var unread = await db.Notifications.CountAsync(n => n.UserId == userId && !n.IsRead);
+    return Results.Ok(new { unread, items });
+}).RequireAuthorization();
+
+app.MapPut("/api/notifications/{id:long}/read", async (long id, IAppDbContext db) =>
+{
+    var n = await db.Notifications.FindAsync(id);
+    if (n == null) return Results.NotFound();
+    n.IsRead = true;
+    await db.SaveChangesAsync();
+    return Results.Ok(new { ok = true });
+}).RequireAuthorization();
+
+app.MapPut("/api/notifications/mark-all-read", async (HttpRequest request, IAppDbContext db) =>
+{
+    var uid = request.HttpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (string.IsNullOrEmpty(uid) || !long.TryParse(uid, out var userId)) return Results.Unauthorized();
+    var unread = await db.Notifications.Where(n => n.UserId == userId && !n.IsRead).ToListAsync();
+    foreach (var n in unread) n.IsRead = true;
+    await db.SaveChangesAsync();
+    return Results.Ok(new { ok = true, count = unread.Count });
+}).RequireAuthorization();
+
+// ===== Products API =====
+app.MapGet("/api/products", async (long workspaceId, IAppDbContext db) =>
+{
+    var items = await db.Products.Where(p => p.WorkspaceId == workspaceId).OrderByDescending(p => p.CreatedAt).Select(p => new { p.Id, p.Name, p.Price, p.Description, p.ImageUrl, p.Category, p.Stock, p.Status, p.CreatedAt }).ToListAsync();
+    return Results.Ok(items);
+}).RequireAuthorization();
+
+app.MapPost("/api/products", async (CreateProductRequest req, IAppDbContext db) =>
+{
+    var product = new LadiPage.Core.Entities.Product { WorkspaceId = req.WorkspaceId, Name = req.Name.Trim(), Price = req.Price, Description = req.Description, ImageUrl = req.ImageUrl, Category = req.Category, Stock = req.Stock, CreatedAt = DateTime.UtcNow };
+    db.Products.Add(product);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { product.Id, product.Name, product.Price, product.Category, product.Stock, product.Status, product.CreatedAt });
+}).RequireAuthorization();
+
+app.MapPut("/api/products/{id:long}", async (long id, UpdateProductRequest req, IAppDbContext db) =>
+{
+    var p = await db.Products.FindAsync(id);
+    if (p == null) return Results.NotFound();
+    if (!string.IsNullOrWhiteSpace(req.Name)) p.Name = req.Name.Trim();
+    if (req.Price.HasValue) p.Price = req.Price.Value;
+    if (req.Description != null) p.Description = req.Description;
+    if (req.ImageUrl != null) p.ImageUrl = req.ImageUrl;
+    if (req.Category != null) p.Category = req.Category;
+    if (req.Stock.HasValue) p.Stock = req.Stock.Value;
+    if (req.Status != null) p.Status = req.Status;
+    await db.SaveChangesAsync();
+    return Results.Ok(new { p.Id, p.Name, p.Price, p.Category, p.Stock, p.Status });
+}).RequireAuthorization();
+
+app.MapDelete("/api/products/{id:long}", async (long id, IAppDbContext db) =>
+{
+    var p = await db.Products.FindAsync(id);
+    if (p == null) return Results.NotFound();
+    db.Products.Remove(p);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { ok = true });
+}).RequireAuthorization();
+
+// ===== Orders API =====
+app.MapGet("/api/orders", async (long workspaceId, string? status, IAppDbContext db) =>
+{
+    var query = db.Orders.Where(o => o.WorkspaceId == workspaceId);
+    if (!string.IsNullOrEmpty(status)) query = query.Where(o => o.Status == status);
+    var items = await query.OrderByDescending(o => o.CreatedAt).Select(o => new { o.Id, o.CustomerName, o.Email, o.Phone, o.ProductId, o.Amount, o.Status, o.CreatedAt }).ToListAsync();
+    return Results.Ok(items);
+}).RequireAuthorization();
+
+app.MapPost("/api/orders", async (CreateOrderRequest req, IAppDbContext db) =>
+{
+    var order = new LadiPage.Core.Entities.Order { WorkspaceId = req.WorkspaceId, CustomerName = req.CustomerName.Trim(), Email = req.Email, Phone = req.Phone, ProductId = req.ProductId, Amount = req.Amount, CreatedAt = DateTime.UtcNow };
+    db.Orders.Add(order);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { order.Id, order.CustomerName, order.Amount, order.Status, order.CreatedAt });
+}).RequireAuthorization();
+
+app.MapPut("/api/orders/{id:long}", async (long id, UpdateOrderRequest req, IAppDbContext db) =>
+{
+    var o = await db.Orders.FindAsync(id);
+    if (o == null) return Results.NotFound();
+    if (req.Status != null) o.Status = req.Status;
+    if (req.CustomerName != null) o.CustomerName = req.CustomerName.Trim();
+    if (req.Email != null) o.Email = req.Email;
+    if (req.Phone != null) o.Phone = req.Phone;
+    await db.SaveChangesAsync();
+    return Results.Ok(new { o.Id, o.CustomerName, o.Status });
+}).RequireAuthorization();
+
+app.MapDelete("/api/orders/{id:long}", async (long id, IAppDbContext db) =>
+{
+    var o = await db.Orders.FindAsync(id);
+    if (o == null) return Results.NotFound();
+    db.Orders.Remove(o);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { ok = true });
+}).RequireAuthorization();
+
+// ===== Customers API =====
+app.MapGet("/api/customers", async (long workspaceId, IAppDbContext db) =>
+{
+    var items = await db.Customers.Where(c => c.WorkspaceId == workspaceId).OrderByDescending(c => c.CreatedAt).Select(c => new { c.Id, c.Name, c.Email, c.Phone, c.Group, c.Source, c.CreatedAt }).ToListAsync();
+    return Results.Ok(items);
+}).RequireAuthorization();
+
+app.MapPost("/api/customers", async (CreateCustomerRequest req, IAppDbContext db) =>
+{
+    var c = new LadiPage.Core.Entities.Customer { WorkspaceId = req.WorkspaceId, Name = req.Name.Trim(), Email = req.Email, Phone = req.Phone, Group = req.Group, Source = req.Source, CreatedAt = DateTime.UtcNow };
+    db.Customers.Add(c);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { c.Id, c.Name, c.Email, c.Phone, c.Group, c.Source, c.CreatedAt });
+}).RequireAuthorization();
+
+app.MapPut("/api/customers/{id:long}", async (long id, UpdateCustomerRequest req, IAppDbContext db) =>
+{
+    var c = await db.Customers.FindAsync(id);
+    if (c == null) return Results.NotFound();
+    if (req.Name != null) c.Name = req.Name.Trim();
+    if (req.Email != null) c.Email = req.Email;
+    if (req.Phone != null) c.Phone = req.Phone;
+    if (req.Group != null) c.Group = req.Group;
+    if (req.Source != null) c.Source = req.Source;
+    await db.SaveChangesAsync();
+    return Results.Ok(new { c.Id, c.Name, c.Email, c.Phone, c.Group, c.Source });
+}).RequireAuthorization();
+
+app.MapDelete("/api/customers/{id:long}", async (long id, IAppDbContext db) =>
+{
+    var c = await db.Customers.FindAsync(id);
+    if (c == null) return Results.NotFound();
+    db.Customers.Remove(c);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { ok = true });
+}).RequireAuthorization();
+
+// ===== Leads API =====
+app.MapGet("/api/leads", async (long workspaceId, long? pageId, IAppDbContext db) =>
+{
+    var query = db.Leads.Where(l => l.WorkspaceId == workspaceId);
+    if (pageId.HasValue) query = query.Where(l => l.PageId == pageId.Value);
+    var items = await query.OrderByDescending(l => l.CreatedAt).Select(l => new { l.Id, l.PageId, l.FormId, l.DataJson, l.IpAddress, l.CreatedAt }).ToListAsync();
+    return Results.Ok(items);
+}).RequireAuthorization();
+
+app.MapDelete("/api/leads/{id:long}", async (long id, IAppDbContext db) =>
+{
+    var l = await db.Leads.FindAsync(id);
+    if (l == null) return Results.NotFound();
+    db.Leads.Remove(l);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { ok = true });
+}).RequireAuthorization();
+
+// ===== Reports API =====
+app.MapGet("/api/reports/overview", async (long workspaceId, IAppDbContext db) =>
+{
+    var totalPages = await db.Pages.CountAsync(p => p.WorkspaceId == workspaceId);
+    var publishedPages = await db.Pages.CountAsync(p => p.WorkspaceId == workspaceId && p.Status == "published");
+    var draftPages = totalPages - publishedPages;
+    var totalSections = await db.PageSections.CountAsync(s => db.Pages.Any(p => p.Id == s.PageId && p.WorkspaceId == workspaceId));
+    var totalElements = await db.PageElements.CountAsync(e => db.PageSections.Any(s => s.Id == e.SectionId && db.Pages.Any(p => p.Id == s.PageId && p.WorkspaceId == workspaceId)));
+    var totalProducts = await db.Products.CountAsync(p => p.WorkspaceId == workspaceId);
+    var totalOrders = await db.Orders.CountAsync(o => o.WorkspaceId == workspaceId);
+    var totalCustomers = await db.Customers.CountAsync(c => c.WorkspaceId == workspaceId);
+    var totalLeads = await db.Leads.CountAsync(l => l.WorkspaceId == workspaceId);
+    return Results.Ok(new { totalPages, publishedPages, draftPages, totalSections, totalElements, totalProducts, totalOrders, totalCustomers, totalLeads });
+}).RequireAuthorization();
+
+// ===== Plans API (for public pricing page) =====
+app.MapGet("/api/plans", async (IAppDbContext db) =>
+{
+    var plans = await db.Plans.Where(p => p.IsActive).OrderBy(p => p.Price).Select(p => new { p.Id, p.Name, p.Code, p.Price, p.BillingCycle, p.MaxPages, p.MaxMembers, p.MaxPageViews, p.StorageGb, p.HasAi, p.HasEcommerce, p.HasAutomation, p.HasAbTest, p.HasCustomDomain }).ToListAsync();
+    return Results.Ok(plans);
+}).AllowAnonymous();
+
+// Section templates API
+app.MapGet("/api/section-templates", async (IAppDbContext db) =>
+{
+    var templates = await db.Templates
+        .Where(t => t.Category == "section")
+        .OrderByDescending(t => t.CreatedAt)
+        .Select(t => new { t.Id, t.Name, t.ThumbnailUrl, t.JsonContent })
+        .ToListAsync();
+    return Results.Ok(templates);
+}).AllowAnonymous();
+
+app.MapPost("/api/section-templates", async (SectionTemplateCreateDto dto, IAppDbContext db) =>
+{
+    var template = new LadiPage.Core.Entities.Template
+    {
+        Name = dto.Name,
+        Category = "section",
+        ThumbnailUrl = dto.PreviewUrl,
+        JsonContent = dto.JsonContent,
+        CreatedAt = DateTime.UtcNow,
+    };
+    db.Templates.Add(template);
+    await ((LadiPage.Infrastructure.Data.AppDbContext)db).SaveChangesAsync();
+    return Results.Created($"/api/section-templates/{template.Id}", new { template.Id, template.Name });
+}).RequireAuthorization();
+
+// Fonts API
+app.MapGet("/api/fonts", () =>
+{
+    var fonts = new[]
+    {
+        "Inter", "Roboto", "Open Sans", "Lato", "Montserrat", "Poppins", "Nunito",
+        "Raleway", "Ubuntu", "Playfair Display", "Merriweather", "Source Sans 3",
+        "Oswald", "Noto Sans", "PT Sans", "Roboto Condensed", "Roboto Slab",
+        "Quicksand", "Work Sans", "Mulish", "Barlow", "DM Sans", "Rubik",
+        "Manrope", "Karla", "Josefin Sans", "Libre Baskerville", "Space Grotesk",
+        "Cabin", "Arimo", "Overpass", "Assistant", "Bitter", "Crimson Text",
+        "Exo 2", "Fira Sans", "Heebo", "Inconsolata", "Kanit", "Lexend",
+        "Libre Franklin", "Maven Pro", "Mukta", "Noto Serif", "Outfit",
+        "Plus Jakarta Sans", "Prompt", "Public Sans", "Red Hat Display",
+        "Signika", "Titillium Web", "Varela Round", "Yanone Kaffeesatz",
+        "Abel", "Archivo", "Asap", "Bebas Neue", "Catamaran", "Comfortaa",
+        "Cormorant Garamond", "Dancing Script", "EB Garamond", "Figtree",
+        "Geologica", "Great Vibes", "Hind", "IBM Plex Sans", "Inter Tight",
+        "Jost", "Kalam", "Lilita One", "Lobster", "Lora", "Nanum Gothic",
+        "Nunito Sans", "Pacifico", "Patrick Hand", "Philosopher", "PT Serif",
+        "Righteous", "Roboto Mono", "Saira", "Satisfy", "Sora", "Space Mono",
+        "Spectral", "Teko", "Ubuntu Mono", "Urbanist", "Vollkorn", "Yantramanav",
+        "Zilla Slab", "Abril Fatface", "Alegreya", "Amatic SC", "Archivo Narrow",
+        "Barlow Condensed", "Be Vietnam Pro", "Cairo", "Chakra Petch",
+        "Cinzel", "Courgette", "Domine", "Dosis", "Encode Sans",
+        "Fira Code", "Fredoka", "Gloria Hallelujah", "Gudea",
+    };
+    return Results.Ok(fonts);
+}).AllowAnonymous();
+
+app.UseStaticFiles();
+
 app.Run();
+
+record SectionTemplateCreateDto(string Name, string JsonContent, string? PreviewUrl);
 
 // Request DTOs for minimal API binding
 public record RegisterRequest(string Email, string Password, string FullName, string? Phone, string? RecaptchaToken);
@@ -881,3 +1726,17 @@ public record CreateWorkspaceRequest(string Name, string Slug);
 public record CreatePageRequest(long WorkspaceId, string Name, string Slug, long? TemplateId);
 public record UpdatePageRequest(string Name, string Slug);
 public record ExternalRegisterRequest(string Token, string? Phone, string? WorkspaceName);
+public record UpdateProfileRequest(string? FullName, string? Phone, string? AvatarUrl);
+public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
+public record ResendVerificationRequest(string Email);
+public record CreateTagRequest(long WorkspaceId, string Name, string? Color);
+public record UpdateTagRequest(string? Name, string? Color);
+public record CreateDomainRequest(long WorkspaceId, string DomainName);
+public record CreateFormRequest(long WorkspaceId, string Name, string? FieldsJson, string? WebhookUrl, bool EmailNotify);
+public record UpdateFormRequest(string? Name, string? FieldsJson, string? WebhookUrl, bool EmailNotify);
+public record CreateProductRequest(long WorkspaceId, string Name, decimal Price, string? Description, string? ImageUrl, string? Category, int Stock);
+public record UpdateProductRequest(string? Name, decimal? Price, string? Description, string? ImageUrl, string? Category, int? Stock, string? Status);
+public record CreateOrderRequest(long WorkspaceId, string CustomerName, string? Email, string? Phone, long? ProductId, decimal Amount);
+public record UpdateOrderRequest(string? CustomerName, string? Email, string? Phone, string? Status);
+public record CreateCustomerRequest(long WorkspaceId, string Name, string? Email, string? Phone, string? Group, string? Source);
+public record UpdateCustomerRequest(string? Name, string? Email, string? Phone, string? Group, string? Source);

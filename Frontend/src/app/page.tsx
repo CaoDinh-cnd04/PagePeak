@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { PublicHeader } from "@/components/layout/PublicHeader";
 import { PublicFooter } from "@/components/layout/PublicFooter";
+import { PricingSection } from "@/components/home/PricingSection";
 
 export default function HomePage() {
   return (
@@ -105,26 +106,50 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* Bảng giá - placeholder */}
-        <section id="bang-gia" className="py-16 bg-white dark:bg-slate-950 scroll-mt-20">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <h2 className="text-3xl font-bold text-slate-900 dark:text-slate-100 mb-4">Bảng giá</h2>
-            <p className="text-slate-600 dark:text-slate-300 max-w-xl mx-auto mb-8">
-              Chọn gói phù hợp với quy mô và nhu cầu của bạn. Bắt đầu miễn phí, nâng cấp khi cần.
-            </p>
-            <Link href="/register" className="text-primary-600 font-medium hover:underline">
-              Xem bảng giá và đăng ký →
-            </Link>
-          </div>
-        </section>
+        {/* Bảng giá */}
+        <PricingSection />
 
-        {/* Tài nguyên - placeholder */}
+        {/* Tài nguyên */}
         <section id="tai-nguyen" className="py-16 bg-slate-50 dark:bg-slate-950 scroll-mt-20">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <h2 className="text-3xl font-bold text-slate-900 dark:text-slate-100 mb-4">Tài nguyên</h2>
-            <p className="text-slate-600 dark:text-slate-300 max-w-xl mx-auto">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <h2 className="text-3xl font-bold text-slate-900 dark:text-slate-100 text-center mb-4">Tài nguyên</h2>
+            <p className="text-slate-600 dark:text-slate-300 text-center max-w-xl mx-auto mb-12">
               Tài liệu hướng dẫn, blog, case study và khoá học để bạn tận dụng tối đa PagePeak.
             </p>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 hover:shadow-lg transition">
+                <div className="w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center text-2xl mb-4">
+                  📖
+                </div>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Tài liệu hướng dẫn</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">Hướng dẫn sử dụng chi tiết từ cơ bản đến nâng cao.</p>
+                <Link href="/dashboard/templates" className="text-indigo-600 dark:text-indigo-400 text-sm font-medium hover:underline">Xem ngay →</Link>
+              </div>
+              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 hover:shadow-lg transition">
+                <div className="w-12 h-12 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 flex items-center justify-center text-2xl mb-4">
+                  📝
+                </div>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Blog</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">Bài viết chia sẻ kinh nghiệm, thủ thuật và xu hướng mới.</p>
+                <Link href="/dashboard/templates" className="text-indigo-600 dark:text-indigo-400 text-sm font-medium hover:underline">Đọc blog →</Link>
+              </div>
+              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 hover:shadow-lg transition">
+                <div className="w-12 h-12 rounded-xl bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center text-2xl mb-4">
+                  🏆
+                </div>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Case Study</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">Câu chuyện thành công từ khách hàng sử dụng PagePeak.</p>
+                <Link href="/dashboard/templates" className="text-indigo-600 dark:text-indigo-400 text-sm font-medium hover:underline">Khám phá →</Link>
+              </div>
+              <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 hover:shadow-lg transition">
+                <div className="w-12 h-12 rounded-xl bg-violet-50 dark:bg-violet-500/10 flex items-center justify-center text-2xl mb-4">
+                  🎓
+                </div>
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Khóa học</h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">Khóa học miễn phí giúp bạn làm chủ PagePeak nhanh chóng.</p>
+                <Link href="/dashboard/templates" className="text-indigo-600 dark:text-indigo-400 text-sm font-medium hover:underline">Học ngay →</Link>
+              </div>
+            </div>
           </div>
         </section>
 

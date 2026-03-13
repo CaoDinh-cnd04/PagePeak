@@ -33,7 +33,7 @@ function AuthCallbackInner() {
     fetchMe()
       .then(() => {
         setMessage("Đăng nhập thành công!");
-        router.replace("/dashboard");
+        router.replace("/dashboard/pages");
       })
       .catch(() => {
         setMessage("Lỗi xác thực.");

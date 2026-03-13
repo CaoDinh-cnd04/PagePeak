@@ -5,6 +5,10 @@ public record TemplateDto(
     string Name,
     string Category,
     string? ThumbnailUrl,
+    string? Description,
+    string DesignType,
+    bool IsFeatured,
+    int UsageCount,
     DateTime CreatedAt
 );
 
@@ -13,7 +17,10 @@ public record TemplateDetailDto(
     string Name,
     string Category,
     string? ThumbnailUrl,
+    string? Description,
+    string DesignType,
+    bool IsFeatured,
+    int UsageCount,
     string JsonContent,
     DateTime CreatedAt
 );
-

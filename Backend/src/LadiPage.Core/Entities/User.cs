@@ -11,6 +11,8 @@ public class User
     public string Role { get; set; } = "nguoidung";
     public string Status { get; set; } = "hoatdong";
     public bool EmailConfirmed { get; set; }
+    public string? EmailVerificationToken { get; set; }
+    public DateTime? EmailVerificationSentAt { get; set; }
     public bool PhoneConfirmed { get; set; }
     public int? CurrentPlanId { get; set; }
     public DateTime? PlanExpiresAt { get; set; }

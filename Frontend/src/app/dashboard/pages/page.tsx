@@ -226,7 +226,7 @@ function PagesInner() {
         setActiveWorkspaceId(wsId);
         const [apiPages, apiTemplates] = await Promise.all([
           wsId ? pagesApi.list(wsId).catch(() => [] as PageItem[]) : Promise.resolve([] as PageItem[]),
-          templatesApi.list().catch(() => [] as Array<{ id: number; name: string; category: string; thumbnailUrl?: string; createdAt?: string }>),
+          templatesApi.list().catch(() => [] as Array<{ id: number; name: string; category: string; thumbnailUrl?: string; description?: string; designType: string; isFeatured: boolean; usageCount: number; createdAt: string }>),
         ]);
         setPages(apiPages);
         setTpls(
@@ -309,8 +309,12 @@ function PagesInner() {
     );
   }
 
-  const filteredPages =
-    filter === "all" ? pages : pages.filter((p) => p.status === filter);
+  const qParam = searchParams.get("q")?.toLowerCase() ?? "";
+  const filteredPages = pages.filter((p) => {
+    if (filter !== "all" && p.status !== filter) return false;
+    if (qParam && !p.name.toLowerCase().includes(qParam) && !p.slug.toLowerCase().includes(qParam)) return false;
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -366,7 +370,7 @@ function PagesInner() {
             }}
           >
             <Plus className="w-4 h-4 mr-2" />
-            Tạo trang mới
+            Tạo Landing Page
           </Button>
         </div>
       </div>
@@ -375,7 +379,7 @@ function PagesInner() {
 
       {/* Create */}
       <Card id="create-form">
-        <CardHeader title="Tạo trang mới" subtitle="Tạo nhanh 1 landing page ở dạng nháp." />
+        <CardHeader title="Tạo Landing Page" subtitle="Tạo nhanh 1 landing page ở dạng nháp." />
         <div className="grid gap-3 sm:grid-cols-2">
           <Input
             label="Tên trang"
@@ -411,12 +415,17 @@ function PagesInner() {
               </select>
             </div>
           )}
-          <form onSubmit={handleCreate} className="self-start sm:self-auto">
-            <Button type="submit" loading={creating} disabled={!activeWorkspaceId} className="bg-indigo-600 hover:bg-indigo-700">
+          <div className="self-start sm:self-auto">
+            <Button
+              type="button"
+              disabled={!activeWorkspaceId}
+              className="bg-indigo-600 hover:bg-indigo-700"
+              onClick={() => setCreateOpen(true)}
+            >
               <Plus className="w-4 h-4 mr-2" />
-              Tạo trang mới
+              Tạo Landing Page
             </Button>
-          </form>
+          </div>
         </div>
       </Card>
 
@@ -430,11 +439,11 @@ function PagesInner() {
           setCreateOpen(false);
           setBlankDetailsOpen(true);
         }}
-        onCreateWithAI={async (description) => {
-          alert(`AI sẽ được tích hợp sau. Nội dung: ${description}`);
+        onCreateWithAI={async () => {
+          setCreateOpen(false);
         }}
-        onUpload={async (file) => {
-          alert(`Đã nhận file: ${file.name} (tích hợp import .ladipage ở bước tiếp theo)`);
+        onUpload={async () => {
+          setCreateOpen(false);
         }}
         onUseTemplate={async (t) => {
           if (!activeWorkspaceId) {
@@ -442,10 +451,7 @@ function PagesInner() {
             return;
           }
           const templateId = typeof t.id === "number" ? t.id : Number(t.id);
-          if (!Number.isFinite(templateId)) {
-            alert("Template này đang là mock. Vui lòng chọn template từ danh sách API.");
-            return;
-          }
+          if (!Number.isFinite(templateId)) return;
           const name = `Landing - ${t.tenMau}`.slice(0, 60);
           const slug = slugifyKey(`${t.tenMau}-${Date.now().toString().slice(-4)}`).slice(0, 80);
           await pagesApi.create(activeWorkspaceId, name, slug, templateId);
@@ -554,7 +560,7 @@ function PagesInner() {
                 }}
               >
                 <Plus className="w-4 h-4 mr-2" />
-                Tạo trang mới
+                Tạo Landing Page
               </Button>
               <Button variant="outline" onClick={() => (window.location.href = "/dashboard/templates")}>
                 Xem templates

@@ -109,9 +109,14 @@ function LoginInner() {
         await register(email, password, fullName, phone, RECAPTCHA_SITE_KEY ? getRecaptchaToken() : undefined);
         resetRecaptcha();
       }
-      router.push("/dashboard");
+      router.push("/dashboard/pages");
     } catch (err) {
-      setError(err instanceof Error ? err.message : isLogin ? "Đăng nhập thất bại." : "Đăng ký thất bại.");
+      const msg = err instanceof Error ? err.message : "";
+      if (msg === "EMAIL_VERIFICATION_REQUIRED" || msg === "EMAIL_NOT_VERIFIED") {
+        router.push(`/verify-email?email=${encodeURIComponent(email)}&pending=1`);
+        return;
+      }
+      setError(msg || (isLogin ? "Đăng nhập thất bại." : "Đăng ký thất bại."));
       if (!isLogin) resetRecaptcha();
     }
   };

@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/authStore";
-import { workspacesApi } from "@/lib/api";
+import { useLangStore, type LangCode } from "@/stores/langStore";
+import { useT } from "@/lib/i18n";
+import { workspacesApi, notificationsApi, type NotificationItem } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 import {
@@ -33,6 +35,13 @@ import {
   X,
   Plus,
   LogOut,
+  Bell,
+  Shield,
+  Languages,
+  UserCog,
+  Crown,
+  Check,
+  HelpCircle,
 } from "lucide-react";
 
 type Workspace = {
@@ -52,64 +61,55 @@ type MainMenuKey =
   | "reports"
   | "settings";
 
-type SubMenuItem = {
-  key: string;
-  label: string;
-  href: string;
-  icon: React.ReactNode;
-};
+type MenuDef = { key: MainMenuKey; i18nKey: string; icon: React.ReactNode; href: string };
+type SubDef = { key: string; i18nKey: string; href: string; icon: React.ReactNode };
 
-const MAIN_MENU: {
-  key: MainMenuKey;
-  label: string;
-  icon: React.ReactNode;
-  href: string;
-}[] = [
-  { key: "landing-pages", label: "Landing Pages", icon: <FileText className="w-5 h-5" />, href: "/dashboard/pages" },
-  { key: "orders", label: "Đơn hàng", icon: <ShoppingBag className="w-5 h-5" />, href: "/dashboard/orders" },
-  { key: "products", label: "Sản phẩm", icon: <Box className="w-5 h-5" />, href: "/dashboard/products" },
-  { key: "customers", label: "Khách hàng", icon: <Users className="w-5 h-5" />, href: "/dashboard/customers" },
-  { key: "reports", label: "Báo cáo", icon: <BarChart3 className="w-5 h-5" />, href: "/dashboard/reports" },
-  { key: "settings", label: "Cài đặt", icon: <Settings className="w-5 h-5" />, href: "/dashboard/settings" },
+const MAIN_MENU: MenuDef[] = [
+  { key: "landing-pages", i18nKey: "menu.landingPages", icon: <FileText className="w-5 h-5" />, href: "/dashboard/pages" },
+  { key: "orders", i18nKey: "menu.orders", icon: <ShoppingBag className="w-5 h-5" />, href: "/dashboard/orders" },
+  { key: "products", i18nKey: "menu.products", icon: <Box className="w-5 h-5" />, href: "/dashboard/products" },
+  { key: "customers", i18nKey: "menu.customers", icon: <Users className="w-5 h-5" />, href: "/dashboard/customers" },
+  { key: "reports", i18nKey: "menu.reports", icon: <BarChart3 className="w-5 h-5" />, href: "/dashboard/reports" },
+  { key: "settings", i18nKey: "menu.settings", icon: <Settings className="w-5 h-5" />, href: "/dashboard/settings" },
 ];
 
-const SUB_MENUS: Record<MainMenuKey, SubMenuItem[]> = {
+const SUB_MENUS: Record<MainMenuKey, SubDef[]> = {
   "landing-pages": [
-    { key: "pages", label: "Pages", href: "/dashboard/pages", icon: <List className="w-4 h-4" /> },
-    { key: "templates", label: "Thư viện mẫu", href: "/dashboard/templates", icon: <LayoutGrid className="w-4 h-4" /> },
-    { key: "forms", label: "Cấu hình Form", href: "/dashboard/forms", icon: <ClipboardCheck className="w-4 h-4" /> },
-    { key: "tags", label: "Tags", href: "/dashboard/tags", icon: <Tag className="w-4 h-4" /> },
-    { key: "domains", label: "Tên miền", href: "/dashboard/domains", icon: <Globe className="w-4 h-4" /> },
-    { key: "data-leads", label: "Data Leads", href: "/dashboard/data-leads", icon: <Database className="w-4 h-4" /> },
+    { key: "pages", i18nKey: "sub.pages", href: "/dashboard/pages", icon: <List className="w-4 h-4" /> },
+    { key: "templates", i18nKey: "sub.templates", href: "/dashboard/templates", icon: <LayoutGrid className="w-4 h-4" /> },
+    { key: "forms", i18nKey: "sub.formConfig", href: "/dashboard/forms", icon: <ClipboardCheck className="w-4 h-4" /> },
+    { key: "tags", i18nKey: "sub.tags", href: "/dashboard/tags", icon: <Tag className="w-4 h-4" /> },
+    { key: "domains", i18nKey: "sub.domains", href: "/dashboard/domains", icon: <Globe className="w-4 h-4" /> },
+    { key: "data-leads", i18nKey: "sub.dataLeads", href: "/dashboard/data-leads", icon: <Database className="w-4 h-4" /> },
   ],
   orders: [
-    { key: "all-orders", label: "Tất cả đơn hàng", href: "/dashboard/orders", icon: <List className="w-4 h-4" /> },
-    { key: "pending", label: "Chờ xác nhận", href: "/dashboard/orders?status=pending", icon: <ShoppingBag className="w-4 h-4" /> },
-    { key: "shipping", label: "Đang giao", href: "/dashboard/orders?status=shipping", icon: <ShoppingBag className="w-4 h-4" /> },
-    { key: "completed", label: "Hoàn thành", href: "/dashboard/orders?status=completed", icon: <ShoppingBag className="w-4 h-4" /> },
-    { key: "cancelled", label: "Đã hủy", href: "/dashboard/orders?status=cancelled", icon: <ShoppingBag className="w-4 h-4" /> },
+    { key: "all-orders", i18nKey: "sub.allOrders", href: "/dashboard/orders", icon: <List className="w-4 h-4" /> },
+    { key: "pending", i18nKey: "sub.pending", href: "/dashboard/orders?status=pending", icon: <ShoppingBag className="w-4 h-4" /> },
+    { key: "shipping", i18nKey: "sub.shipping", href: "/dashboard/orders?status=shipping", icon: <ShoppingBag className="w-4 h-4" /> },
+    { key: "completed", i18nKey: "sub.completed", href: "/dashboard/orders?status=completed", icon: <ShoppingBag className="w-4 h-4" /> },
+    { key: "cancelled", i18nKey: "sub.cancelled", href: "/dashboard/orders?status=cancelled", icon: <ShoppingBag className="w-4 h-4" /> },
   ],
   products: [
-    { key: "all-products", label: "Danh sách sản phẩm", href: "/dashboard/products", icon: <Box className="w-4 h-4" /> },
-    { key: "categories", label: "Danh mục", href: "/dashboard/products?tab=categories", icon: <LayoutGrid className="w-4 h-4" /> },
-    { key: "inventory", label: "Kho hàng", href: "/dashboard/products?tab=inventory", icon: <Database className="w-4 h-4" /> },
+    { key: "all-products", i18nKey: "sub.allProducts", href: "/dashboard/products", icon: <Box className="w-4 h-4" /> },
+    { key: "categories", i18nKey: "sub.categories", href: "/dashboard/products?tab=categories", icon: <LayoutGrid className="w-4 h-4" /> },
+    { key: "inventory", i18nKey: "sub.inventory", href: "/dashboard/products?tab=inventory", icon: <Database className="w-4 h-4" /> },
   ],
   customers: [
-    { key: "all-customers", label: "Danh sách khách", href: "/dashboard/customers", icon: <Users className="w-4 h-4" /> },
-    { key: "groups", label: "Nhóm khách hàng", href: "/dashboard/customers?tab=groups", icon: <Tag className="w-4 h-4" /> },
-    { key: "import", label: "Import khách hàng", href: "/dashboard/customers?tab=import", icon: <Database className="w-4 h-4" /> },
+    { key: "all-customers", i18nKey: "sub.allCustomers", href: "/dashboard/customers", icon: <Users className="w-4 h-4" /> },
+    { key: "groups", i18nKey: "sub.groups", href: "/dashboard/customers?tab=groups", icon: <Tag className="w-4 h-4" /> },
+    { key: "import", i18nKey: "sub.importCustomers", href: "/dashboard/customers?tab=import", icon: <Database className="w-4 h-4" /> },
   ],
   reports: [
-    { key: "overview", label: "Tổng quan", href: "/dashboard/reports", icon: <BarChart3 className="w-4 h-4" /> },
-    { key: "by-page", label: "Theo trang", href: "/dashboard/reports?tab=pages", icon: <FileText className="w-4 h-4" /> },
-    { key: "by-traffic", label: "Theo nguồn traffic", href: "/dashboard/reports?tab=traffic", icon: <Globe className="w-4 h-4" /> },
-    { key: "revenue", label: "Doanh thu", href: "/dashboard/reports?tab=revenue", icon: <BarChart3 className="w-4 h-4" /> },
+    { key: "overview", i18nKey: "sub.overview", href: "/dashboard/reports", icon: <BarChart3 className="w-4 h-4" /> },
+    { key: "by-page", i18nKey: "sub.byPage", href: "/dashboard/reports?tab=pages", icon: <FileText className="w-4 h-4" /> },
+    { key: "by-traffic", i18nKey: "sub.byTraffic", href: "/dashboard/reports?tab=traffic", icon: <Globe className="w-4 h-4" /> },
+    { key: "revenue", i18nKey: "sub.revenue", href: "/dashboard/reports?tab=revenue", icon: <BarChart3 className="w-4 h-4" /> },
   ],
   settings: [
-    { key: "account", label: "Thông tin tài khoản", href: "/dashboard/settings", icon: <Users className="w-4 h-4" /> },
-    { key: "members", label: "Thành viên & phân quyền", href: "/dashboard/settings?tab=members", icon: <Users className="w-4 h-4" /> },
-    { key: "billing", label: "Thanh toán & gói", href: "/dashboard/settings?tab=billing", icon: <BarChart3 className="w-4 h-4" /> },
-    { key: "integrations", label: "Tích hợp", href: "/dashboard/integrations", icon: <Zap className="w-4 h-4" /> },
+    { key: "account", i18nKey: "sub.account", href: "/dashboard/settings", icon: <Users className="w-4 h-4" /> },
+    { key: "members", i18nKey: "sub.members", href: "/dashboard/settings?tab=members", icon: <Users className="w-4 h-4" /> },
+    { key: "billing", i18nKey: "sub.billing", href: "/dashboard/settings?tab=billing", icon: <BarChart3 className="w-4 h-4" /> },
+    { key: "integrations", i18nKey: "sub.integrations", href: "/dashboard/integrations", icon: <Zap className="w-4 h-4" /> },
   ],
 };
 
@@ -121,6 +121,20 @@ const APPS = [
   { label: "Blog", icon: <BookOpen className="w-4 h-4" />, color: "text-blue-500" },
   { label: "Dynamic", icon: <Sparkles className="w-4 h-4" />, color: "text-violet-500" },
 ];
+
+const LANG_OPTIONS: { code: LangCode; label: string; flag: string }[] = [
+  { code: "vi", label: "Tiếng Việt", flag: "🇻🇳" },
+  { code: "en", label: "English", flag: "🇺🇸" },
+  { code: "ja", label: "日本語", flag: "🇯🇵" },
+  { code: "ko", label: "한국어", flag: "🇰🇷" },
+  { code: "zh", label: "中文", flag: "🇨🇳" },
+  { code: "th", label: "ภาษาไทย", flag: "🇹🇭" },
+];
+
+function initials(name?: string) {
+  if (!name) return "U";
+  return name.trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+}
 
 function getActiveMenu(pathname: string): MainMenuKey {
   if (pathname.startsWith("/dashboard/orders")) return "orders";
@@ -135,12 +149,49 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuthStore();
+  const { lang, setLang } = useLangStore();
+  const t = useT();
 
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<number | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [wsDropdownOpen, setWsDropdownOpen] = useState(false);
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [langOpen, setLangOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const profileRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) setProfileDropdownOpen(false);
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  useEffect(() => {
+    notificationsApi.list().then((res) => {
+      setNotifications(res.items);
+      setUnreadCount(res.unread);
+    }).catch(() => {});
+  }, []);
+
+  const handleMarkAllRead = async () => {
+    await notificationsApi.markAllRead();
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    setUnreadCount(0);
+    setNotifOpen(false);
+  };
+
+  const currentLangOption = LANG_OPTIONS.find((l) => l.code === lang) ?? LANG_OPTIONS[0];
+  const planName = "STARTER";
 
   const activeMenu = getActiveMenu(pathname);
   const subItems = SUB_MENUS[activeMenu];
@@ -167,11 +218,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const handleLogout = () => {
     logout();
     router.push("/login");
-  };
-
-  const initials = (name?: string) => {
-    if (!name) return "U";
-    return name.trim().split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
   };
 
   const col1Content = (
@@ -221,9 +267,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 className="w-full text-left px-3 py-1.5 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded-md font-medium"
-                onClick={() => { setWsDropdownOpen(false); router.push("/dashboard"); }}
+                onClick={() => { setWsDropdownOpen(false); router.push("/dashboard/pages"); }}
               >
-                + Tạo workspace mới
+                {t("sidebar.newWorkspace")}
               </button>
             </div>
           </div>
@@ -245,7 +291,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               }`}
             >
               <span className={isActive ? "text-violet-600 dark:text-violet-400" : "text-slate-400"}>{item.icon}</span>
-              {!collapsed && item.label}
+              {!collapsed && t(item.i18nKey)}
             </Link>
           );
         })}
@@ -254,8 +300,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {!collapsed && (
           <div className="mt-4">
             <div className="flex items-center justify-between px-3 mb-1">
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Ứng dụng</p>
-              <button type="button" className="w-5 h-5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center transition">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{t("apps.title")}</p>
+              <button type="button" className="w-5 h-5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center transition" onClick={() => router.push("/dashboard/integrations")}>
                 <Plus className="w-3.5 h-3.5 text-slate-400" />
               </button>
             </div>
@@ -264,6 +310,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 key={app.label}
                 type="button"
                 className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                onClick={() => router.push("/dashboard/integrations")}
               >
                 <span className={app.color}>{app.icon}</span>
                 {app.label}
@@ -281,7 +328,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
         >
           <LogOut className="w-4 h-4" />
-          {!collapsed && "Đăng xuất"}
+          {!collapsed && t("sidebar.logout")}
         </button>
       </div>
     </>
@@ -291,7 +338,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="flex flex-col h-full">
       <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800">
         <p className="text-sm font-bold text-slate-900 dark:text-slate-100">
-          {MAIN_MENU.find((m) => m.key === activeMenu)?.label}
+          {t(MAIN_MENU.find((m) => m.key === activeMenu)?.i18nKey ?? "menu.landingPages")}
         </p>
       </div>
       <nav className="flex-1 p-2 overflow-y-auto">
@@ -308,26 +355,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               }`}
             >
               <span className={isActive ? "text-violet-600 dark:text-violet-400" : "text-slate-400"}>{sub.icon}</span>
-              {sub.label}
+              {t(sub.i18nKey)}
             </Link>
           );
         })}
       </nav>
 
-      {/* LadiPage Learning banner */}
+      {/* PagePeak Learning banner */}
       <div className="p-3 m-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-gradient-to-br from-violet-50 to-white dark:from-violet-500/5 dark:to-slate-900">
         <p className="text-xs font-bold text-transparent bg-clip-text bg-gradient-to-r from-violet-700 to-indigo-500 uppercase tracking-wide">
-          PagePeak Learning
+          {t("learning.title")}
         </p>
         <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
-          Xem ngay các khóa học thực chiến tại đây!
+          {t("learning.desc")}
         </p>
         <p className="text-[11px] text-emerald-600 font-semibold mt-1">New</p>
         <Link
-          href="#"
+          href="/dashboard/templates"
           className="mt-2 text-xs font-bold text-violet-700 dark:text-violet-400 hover:underline uppercase tracking-wide inline-block"
         >
-          Đăng ký ngay
+          {t("learning.cta")}
         </Link>
       </div>
     </div>
@@ -354,7 +401,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         >
           {/* Logo */}
           <div className="h-14 px-3 flex items-center border-b border-slate-200 dark:border-slate-800 gap-2">
-            <Link href="/dashboard" className="flex items-center gap-2 hover:opacity-90 transition">
+            <Link href="/dashboard/pages" className="flex items-center gap-2 hover:opacity-90 transition">
               <Image
                 src="/logo.jpg"
                 alt="PagePeak"
@@ -384,7 +431,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           type="button"
           onClick={() => setCollapsed((v) => !v)}
           className="absolute top-1/2 -translate-y-1/2 -right-3 w-6 h-6 rounded-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-sm hidden lg:flex items-center justify-center hover:bg-slate-50 dark:hover:bg-slate-800 transition z-50"
-          aria-label="Thu gọn sidebar"
+          aria-label={t("sidebar.collapse")}
         >
           {collapsed ? <ChevronRight className="w-3.5 h-3.5 text-slate-500" /> : <ChevronLeft className="w-3.5 h-3.5 text-slate-500" />}
         </button>
@@ -407,7 +454,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Tìm kiếm Landing Page, domain, integration…"
+                  placeholder={t("topbar.search")}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && searchQuery.trim()) {
+                      router.push(`/dashboard/pages?q=${encodeURIComponent(searchQuery.trim())}`);
+                    }
+                  }}
                   className="w-full rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 text-slate-900 dark:text-slate-100 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
@@ -420,32 +474,172 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               className="hidden sm:inline-flex border-indigo-600 text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400 dark:text-indigo-300 text-xs"
               onClick={() => router.push("/dashboard/settings?tab=billing")}
             >
-              Nâng cấp tài khoản
+              {t("topbar.upgrade")}
             </Button>
+
+            {/* Help */}
             <button
               type="button"
-              className="flex items-center gap-2 rounded-full pl-1 pr-3 py-1 hover:bg-slate-100 dark:hover:bg-slate-900 transition"
-              onClick={() => router.push("/dashboard/settings")}
+              className="relative w-9 h-9 rounded-full flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              title={t("topbar.help")}
+              onClick={() => window.open("https://docs.pagepeak.com", "_blank")}
             >
-              <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold">
-                {initials(user?.fullName)}
-              </div>
-              <div className="hidden sm:block text-left">
-                <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 leading-tight">
-                  {user?.fullName ?? "User"}
-                </p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight truncate max-w-[120px]">
-                  {user?.email ?? ""}
-                </p>
-              </div>
+              <HelpCircle className="w-5 h-5 text-slate-500 dark:text-slate-400" />
             </button>
-            <Button
-              className="hidden md:inline-flex bg-indigo-600 hover:bg-indigo-700 text-xs"
-              onClick={() => router.push("/dashboard/pages?create=1")}
-            >
-              <Plus className="w-4 h-4 mr-1" />
-              Tạo Landing Page
-            </Button>
+
+            {/* Notification Bell */}
+            <div ref={notifRef} className="relative">
+              <button
+                type="button"
+                className="relative w-9 h-9 rounded-full flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                onClick={() => { setNotifOpen((v) => !v); setProfileDropdownOpen(false); }}
+                title={t("topbar.notifications")}
+              >
+                <Bell className="w-5 h-5 text-slate-500 dark:text-slate-400" />
+                {unreadCount > 0 && (
+                  <span className="absolute top-1 right-1.5 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center ring-2 ring-white dark:ring-slate-950">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
+              </button>
+              {notifOpen && (
+                <div className="absolute right-0 top-11 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-[60] overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
+                    <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{t("topbar.notifications")}</p>
+                    <button type="button" className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium" onClick={handleMarkAllRead}>
+                      {t("topbar.markRead")}
+                    </button>
+                  </div>
+                  {notifications.length === 0 ? (
+                    <div className="px-4 py-8 text-center">
+                      <Bell className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
+                      <p className="text-sm text-slate-500 dark:text-slate-400">{t("topbar.noNotifications")}</p>
+                    </div>
+                  ) : (
+                    <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                      {notifications.slice(0, 10).map((n) => (
+                        <div key={n.id} className={`px-4 py-3 text-sm ${n.isRead ? "opacity-60" : ""}`}>
+                          <p className="font-semibold text-slate-900 dark:text-slate-100">{n.title}</p>
+                          <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">{n.message}</p>
+                          <p className="text-slate-400 text-[10px] mt-1">{new Date(n.createdAt).toLocaleString("vi-VN")}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* User Profile Dropdown */}
+            <div ref={profileRef} className="relative">
+              <button
+                type="button"
+                className="flex items-center gap-2 rounded-full pl-1 pr-1 py-1 hover:bg-slate-100 dark:hover:bg-slate-900 transition ring-2 ring-transparent hover:ring-indigo-200 dark:hover:ring-indigo-800"
+                onClick={() => { setProfileDropdownOpen((v) => !v); setNotifOpen(false); }}
+              >
+                {user?.avatarUrl ? (
+                  <Image src={user.avatarUrl} alt="" width={34} height={34} className="w-[34px] h-[34px] rounded-full object-cover" />
+                ) : (
+                  <div className="w-[34px] h-[34px] rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-white flex items-center justify-center text-xs font-bold">
+                    {initials(user?.fullName)}
+                  </div>
+                )}
+              </button>
+              {profileDropdownOpen && (
+                <div className="absolute right-0 top-12 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-[60] overflow-hidden">
+                  {/* User info */}
+                  <div className="px-4 pt-4 pb-3 text-center border-b border-slate-100 dark:border-slate-800">
+                    {user?.avatarUrl ? (
+                      <Image src={user.avatarUrl} alt="" width={56} height={56} className="w-14 h-14 rounded-full object-cover mx-auto mb-2 ring-2 ring-indigo-100 dark:ring-indigo-900" />
+                    ) : (
+                      <div className="w-14 h-14 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-white flex items-center justify-center text-lg font-bold mx-auto mb-2 ring-2 ring-indigo-100 dark:ring-indigo-900">
+                        {initials(user?.fullName)}
+                      </div>
+                    )}
+                    <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{user?.fullName ?? "User"}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{user?.email ?? ""}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      {t("profile.expires")}: <span className="font-semibold text-slate-700 dark:text-slate-200">{t("profile.permanent")}</span>
+                    </p>
+                    <button
+                      type="button"
+                      className="mt-2 inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full border-2 border-emerald-500 text-emerald-600 dark:text-emerald-400 text-xs font-bold hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition"
+                      onClick={() => { setProfileDropdownOpen(false); router.push("/dashboard/settings?tab=verify"); }}
+                    >
+                      <Shield className="w-3.5 h-3.5" />
+                      {t("profile.verify")}
+                    </button>
+                  </div>
+
+                  {/* Plan badge */}
+                  <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-center">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-emerald-300 dark:border-emerald-600 text-emerald-600 dark:text-emerald-400 text-xs font-bold">
+                      <Crown className="w-3.5 h-3.5" />
+                      {planName}
+                    </span>
+                  </div>
+
+                  {/* Menu items */}
+                  <div className="py-1">
+                    {/* Language selector */}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+                        onClick={() => setLangOpen((v) => !v)}
+                      >
+                        <Languages className="w-4 h-4 text-slate-400" />
+                        <span className="flex-1 text-left">{t("profile.language")} ({currentLangOption.label})</span>
+                        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${langOpen ? "rotate-180" : ""}`} />
+                      </button>
+                      {langOpen && (
+                        <div className="mx-3 mb-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 overflow-hidden">
+                          {LANG_OPTIONS.map((lo) => (
+                            <button
+                              key={lo.code}
+                              type="button"
+                              className={`w-full flex items-center gap-2 px-3 py-2 text-sm transition ${
+                                lang === lo.code
+                                  ? "bg-indigo-50 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-semibold"
+                                  : "text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-700"
+                              }`}
+                              onClick={() => { setLang(lo.code); setLangOpen(false); }}
+                            >
+                              <span className="text-base">{lo.flag}</span>
+                              <span className="flex-1 text-left">{lo.label}</span>
+                              {lang === lo.code && <Check className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Account management */}
+                    <button
+                      type="button"
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+                      onClick={() => { setProfileDropdownOpen(false); router.push("/dashboard/settings"); }}
+                    >
+                      <UserCog className="w-4 h-4 text-slate-400" />
+                      {t("profile.manageAccount")}
+                    </button>
+                  </div>
+
+                  {/* Logout */}
+                  <div className="border-t border-slate-100 dark:border-slate-800 py-1">
+                    <button
+                      type="button"
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
+                      onClick={() => { setProfileDropdownOpen(false); handleLogout(); }}
+                    >
+                      <LogOut className="w-4 h-4" />
+                      {t("profile.logout")}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
           </div>
         </header>
 

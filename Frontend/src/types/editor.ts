@@ -109,3 +109,15 @@ export type PageContent = {
   mobileFriendly: boolean;
   sections: EditorSection[];
 };
+
+export type ZoomLevel = 0.25 | 0.5 | 0.75 | 1 | 1.25 | 1.5 | 2 | 3;
+
+export const ZOOM_PRESETS: { label: string; value: number }[] = [
+  { label: "25%", value: 0.25 },
+  { label: "50%", value: 0.5 },
+  { label: "75%", value: 0.75 },
+  { label: "100%", value: 1 },
+  { label: "125%", value: 1.25 },
+  { label: "150%", value: 1.5 },
+  { label: "200%", value: 2 },
+];

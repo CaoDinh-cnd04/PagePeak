@@ -111,7 +111,7 @@ function ExternalRegisterInner() {
       const data = (await res.json()) as { accessToken: string; refreshToken: string; expiresAt: string };
       saveTokens(data.accessToken, data.refreshToken, data.expiresAt);
       await fetchMe();
-      router.replace("/dashboard");
+      router.replace("/dashboard/pages");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Đăng ký thất bại.");
     } finally {

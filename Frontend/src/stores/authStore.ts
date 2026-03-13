@@ -43,7 +43,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   register: async (email, password, fullName, phone, recaptchaToken) => {
     set({ isLoading: true });
     try {
-      await authApi.register(email, password, fullName, phone, recaptchaToken);
+      const result = await authApi.register(email, password, fullName, phone, recaptchaToken);
+      if (result.emailVerificationRequired) {
+        throw new Error("EMAIL_VERIFICATION_REQUIRED");
+      }
       await get().login(email, password);
     } finally {
       set({ isLoading: false });
