@@ -5,7 +5,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                           CLIENT (SPA)                                   │
-│  Next.js 15 App Router · React · Zustand · GrapesJS / React DnD         │
+│  React 18 · Vite · Zustand · Fabric.js                                   │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
@@ -29,11 +29,10 @@
 
 | Thành phần | Công nghệ / Ghi chú |
 |------------|----------------------|
-| **Monorepo** | Turborepo |
 | **UI** | Component-based, Atomic Design |
 | **State** | Zustand + Immer (nhẹ, dễ debug cho builder) |
-| **Builder** | GrapesJS (drag & drop mạnh) hoặc React DnD + React Grid Layout (tùy biến sâu) |
-| **Routing** | Next.js 15 App Router (SSR/SEO) |
+| **Builder** | Fabric.js (canvas drag & drop) |
+| **Routing** | React Router v7 |
 
 ---
 
@@ -78,10 +77,11 @@ He thong LadingPages/
 │   │       ├── Infrastructure/
 │   │       └── ...
 │   └── README.md
-├── Frontend/                 # React.js — Next.js 15 (builder + customer)
-│   ├── app/                  # App Router
-│   ├── components/           # Atomic (atoms, molecules, organisms)
-│   ├── features/             # builder, templates, leads, ...
+├── Frontend-ui/              # React.js — Vite (builder + customer)
+│   ├── src/
+│   │   ├── components/       # UI components
+│   │   ├── pages/            # Trang
+│   │   └── stores/            # Zustand
 │   └── README.md
 ├── docs/
 └── README.md

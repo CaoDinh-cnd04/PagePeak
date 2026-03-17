@@ -34,7 +34,7 @@ Hệ thống là **nền tảng SaaS no-code/low-code** cho phép người dùng
 
 ## Công nghệ tổng quan
 
-- **Frontend:** React (Next.js 15 App Router) — SSR tốt cho SEO  
+- **Frontend:** React 18 + Vite — SPA  
 - **Backend:** ASP.NET Core 10 Web API  
 - **Database:** SQL Server  
 - **Storage:** Cloudinary (ưu tiên) hoặc AWS S3 + CloudFront  

@@ -75,8 +75,8 @@ Mở trình duyệt: **http://localhost:5000/swagger**
 - **ConnectionStrings:DefaultConnection** — SQL Server, database LadiPageDB
 - **JwtSettings:Secret** — Chuỗi bí mật (≥ 32 ký tự)
 - **JwtSettings:Issuer**, **Audience** — JWT issuer/audience
-- **Cors:Origins** — Mảng origin frontend (vd: http://localhost:3000)
-- **Frontend:BaseUrl** — URL frontend để redirect sau OAuth (vd: http://localhost:3000)
+- **Cors:Origins** — Mảng origin frontend (vd: http://localhost:5173)
+- **Frontend:BaseUrl** — URL frontend để redirect sau OAuth (vd: http://localhost:5173)
 - **Authentication:Google:ClientId**, **ClientSecret** — Đăng ký tại [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
 - **Authentication:Facebook:AppId**, **AppSecret** — Đăng ký tại [Facebook for Developers](https://developers.facebook.com/). Callback URL: `https://your-api/signin-facebook`
 - **Recaptcha:SecretKey** — (Tùy chọn) Google reCAPTCHA v2 secret key để xác thực khi đăng ký. Lấy tại [Google reCAPTCHA Admin](https://www.google.com/recaptcha/admin)

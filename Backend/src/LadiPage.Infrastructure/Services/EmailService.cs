@@ -118,4 +118,78 @@ public class EmailService : IEmailService
             throw;
         }
     }
+
+    public async Task SendNotificationEmailAsync(string toEmail, string fullName, string title, string message, CancellationToken cancellationToken = default)
+    {
+        var smtpHost = _config["Email:SmtpHost"] ?? "smtp.gmail.com";
+        var smtpPort = int.Parse(_config["Email:SmtpPort"] ?? "587");
+        var smtpUser = _config["Email:SmtpUser"] ?? "";
+        var smtpPass = _config["Email:SmtpPass"] ?? "";
+        var fromName = _config["Email:FromName"] ?? "PagePeak";
+        var fromEmail = _config["Email:FromEmail"] ?? smtpUser;
+
+        if (string.IsNullOrEmpty(smtpUser) || string.IsNullOrEmpty(smtpPass))
+        {
+            _logger.LogWarning("SMTP credentials not configured. Skipping notification email to {Email}", toEmail);
+            return;
+        }
+
+        var subject = $"[PagePeak] {title}";
+
+        var body = $"""
+        <!DOCTYPE html>
+        <html>
+        <head><meta charset="utf-8"></head>
+        <body style="margin:0;padding:0;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;padding:40px 20px;">
+            <tr><td align="center">
+              <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.06);">
+                <tr>
+                  <td style="background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:24px 40px;text-align:center;">
+                    <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:800;">PagePeak</h1>
+                    <p style="margin:6px 0 0;color:rgba(255,255,255,0.85);font-size:13px;">Thông báo mới</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:32px;">
+                    <h2 style="margin:0 0 8px;color:#1e293b;font-size:18px;font-weight:700;">Xin chào {fullName}!</h2>
+                    <p style="margin:0 0 16px;color:#64748b;font-size:14px;line-height:1.6;">{message}</p>
+                    <div style="border-top:1px solid #e2e8f0;padding-top:20px;margin-top:16px;">
+                      <p style="margin:0;color:#94a3b8;font-size:12px;">© {DateTime.UtcNow.Year} PagePeak</p>
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </td></tr>
+          </table>
+        </body>
+        </html>
+        """;
+
+        using var client = new SmtpClient(smtpHost, smtpPort)
+        {
+            Credentials = new NetworkCredential(smtpUser, smtpPass),
+            EnableSsl = true,
+        };
+
+        var msg = new MailMessage
+        {
+            From = new MailAddress(fromEmail, fromName),
+            Subject = subject,
+            Body = body,
+            IsBodyHtml = true,
+        };
+        msg.To.Add(new MailAddress(toEmail, fullName));
+
+        try
+        {
+            await client.SendMailAsync(msg, cancellationToken);
+            _logger.LogInformation("Notification email sent to {Email}: {Title}", toEmail, title);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send notification email to {Email}", toEmail);
+            throw;
+        }
+    }
 }

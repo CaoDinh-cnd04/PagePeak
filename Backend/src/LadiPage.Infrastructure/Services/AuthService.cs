@@ -47,8 +47,6 @@ public class AuthService : IAuthService
             return null;
         if (!BCrypt.Net.BCrypt.Verify(password, user.PasswordHash))
             return null;
-        if (!user.EmailConfirmed)
-            throw new InvalidOperationException("EMAIL_NOT_VERIFIED");
 
         var refreshToken = _jwt.GenerateRefreshToken();
         var expiresAt = _jwt.GetRefreshTokenExpiresAt();
@@ -130,6 +128,23 @@ public class AuthService : IAuthService
         _ = Task.Run(async () =>
         {
             try { await _emailService.SendVerificationEmailAsync(email, fullName, verifyUrl, CancellationToken.None); }
+            catch { /* logged inside EmailService */ }
+        });
+
+        _db.Notifications.Add(new Notification
+        {
+            UserId = user.Id,
+            Title = "Chào mừng đến PagePeak!",
+            Message = "Bạn đã đăng ký thành công. Vui lòng kiểm tra email để xác thực tài khoản và bắt đầu sử dụng.",
+            Type = "success",
+            IsRead = false,
+            CreatedAt = _dateTime.UtcNow
+        });
+        await _db.SaveChangesAsync(cancellationToken);
+
+        _ = Task.Run(async () =>
+        {
+            try { await _emailService.SendNotificationEmailAsync(email, fullName, "Chào mừng đến PagePeak!", "Bạn đã đăng ký thành công. Vui lòng kiểm tra email để xác thực tài khoản và bắt đầu sử dụng.", CancellationToken.None); }
             catch { /* logged inside EmailService */ }
         });
 

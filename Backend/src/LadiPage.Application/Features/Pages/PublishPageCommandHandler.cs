@@ -8,20 +8,29 @@ namespace LadiPage.Application.Features.Pages;
 public class PublishPageCommandHandler : IRequestHandler<PublishPageCommand, PublishPageResult>
 {
     private readonly IAppDbContext _db;
+    private readonly ICurrentUser _currentUser;
+    private readonly IWorkspaceAccessService _workspaceAccess;
 
-    public PublishPageCommandHandler(IAppDbContext db)
+    public PublishPageCommandHandler(IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess)
     {
         _db = db;
+        _currentUser = currentUser;
+        _workspaceAccess = workspaceAccess;
     }
 
     public async Task<PublishPageResult> Handle(PublishPageCommand request, CancellationToken cancellationToken)
     {
+        if (_currentUser.UserId == null) return new PublishPageResult(false, "Unauthorized", []);
+
         var page = await _db.Pages
             .Include(p => p.Sections)
                 .ThenInclude(s => s.Elements)
             .FirstOrDefaultAsync(p => p.Id == request.PageId, cancellationToken);
 
         if (page == null)
+            return new PublishPageResult(false, "Page not found", []);
+
+        if (!await _workspaceAccess.CanAccessWorkspaceAsync(_currentUser.UserId.Value, page.WorkspaceId, cancellationToken))
             return new PublishPageResult(false, "Page not found", []);
 
         var checks = new List<PublishCheckItem>();

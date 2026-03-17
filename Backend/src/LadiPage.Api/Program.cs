@@ -53,9 +53,15 @@ builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.WithOrigins(builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? new[] { "http://localhost:3000" })
-            .AllowAnyHeader()
-            .AllowAnyMethod();
+        var allowedOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>();
+        if (allowedOrigins != null && allowedOrigins.Length > 0)
+        {
+            policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod();
+        }
+        else
+        {
+            policy.SetIsOriginAllowed(_ => true).AllowAnyHeader().AllowAnyMethod();
+        }
     });
 });
 
@@ -83,7 +89,11 @@ var authBuilder = builder.Services.AddAuthentication(options =>
             ClockSkew = TimeSpan.Zero
         };
     })
-    .AddCookie("ExternalCookie", _ => { });
+    .AddCookie("ExternalCookie", options =>
+{
+    options.Cookie.SameSite = SameSiteMode.Lax;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+});
 
 var googleClientId = builder.Configuration["Authentication:Google:ClientId"];
 var googleClientSecret = builder.Configuration["Authentication:Google:ClientSecret"];
@@ -112,6 +122,12 @@ if (!string.IsNullOrWhiteSpace(fbAppId) && !string.IsNullOrWhiteSpace(fbAppSecre
 }
 
 builder.Services.AddAuthorization();
+builder.Services.AddResponseCompression();
+builder.Services.AddOutputCache(options =>
+{
+    options.AddPolicy("PlansCache", policy => policy.Expire(TimeSpan.FromMinutes(5)));
+    options.AddPolicy("TemplatesCache", policy => policy.Expire(TimeSpan.FromMinutes(2)));
+});
 
 var app = builder.Build();
 
@@ -482,8 +498,9 @@ END
             var tiFrame = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Frame", Icon = "frame", ElementType = "frame", Order = 14, HasSubTabs = false };
             var tiAccordion = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Accordion", Icon = "chevrons-down", ElementType = "accordion", Order = 15, HasSubTabs = false };
             var tiTable = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Table", Icon = "table", ElementType = "table", Order = 16, HasSubTabs = false };
+            var tiAntigravity = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Antigravity UI", Icon = "rocket", ElementType = "antigravity", Order = 17, HasSubTabs = false };
 
-            db.ToolItems.AddRange(tiVanBan, tiNutBam, tiAnh, tiGallery, tiHinhHop, tiBieuTuong, tiDuongKe, tiForm, tiSanPhamMau, tiVideo, tiCollectionList, tiCarousel, tiTabs, tiFrame, tiAccordion, tiTable);
+            db.ToolItems.AddRange(tiVanBan, tiNutBam, tiAnh, tiGallery, tiHinhHop, tiBieuTuong, tiDuongKe, tiForm, tiSanPhamMau, tiVideo, tiCollectionList, tiCarousel, tiTabs, tiFrame, tiAccordion, tiTable, tiAntigravity);
 
             // Tool Items for "Section"
             var tiSectionBlank = new LadiPage.Core.Entities.ToolItem { CategoryId = catSection.Id, Name = "Section trống", Icon = "plus-square", ElementType = "section", Order = 1, HasSubTabs = false };
@@ -570,6 +587,54 @@ END
                 new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Hộp tròn", TabName = null, DefaultContent = "", StylesJson = "{\"backgroundColor\":\"#dbeafe\",\"borderRadius\":999}", DefaultWidth = 120, DefaultHeight = 120, Order = 2 },
                 new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Hộp bo góc", TabName = null, DefaultContent = "", StylesJson = "{\"backgroundColor\":\"#fef3c7\",\"borderRadius\":16}", DefaultWidth = 200, DefaultHeight = 150, Order = 3 },
                 new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Hộp viền", TabName = null, DefaultContent = "", StylesJson = "{\"backgroundColor\":\"transparent\",\"borderRadius\":8,\"border\":\"2px solid #6366f1\"}", DefaultWidth = 200, DefaultHeight = 150, Order = 4 }
+            );
+
+            // Presets for Biểu tượng (icon)
+            db.ElementPresets.AddRange(
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiBieuTuong.Id, Name = "Ngôi sao", TabName = null, DefaultContent = "★", StylesJson = "{\"color\":\"#f59e0b\"}", DefaultWidth = 48, DefaultHeight = 48, Order = 1 },
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiBieuTuong.Id, Name = "Trái tim", TabName = null, DefaultContent = "❤", StylesJson = "{\"color\":\"#ef4444\"}", DefaultWidth = 48, DefaultHeight = 48, Order = 2 },
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiBieuTuong.Id, Name = "Dấu tick", TabName = null, DefaultContent = "✔", StylesJson = "{\"color\":\"#16a34a\"}", DefaultWidth = 48, DefaultHeight = 48, Order = 3 },
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiBieuTuong.Id, Name = "Thông tin", TabName = null, DefaultContent = "ℹ", StylesJson = "{\"color\":\"#3b82f6\"}", DefaultWidth = 48, DefaultHeight = 48, Order = 4 },
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiBieuTuong.Id, Name = "Cảnh báo", TabName = null, DefaultContent = "⚠", StylesJson = "{\"color\":\"#eab308\"}", DefaultWidth = 48, DefaultHeight = 48, Order = 5 }
+            );
+
+            // Presets for Ảnh
+            db.ElementPresets.AddRange(
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiAnh.Id, Name = "Ảnh mặc định", TabName = null, DefaultContent = "Image", StylesJson = "{\"borderRadius\":0}", DefaultWidth = 400, DefaultHeight = 260, Order = 1 },
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiAnh.Id, Name = "Ảnh bo góc", TabName = null, DefaultContent = "Image", StylesJson = "{\"borderRadius\":16,\"shadow\":\"0 10px 30px rgba(15,23,42,0.21)\"}", DefaultWidth = 420, DefaultHeight = 280, Order = 2 },
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiAnh.Id, Name = "Ảnh avatar tròn", TabName = null, DefaultContent = "Avatar", StylesJson = "{\"borderRadius\":9999}", DefaultWidth = 160, DefaultHeight = 160, Order = 3 }
+            );
+
+            // Presets for Video
+            db.ElementPresets.AddRange(
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVideo.Id, Name = "Video 16:9", TabName = null, DefaultContent = "https://www.youtube.com/embed/dQw4w9WgXcQ", StylesJson = "{\"borderRadius\":12}", DefaultWidth = 560, DefaultHeight = 315, Order = 1 },
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVideo.Id, Name = "Video 4:3", TabName = null, DefaultContent = "https://www.youtube.com/embed/jNQXAC9IVRw", StylesJson = "{\"borderRadius\":8}", DefaultWidth = 480, DefaultHeight = 360, Order = 2 }
+            );
+
+            // Presets for Form
+            db.ElementPresets.AddRange(
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiForm.Id, Name = "Form 2 trường", TabName = null, DefaultContent = "name,email", StylesJson = "{\"fontSize\":14}", DefaultWidth = 400, DefaultHeight = 260, Order = 1 },
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiForm.Id, Name = "Form đăng ký", TabName = null, DefaultContent = "name,phone,email", StylesJson = "{\"fontSize\":14}", DefaultWidth = 420, DefaultHeight = 300, Order = 2 }
+            );
+
+            // Presets for Sản phẩm mẫu
+            db.ElementPresets.AddRange(
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiSanPhamMau.Id, Name = "Card sản phẩm", TabName = null, DefaultContent = "Sản phẩm mẫu", StylesJson = "{\"fontSize\":16,\"fontWeight\":600}", DefaultWidth = 260, DefaultHeight = 340, Order = 1 }
+            );
+
+            // Presets for tiện ích: Countdown, HTML, Map, Social share, Rating, Progress
+            db.ElementPresets.AddRange(
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiCountdown.Id, Name = "Đếm ngược mặc định", TabName = null, DefaultContent = "", StylesJson = "{\"fontSize\":24}", DefaultWidth = 320, DefaultHeight = 80, Order = 1 },
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiHtml.Id, Name = "Khối HTML trống", TabName = null, DefaultContent = "<div>HTML tùy chỉnh</div>", StylesJson = "{}", DefaultWidth = 400, DefaultHeight = 200, Order = 1 },
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiMap.Id, Name = "Google Maps mặc định", TabName = null, DefaultContent = "10.762622,106.660172", StylesJson = "{}", DefaultWidth = 500, DefaultHeight = 300, Order = 1 },
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiSocialShare.Id, Name = "Thanh chia sẻ", TabName = null, DefaultContent = "facebook,zalo,linkedin", StylesJson = "{\"fontSize\":14}", DefaultWidth = 260, DefaultHeight = 40, Order = 1 },
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiRating.Id, Name = "5 sao", TabName = null, DefaultContent = "5", StylesJson = "{\"color\":\"#f59e0b\"}", DefaultWidth = 200, DefaultHeight = 40, Order = 1 },
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiProgress.Id, Name = "Tiến trình 75%", TabName = null, DefaultContent = "75", StylesJson = "{\"backgroundColor\":\"#e2e8f0\"}", DefaultWidth = 400, DefaultHeight = 24, Order = 1 }
+            );
+
+            // Presets for Antigravity UI
+            db.ElementPresets.AddRange(
+                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiAntigravity.Id, Name = "Antigravity UI", TabName = null, DefaultContent = "Antigravity UI Component", StylesJson = "{}", DefaultWidth = 800, DefaultHeight = 600, Order = 1 }
             );
 
             await db.SaveChangesAsync();
@@ -677,9 +742,11 @@ END
     }
 }
 
+app.UseResponseCompression();
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseOutputCache();
 
 if (app.Environment.IsDevelopment())
 {
@@ -1009,6 +1076,9 @@ app.MapPut("/api/auth/change-password", async (
     var user = await db.Users.FindAsync(currentUser.UserId.Value);
     if (user == null) return Results.Unauthorized();
 
+    if (string.IsNullOrWhiteSpace(req?.CurrentPassword))
+        return Results.BadRequest(new { error = "Vui lòng nhập mật khẩu hiện tại." });
+
     if (!BCrypt.Net.BCrypt.Verify(req.CurrentPassword, user.PasswordHash))
         return Results.BadRequest(new { error = "Mật khẩu hiện tại không đúng." });
 
@@ -1120,6 +1190,33 @@ app.MapGet("/api/settings/plan", async (
         lastLoginAt = user.LastLoginAt,
         referralCode = user.ReferralCode
     });
+}).RequireAuthorization();
+
+// Upgrade plan (chế độ test: cho phép nâng cấp trực tiếp không cần thanh toán)
+app.MapPost("/api/plans/upgrade", async (
+    UpgradePlanRequest req,
+    LadiPage.Infrastructure.Data.AppDbContext db,
+    ICurrentUser currentUser,
+    IConfiguration config) =>
+{
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    var allowTestUpgrade = config.GetValue<bool>("AllowTestUpgrade");
+    if (!allowTestUpgrade)
+        return Results.BadRequest(new { error = "Chức năng nâng cấp đang bảo trì. Vui lòng liên hệ hỗ trợ." });
+
+    var plan = await db.Plans.AsNoTracking().FirstOrDefaultAsync(p => p.Id == req.PlanId && p.IsActive);
+    if (plan == null)
+        return Results.BadRequest(new { error = "Gói không tồn tại hoặc không khả dụng." });
+
+    var user = await db.Users.FindAsync(currentUser.UserId.Value);
+    if (user == null) return Results.Unauthorized();
+
+    user.CurrentPlanId = plan.Id;
+    user.PlanExpiresAt = DateTime.UtcNow.AddYears(1); // Test: 1 năm
+    user.UpdatedAt = DateTime.UtcNow;
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new { ok = true, planName = plan.Name });
 }).RequireAuthorization();
 
 // Workspace endpoints
@@ -1378,82 +1475,102 @@ app.MapDelete("/api/media/{id:long}", async (long id, HttpRequest request, IAppD
 }).RequireAuthorization();
 
 // ===== Tags API =====
-app.MapGet("/api/tags", async (long workspaceId, IAppDbContext db) =>
+app.MapGet("/api/tags", async (long workspaceId, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, workspaceId)) return Results.NotFound();
     var items = await db.Tags.Where(t => t.WorkspaceId == workspaceId).OrderBy(t => t.Name).Select(t => new { t.Id, t.Name, t.Color, t.CreatedAt }).ToListAsync();
     return Results.Ok(items);
 }).RequireAuthorization();
 
-app.MapPost("/api/tags", async (CreateTagRequest req, IAppDbContext db) =>
+app.MapPost("/api/tags", async (CreateTagRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, req.WorkspaceId)) return Results.NotFound();
     var tag = new LadiPage.Core.Entities.Tag { WorkspaceId = req.WorkspaceId, Name = req.Name.Trim(), Color = req.Color, CreatedAt = DateTime.UtcNow };
     db.Tags.Add(tag);
     await db.SaveChangesAsync();
     return Results.Ok(new { tag.Id, tag.Name, tag.Color, tag.CreatedAt });
 }).RequireAuthorization();
 
-app.MapPut("/api/tags/{id:long}", async (long id, UpdateTagRequest req, IAppDbContext db) =>
+app.MapPut("/api/tags/{id:long}", async (long id, UpdateTagRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
     var tag = await db.Tags.FindAsync(id);
     if (tag == null) return Results.NotFound();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, tag.WorkspaceId)) return Results.NotFound();
     if (!string.IsNullOrWhiteSpace(req.Name)) tag.Name = req.Name.Trim();
     if (req.Color != null) tag.Color = req.Color;
     await db.SaveChangesAsync();
     return Results.Ok(new { tag.Id, tag.Name, tag.Color });
 }).RequireAuthorization();
 
-app.MapDelete("/api/tags/{id:long}", async (long id, IAppDbContext db) =>
+app.MapDelete("/api/tags/{id:long}", async (long id, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
     var tag = await db.Tags.FindAsync(id);
     if (tag == null) return Results.NotFound();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, tag.WorkspaceId)) return Results.NotFound();
     db.Tags.Remove(tag);
     await db.SaveChangesAsync();
     return Results.Ok(new { ok = true });
 }).RequireAuthorization();
 
 // ===== Domains API =====
-app.MapGet("/api/domains", async (long workspaceId, IAppDbContext db) =>
+app.MapGet("/api/domains", async (long workspaceId, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, workspaceId)) return Results.NotFound();
     var items = await db.Domains.Where(d => d.WorkspaceId == workspaceId).OrderByDescending(d => d.CreatedAt).Select(d => new { d.Id, d.DomainName, d.Status, d.VerifiedAt, d.CreatedAt }).ToListAsync();
     return Results.Ok(items);
 }).RequireAuthorization();
 
-app.MapPost("/api/domains", async (CreateDomainRequest req, IAppDbContext db) =>
+app.MapPost("/api/domains", async (CreateDomainRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, req.WorkspaceId)) return Results.NotFound();
     var domain = new LadiPage.Core.Entities.Domain { WorkspaceId = req.WorkspaceId, DomainName = req.DomainName.Trim().ToLowerInvariant(), Status = "pending", CreatedAt = DateTime.UtcNow };
     db.Domains.Add(domain);
     await db.SaveChangesAsync();
     return Results.Ok(new { domain.Id, domain.DomainName, domain.Status, domain.CreatedAt });
 }).RequireAuthorization();
 
-app.MapDelete("/api/domains/{id:long}", async (long id, IAppDbContext db) =>
+app.MapDelete("/api/domains/{id:long}", async (long id, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
     var domain = await db.Domains.FindAsync(id);
     if (domain == null) return Results.NotFound();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, domain.WorkspaceId)) return Results.NotFound();
     db.Domains.Remove(domain);
     await db.SaveChangesAsync();
     return Results.Ok(new { ok = true });
 }).RequireAuthorization();
 
 // ===== Forms API =====
-app.MapGet("/api/forms", async (long workspaceId, IAppDbContext db) =>
+app.MapGet("/api/forms", async (long workspaceId, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, workspaceId)) return Results.NotFound();
     var items = await db.FormConfigs.Where(f => f.WorkspaceId == workspaceId).OrderByDescending(f => f.CreatedAt).Select(f => new { f.Id, f.Name, f.FieldsJson, f.WebhookUrl, f.EmailNotify, f.CreatedAt }).ToListAsync();
     return Results.Ok(items);
 }).RequireAuthorization();
 
-app.MapPost("/api/forms", async (CreateFormRequest req, IAppDbContext db) =>
+app.MapPost("/api/forms", async (CreateFormRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, req.WorkspaceId)) return Results.NotFound();
     var form = new LadiPage.Core.Entities.FormConfig { WorkspaceId = req.WorkspaceId, Name = req.Name.Trim(), FieldsJson = req.FieldsJson ?? "[]", WebhookUrl = req.WebhookUrl, EmailNotify = req.EmailNotify, CreatedAt = DateTime.UtcNow };
     db.FormConfigs.Add(form);
     await db.SaveChangesAsync();
     return Results.Ok(new { form.Id, form.Name, form.FieldsJson, form.WebhookUrl, form.EmailNotify, form.CreatedAt });
 }).RequireAuthorization();
 
-app.MapPut("/api/forms/{id:long}", async (long id, UpdateFormRequest req, IAppDbContext db) =>
+app.MapPut("/api/forms/{id:long}", async (long id, UpdateFormRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
     var form = await db.FormConfigs.FindAsync(id);
     if (form == null) return Results.NotFound();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, form.WorkspaceId)) return Results.NotFound();
     if (!string.IsNullOrWhiteSpace(req.Name)) form.Name = req.Name.Trim();
     if (req.FieldsJson != null) form.FieldsJson = req.FieldsJson;
     if (req.WebhookUrl != null) form.WebhookUrl = string.IsNullOrWhiteSpace(req.WebhookUrl) ? null : req.WebhookUrl.Trim();
@@ -1462,10 +1579,12 @@ app.MapPut("/api/forms/{id:long}", async (long id, UpdateFormRequest req, IAppDb
     return Results.Ok(new { form.Id, form.Name, form.FieldsJson, form.WebhookUrl, form.EmailNotify });
 }).RequireAuthorization();
 
-app.MapDelete("/api/forms/{id:long}", async (long id, IAppDbContext db) =>
+app.MapDelete("/api/forms/{id:long}", async (long id, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
     var form = await db.FormConfigs.FindAsync(id);
     if (form == null) return Results.NotFound();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, form.WorkspaceId)) return Results.NotFound();
     db.FormConfigs.Remove(form);
     await db.SaveChangesAsync();
     return Results.Ok(new { ok = true });
@@ -1481,10 +1600,13 @@ app.MapGet("/api/notifications", async (HttpRequest request, IAppDbContext db) =
     return Results.Ok(new { unread, items });
 }).RequireAuthorization();
 
-app.MapPut("/api/notifications/{id:long}/read", async (long id, IAppDbContext db) =>
+app.MapPut("/api/notifications/{id:long}/read", async (long id, IAppDbContext db, HttpRequest request) =>
 {
+    var uid = request.HttpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (string.IsNullOrEmpty(uid) || !long.TryParse(uid, out var userId)) return Results.Unauthorized();
     var n = await db.Notifications.FindAsync(id);
     if (n == null) return Results.NotFound();
+    if (n.UserId != userId) return Results.NotFound();
     n.IsRead = true;
     await db.SaveChangesAsync();
     return Results.Ok(new { ok = true });
@@ -1501,24 +1623,30 @@ app.MapPut("/api/notifications/mark-all-read", async (HttpRequest request, IAppD
 }).RequireAuthorization();
 
 // ===== Products API =====
-app.MapGet("/api/products", async (long workspaceId, IAppDbContext db) =>
+app.MapGet("/api/products", async (long workspaceId, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, workspaceId)) return Results.NotFound();
     var items = await db.Products.Where(p => p.WorkspaceId == workspaceId).OrderByDescending(p => p.CreatedAt).Select(p => new { p.Id, p.Name, p.Price, p.Description, p.ImageUrl, p.Category, p.Stock, p.Status, p.CreatedAt }).ToListAsync();
     return Results.Ok(items);
 }).RequireAuthorization();
 
-app.MapPost("/api/products", async (CreateProductRequest req, IAppDbContext db) =>
+app.MapPost("/api/products", async (CreateProductRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, req.WorkspaceId)) return Results.NotFound();
     var product = new LadiPage.Core.Entities.Product { WorkspaceId = req.WorkspaceId, Name = req.Name.Trim(), Price = req.Price, Description = req.Description, ImageUrl = req.ImageUrl, Category = req.Category, Stock = req.Stock, CreatedAt = DateTime.UtcNow };
     db.Products.Add(product);
     await db.SaveChangesAsync();
     return Results.Ok(new { product.Id, product.Name, product.Price, product.Category, product.Stock, product.Status, product.CreatedAt });
 }).RequireAuthorization();
 
-app.MapPut("/api/products/{id:long}", async (long id, UpdateProductRequest req, IAppDbContext db) =>
+app.MapPut("/api/products/{id:long}", async (long id, UpdateProductRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
     var p = await db.Products.FindAsync(id);
     if (p == null) return Results.NotFound();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, p.WorkspaceId)) return Results.NotFound();
     if (!string.IsNullOrWhiteSpace(req.Name)) p.Name = req.Name.Trim();
     if (req.Price.HasValue) p.Price = req.Price.Value;
     if (req.Description != null) p.Description = req.Description;
@@ -1530,36 +1658,44 @@ app.MapPut("/api/products/{id:long}", async (long id, UpdateProductRequest req, 
     return Results.Ok(new { p.Id, p.Name, p.Price, p.Category, p.Stock, p.Status });
 }).RequireAuthorization();
 
-app.MapDelete("/api/products/{id:long}", async (long id, IAppDbContext db) =>
+app.MapDelete("/api/products/{id:long}", async (long id, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
     var p = await db.Products.FindAsync(id);
     if (p == null) return Results.NotFound();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, p.WorkspaceId)) return Results.NotFound();
     db.Products.Remove(p);
     await db.SaveChangesAsync();
     return Results.Ok(new { ok = true });
 }).RequireAuthorization();
 
 // ===== Orders API =====
-app.MapGet("/api/orders", async (long workspaceId, string? status, IAppDbContext db) =>
+app.MapGet("/api/orders", async (long workspaceId, string? status, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, workspaceId)) return Results.NotFound();
     var query = db.Orders.Where(o => o.WorkspaceId == workspaceId);
     if (!string.IsNullOrEmpty(status)) query = query.Where(o => o.Status == status);
     var items = await query.OrderByDescending(o => o.CreatedAt).Select(o => new { o.Id, o.CustomerName, o.Email, o.Phone, o.ProductId, o.Amount, o.Status, o.CreatedAt }).ToListAsync();
     return Results.Ok(items);
 }).RequireAuthorization();
 
-app.MapPost("/api/orders", async (CreateOrderRequest req, IAppDbContext db) =>
+app.MapPost("/api/orders", async (CreateOrderRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, req.WorkspaceId)) return Results.NotFound();
     var order = new LadiPage.Core.Entities.Order { WorkspaceId = req.WorkspaceId, CustomerName = req.CustomerName.Trim(), Email = req.Email, Phone = req.Phone, ProductId = req.ProductId, Amount = req.Amount, CreatedAt = DateTime.UtcNow };
     db.Orders.Add(order);
     await db.SaveChangesAsync();
     return Results.Ok(new { order.Id, order.CustomerName, order.Amount, order.Status, order.CreatedAt });
 }).RequireAuthorization();
 
-app.MapPut("/api/orders/{id:long}", async (long id, UpdateOrderRequest req, IAppDbContext db) =>
+app.MapPut("/api/orders/{id:long}", async (long id, UpdateOrderRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
     var o = await db.Orders.FindAsync(id);
     if (o == null) return Results.NotFound();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, o.WorkspaceId)) return Results.NotFound();
     if (req.Status != null) o.Status = req.Status;
     if (req.CustomerName != null) o.CustomerName = req.CustomerName.Trim();
     if (req.Email != null) o.Email = req.Email;
@@ -1568,34 +1704,42 @@ app.MapPut("/api/orders/{id:long}", async (long id, UpdateOrderRequest req, IApp
     return Results.Ok(new { o.Id, o.CustomerName, o.Status });
 }).RequireAuthorization();
 
-app.MapDelete("/api/orders/{id:long}", async (long id, IAppDbContext db) =>
+app.MapDelete("/api/orders/{id:long}", async (long id, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
     var o = await db.Orders.FindAsync(id);
     if (o == null) return Results.NotFound();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, o.WorkspaceId)) return Results.NotFound();
     db.Orders.Remove(o);
     await db.SaveChangesAsync();
     return Results.Ok(new { ok = true });
 }).RequireAuthorization();
 
 // ===== Customers API =====
-app.MapGet("/api/customers", async (long workspaceId, IAppDbContext db) =>
+app.MapGet("/api/customers", async (long workspaceId, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, workspaceId)) return Results.NotFound();
     var items = await db.Customers.Where(c => c.WorkspaceId == workspaceId).OrderByDescending(c => c.CreatedAt).Select(c => new { c.Id, c.Name, c.Email, c.Phone, c.Group, c.Source, c.CreatedAt }).ToListAsync();
     return Results.Ok(items);
 }).RequireAuthorization();
 
-app.MapPost("/api/customers", async (CreateCustomerRequest req, IAppDbContext db) =>
+app.MapPost("/api/customers", async (CreateCustomerRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, req.WorkspaceId)) return Results.NotFound();
     var c = new LadiPage.Core.Entities.Customer { WorkspaceId = req.WorkspaceId, Name = req.Name.Trim(), Email = req.Email, Phone = req.Phone, Group = req.Group, Source = req.Source, CreatedAt = DateTime.UtcNow };
     db.Customers.Add(c);
     await db.SaveChangesAsync();
     return Results.Ok(new { c.Id, c.Name, c.Email, c.Phone, c.Group, c.Source, c.CreatedAt });
 }).RequireAuthorization();
 
-app.MapPut("/api/customers/{id:long}", async (long id, UpdateCustomerRequest req, IAppDbContext db) =>
+app.MapPut("/api/customers/{id:long}", async (long id, UpdateCustomerRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
     var c = await db.Customers.FindAsync(id);
     if (c == null) return Results.NotFound();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, c.WorkspaceId)) return Results.NotFound();
     if (req.Name != null) c.Name = req.Name.Trim();
     if (req.Email != null) c.Email = req.Email;
     if (req.Phone != null) c.Phone = req.Phone;
@@ -1605,36 +1749,44 @@ app.MapPut("/api/customers/{id:long}", async (long id, UpdateCustomerRequest req
     return Results.Ok(new { c.Id, c.Name, c.Email, c.Phone, c.Group, c.Source });
 }).RequireAuthorization();
 
-app.MapDelete("/api/customers/{id:long}", async (long id, IAppDbContext db) =>
+app.MapDelete("/api/customers/{id:long}", async (long id, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
     var c = await db.Customers.FindAsync(id);
     if (c == null) return Results.NotFound();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, c.WorkspaceId)) return Results.NotFound();
     db.Customers.Remove(c);
     await db.SaveChangesAsync();
     return Results.Ok(new { ok = true });
 }).RequireAuthorization();
 
 // ===== Leads API =====
-app.MapGet("/api/leads", async (long workspaceId, long? pageId, IAppDbContext db) =>
+app.MapGet("/api/leads", async (long workspaceId, long? pageId, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, workspaceId)) return Results.NotFound();
     var query = db.Leads.Where(l => l.WorkspaceId == workspaceId);
     if (pageId.HasValue) query = query.Where(l => l.PageId == pageId.Value);
     var items = await query.OrderByDescending(l => l.CreatedAt).Select(l => new { l.Id, l.PageId, l.FormId, l.DataJson, l.IpAddress, l.CreatedAt }).ToListAsync();
     return Results.Ok(items);
 }).RequireAuthorization();
 
-app.MapDelete("/api/leads/{id:long}", async (long id, IAppDbContext db) =>
+app.MapDelete("/api/leads/{id:long}", async (long id, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
     var l = await db.Leads.FindAsync(id);
     if (l == null) return Results.NotFound();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, l.WorkspaceId)) return Results.NotFound();
     db.Leads.Remove(l);
     await db.SaveChangesAsync();
     return Results.Ok(new { ok = true });
 }).RequireAuthorization();
 
 // ===== Reports API =====
-app.MapGet("/api/reports/overview", async (long workspaceId, IAppDbContext db) =>
+app.MapGet("/api/reports/overview", async (long workspaceId, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
 {
+    if (currentUser.UserId == null) return Results.Unauthorized();
+    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, workspaceId)) return Results.NotFound();
     var totalPages = await db.Pages.CountAsync(p => p.WorkspaceId == workspaceId);
     var publishedPages = await db.Pages.CountAsync(p => p.WorkspaceId == workspaceId && p.Status == "published");
     var draftPages = totalPages - publishedPages;
@@ -1647,23 +1799,24 @@ app.MapGet("/api/reports/overview", async (long workspaceId, IAppDbContext db) =
     return Results.Ok(new { totalPages, publishedPages, draftPages, totalSections, totalElements, totalProducts, totalOrders, totalCustomers, totalLeads });
 }).RequireAuthorization();
 
-// ===== Plans API (for public pricing page) =====
+// ===== Plans API (for public pricing page) - cached 5 min =====
 app.MapGet("/api/plans", async (IAppDbContext db) =>
 {
-    var plans = await db.Plans.Where(p => p.IsActive).OrderBy(p => p.Price).Select(p => new { p.Id, p.Name, p.Code, p.Price, p.BillingCycle, p.MaxPages, p.MaxMembers, p.MaxPageViews, p.StorageGb, p.HasAi, p.HasEcommerce, p.HasAutomation, p.HasAbTest, p.HasCustomDomain }).ToListAsync();
+    var plans = await db.Plans.AsNoTracking().Where(p => p.IsActive).OrderBy(p => p.Price).Select(p => new { p.Id, p.Name, p.Code, p.Price, p.BillingCycle, p.MaxPages, p.MaxMembers, p.MaxPageViews, p.StorageGb, p.HasAi, p.HasEcommerce, p.HasAutomation, p.HasAbTest, p.HasCustomDomain }).ToListAsync();
     return Results.Ok(plans);
-}).AllowAnonymous();
+}).AllowAnonymous().CacheOutput("PlansCache");
 
-// Section templates API
+// Section templates API - cached 2 phút
 app.MapGet("/api/section-templates", async (IAppDbContext db) =>
 {
     var templates = await db.Templates
+        .AsNoTracking()
         .Where(t => t.Category == "section")
         .OrderByDescending(t => t.CreatedAt)
         .Select(t => new { t.Id, t.Name, t.ThumbnailUrl, t.JsonContent })
         .ToListAsync();
     return Results.Ok(templates);
-}).AllowAnonymous();
+}).AllowAnonymous().CacheOutput("TemplatesCache");
 
 app.MapPost("/api/section-templates", async (SectionTemplateCreateDto dto, IAppDbContext db) =>
 {
@@ -1727,7 +1880,10 @@ public record CreatePageRequest(long WorkspaceId, string Name, string Slug, long
 public record UpdatePageRequest(string Name, string Slug);
 public record ExternalRegisterRequest(string Token, string? Phone, string? WorkspaceName);
 public record UpdateProfileRequest(string? FullName, string? Phone, string? AvatarUrl);
-public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
+public record UpgradePlanRequest([property: System.Text.Json.Serialization.JsonPropertyName("planId")] int PlanId);
+public record ChangePasswordRequest(
+    [property: System.Text.Json.Serialization.JsonPropertyName("currentPassword")] string CurrentPassword,
+    [property: System.Text.Json.Serialization.JsonPropertyName("newPassword")] string NewPassword);
 public record ResendVerificationRequest(string Email);
 public record CreateTagRequest(long WorkspaceId, string Name, string? Color);
 public record UpdateTagRequest(string? Name, string? Color);

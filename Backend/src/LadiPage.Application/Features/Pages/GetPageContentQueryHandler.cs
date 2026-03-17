@@ -7,14 +7,20 @@ namespace LadiPage.Application.Features.Pages;
 public class GetPageContentQueryHandler : IRequestHandler<GetPageContentQuery, PageContentDto?>
 {
     private readonly IAppDbContext _db;
+    private readonly ICurrentUser _currentUser;
+    private readonly IWorkspaceAccessService _workspaceAccess;
 
-    public GetPageContentQueryHandler(IAppDbContext db)
+    public GetPageContentQueryHandler(IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess)
     {
         _db = db;
+        _currentUser = currentUser;
+        _workspaceAccess = workspaceAccess;
     }
 
     public async Task<PageContentDto?> Handle(GetPageContentQuery request, CancellationToken cancellationToken)
     {
+        if (_currentUser.UserId == null) return null;
+
         var page = await _db.Pages
             .AsNoTracking()
             .Where(p => p.Id == request.PageId)
@@ -26,6 +32,9 @@ public class GetPageContentQueryHandler : IRequestHandler<GetPageContentQuery, P
             .FirstOrDefaultAsync(cancellationToken);
 
         if (page is null) return null;
+
+        if (!await _workspaceAccess.CanAccessWorkspaceAsync(_currentUser.UserId.Value, page.WorkspaceId, cancellationToken))
+            return null;
 
         var sections = await _db.PageSections
             .AsNoTracking()

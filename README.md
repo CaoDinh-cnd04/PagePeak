@@ -11,7 +11,7 @@ Nền tảng no-code/low-code xây dựng landing page kéo-thả, publish nhanh
 
 | Layer     | Stack |
 |----------|--------|
-| Frontend | Next.js 15 (App Router), React, Zustand, GrapesJS / React DnD |
+| Frontend | React 18, Vite, Zustand, Fabric.js |
 | Backend  | ASP.NET Core 10 Web API, MediatR, CQRS |
 | Database | SQL Server |
 | Storage  | Cloudinary (ưu tiên) / AWS S3 + CloudFront |
@@ -23,9 +23,8 @@ Nền tảng no-code/low-code xây dựng landing page kéo-thả, publish nhanh
 ├── Backend/            # ASP.NET Core 10 Web API
 │   ├── src/
 │   └── README.md
-├── Frontend/           # React.js — Next.js 15 (builder + customer pages)
-│   ├── app/
-│   ├── components/
+├── Frontend-ui/       # React.js — Vite (builder + customer pages)
+│   ├── src/
 │   └── README.md
 ├── docs/
 └── README.md
@@ -33,15 +32,15 @@ Nền tảng no-code/low-code xây dựng landing page kéo-thả, publish nhanh
 
 ## Chạy dự án
 
-### Frontend (React — Next.js 15)
+### Frontend (React — Vite)
 
 ```bash
-cd Frontend
-pnpm install
-pnpm dev
+cd Frontend-ui
+npm install
+npm run dev
 ```
 
-Mở [http://localhost:3000](http://localhost:3000).
+Mở [http://localhost:5173](http://localhost:5173).
 
 ### Backend (ASP.NET Core 10)
 
@@ -55,7 +54,7 @@ API: [http://localhost:5000](http://localhost:5000) (hoặc port trong `launchSe
 
 ### Biến môi trường
 
-- **Frontend:** `.env.local` — cấu hình `NEXT_PUBLIC_API_URL`.
+- **Frontend:** `.env` — cấu hình `VITE_API_URL`.
 - **Backend:** connection string, JWT secret trong `appsettings.Development.json` hoặc User Secrets.
 
 ## License
