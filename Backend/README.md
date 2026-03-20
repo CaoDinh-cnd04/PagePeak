@@ -10,16 +10,21 @@ API server cho Landing Page SaaS: REST API, JWT auth, CQRS (MediatR), SQL Server
 - **Database:** SQL Server (LadiPageDB)
 - **Auth:** JWT + Refresh Token (BCrypt)
 
-## Cấu trúc solution
+## Cấu trúc solution (Clean Architecture + OOP)
 
 ```
 Backend/
 ├── LadiPage.sln
 ├── src/
-│   ├── LadiPage.Core/           # Entities, Interfaces (IAppDbContext, IAuthService, ICurrentUser, IDateTime)
-│   ├── LadiPage.Application/     # MediatR, CQRS, Validators (Features/Auth, Features/Workspaces)
+│   ├── LadiPage.Domain/         # Domain layer
+│   │   ├── Entities/            # User, Page, Lead, Workspace, CustomDomain...
+│   │   ├── Interfaces/          # IAppDbContext, IAuthService, IRepository...
+│   │   ├── Common/              # BaseEntity, IAuditableEntity
+│   │   ├── Enums/               # PageStatus, UserStatus
+│   │   └── Auth/                # AuthTokenResult
+│   ├── LadiPage.Application/    # MediatR, CQRS, Validators (Features/*)
 │   ├── LadiPage.Infrastructure/  # EF Core, AppDbContext, AuthService, JwtService
-│   └── LadiPage.Api/             # Minimal API, JWT, CORS, Swagger
+│   └── LadiPage.Api/            # Minimal API, JWT, CORS, Swagger
 └── README.md
 ```
 

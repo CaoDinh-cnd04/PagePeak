@@ -1,4 +1,4 @@
-using LadiPage.Core.Interfaces;
+using LadiPage.Domain.Interfaces;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -38,7 +38,7 @@ public class DuplicatePageCommandHandler : IRequestHandler<DuplicatePageCommand,
         if (slug.Length > 150) slug = slug[..150];
 
         var now = DateTime.UtcNow;
-        var page = new LadiPage.Core.Entities.Page
+        var page = new LadiPage.Domain.Entities.Page
         {
             WorkspaceId = source.WorkspaceId,
             Name = name,

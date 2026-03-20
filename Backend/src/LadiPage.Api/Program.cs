@@ -1,28 +1,16 @@
-using System.Security.Claims;
-using System.Text;
+using LadiPage.Api.Extensions;
+using LadiPage.Api.Middlewares;
 using LadiPage.Api.Services;
-using LadiPage.Application.Features.Auth;
-using LadiPage.Application.Features.Pages;
-using LadiPage.Application.Features.Templates;
-using LadiPage.Application.Features.Workspaces;
 using LadiPage.Application;
-using LadiPage.Core.Interfaces;
+using LadiPage.Domain.Interfaces;
 using LadiPage.Infrastructure;
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Authentication.Facebook;
-using Microsoft.AspNetCore.Authentication.Google;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.IdentityModel.Tokens;
-using FluentValidation;
-using MediatR;
 using Microsoft.EntityFrameworkCore;
-using System.IdentityModel.Tokens.Jwt;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
+builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -49,80 +37,12 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<ICurrentUser, CurrentUserService>();
 
-builder.Services.AddCors(options =>
-{
-    options.AddDefaultPolicy(policy =>
-    {
-        var allowedOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>();
-        if (allowedOrigins != null && allowedOrigins.Length > 0)
-        {
-            policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod();
-        }
-        else
-        {
-            policy.SetIsOriginAllowed(_ => true).AllowAnyHeader().AllowAnyMethod();
-        }
-    });
-});
-
-var jwtSecret = builder.Configuration["JwtSettings:Secret"] ?? throw new InvalidOperationException("JwtSettings:Secret is required.");
-var frontendBaseUrl = builder.Configuration["Frontend:BaseUrl"] ?? "http://localhost:3000";
-var externalRegIssuer = builder.Configuration["JwtSettings:Issuer"] ?? "LadiPageApi";
-var externalRegAudience = builder.Configuration["JwtSettings:Audience"] ?? "LadiPageClient";
-
-var authBuilder = builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
-            ValidateIssuer = true,
-            ValidIssuer = builder.Configuration["JwtSettings:Issuer"],
-            ValidateAudience = true,
-            ValidAudience = builder.Configuration["JwtSettings:Audience"],
-            ValidateLifetime = true,
-            ClockSkew = TimeSpan.Zero
-        };
-    })
-    .AddCookie("ExternalCookie", options =>
-{
-    options.Cookie.SameSite = SameSiteMode.Lax;
-    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
-});
-
-var googleClientId = builder.Configuration["Authentication:Google:ClientId"];
-var googleClientSecret = builder.Configuration["Authentication:Google:ClientSecret"];
-if (!string.IsNullOrWhiteSpace(googleClientId) && !string.IsNullOrWhiteSpace(googleClientSecret))
-{
-    authBuilder.AddGoogle(GoogleDefaults.AuthenticationScheme, options =>
-    {
-        options.ClientId = googleClientId;
-        options.ClientSecret = googleClientSecret;
-        options.SignInScheme = "ExternalCookie";
-        options.CallbackPath = "/signin-google";
-    });
-}
-
-var fbAppId = builder.Configuration["Authentication:Facebook:AppId"];
-var fbAppSecret = builder.Configuration["Authentication:Facebook:AppSecret"];
-if (!string.IsNullOrWhiteSpace(fbAppId) && !string.IsNullOrWhiteSpace(fbAppSecret))
-{
-    authBuilder.AddFacebook(FacebookDefaults.AuthenticationScheme, options =>
-    {
-        options.AppId = fbAppId;
-        options.AppSecret = fbAppSecret;
-        options.SignInScheme = "ExternalCookie";
-        options.CallbackPath = "/signin-facebook";
-    });
-}
+builder.Services.AddCorsPolicy(builder.Configuration);
+builder.Services.AddJwtAuthentication(builder.Configuration);
 
 builder.Services.AddAuthorization();
 builder.Services.AddResponseCompression();
+builder.Services.AddResponseCaching();
 builder.Services.AddOutputCache(options =>
 {
     options.AddPolicy("PlansCache", policy => policy.Expire(TimeSpan.FromMinutes(5)));
@@ -457,195 +377,300 @@ BEGIN
 END
 ");
 
-        // Seed editor tools - reseed if preset count is low (updated presets)
-        var presetCount = await db.ElementPresets.CountAsync();
-        if (!await db.ToolCategories.AnyAsync() || presetCount < 35)
+        // Seed editor tools - reseed if missing
+        var needsReseed = !await db.ToolCategories.AnyAsync();
+        if (needsReseed)
         {
             db.ElementPresets.RemoveRange(await db.ElementPresets.ToListAsync());
             db.ToolItems.RemoveRange(await db.ToolItems.ToListAsync());
             db.ToolCategories.RemoveRange(await db.ToolCategories.ToListAsync());
             await db.SaveChangesAsync();
-            var catPhanTu = new LadiPage.Core.Entities.ToolCategory { Name = "Phần tử", Icon = "layout-grid", Order = 1, IsActive = true };
-            var catAssets = new LadiPage.Core.Entities.ToolCategory { Name = "Assets", Icon = "image", Order = 2, IsActive = true };
-            var catSection = new LadiPage.Core.Entities.ToolCategory { Name = "Section", Icon = "layers", Order = 3, IsActive = true };
-            var catPopup = new LadiPage.Core.Entities.ToolCategory { Name = "Popup", Icon = "message-square", Order = 4, IsActive = true };
-            var catDropbox = new LadiPage.Core.Entities.ToolCategory { Name = "Dropbox", Icon = "hard-drive", Order = 5, IsActive = true };
-            var catSanPham = new LadiPage.Core.Entities.ToolCategory { Name = "Sản phẩm", Icon = "shopping-bag", Order = 6, IsActive = true };
-            var catBlog = new LadiPage.Core.Entities.ToolCategory { Name = "Blog", Icon = "file-text", Order = 7, IsActive = true };
-            var catTienIch = new LadiPage.Core.Entities.ToolCategory { Name = "Tiện ích", Icon = "puzzle", Order = 8, IsActive = true };
-            var catNoiDung = new LadiPage.Core.Entities.ToolCategory { Name = "Quản lý nội dung", Icon = "folder", Order = 9, IsActive = true };
-            var catMedia = new LadiPage.Core.Entities.ToolCategory { Name = "Quản lý Media", Icon = "film", Order = 10, IsActive = true };
-            var catTaiLieu = new LadiPage.Core.Entities.ToolCategory { Name = "Quản lý tài liệu", Icon = "file-archive", Order = 11, IsActive = true };
-            var catFont = new LadiPage.Core.Entities.ToolCategory { Name = "Quản lý Font", Icon = "type", Order = 12, IsActive = true };
+            var catPhanTu = new LadiPage.Domain.Entities.ToolCategory { Name = "Phần tử", Icon = "layout-grid", Order = 1, IsActive = true };
+            var catAssets = new LadiPage.Domain.Entities.ToolCategory { Name = "Assets", Icon = "bookmark", Order = 2, IsActive = true };
+            var catSection = new LadiPage.Domain.Entities.ToolCategory { Name = "Section", Icon = "layers", Order = 3, IsActive = true };
+            var catPopup = new LadiPage.Domain.Entities.ToolCategory { Name = "Popup", Icon = "message-square", Order = 4, IsActive = true };
+            var catDropbox = new LadiPage.Domain.Entities.ToolCategory { Name = "Dropbox", Icon = "hard-drive", Order = 5, IsActive = true };
+            var catSanPham = new LadiPage.Domain.Entities.ToolCategory { Name = "Sản phẩm", Icon = "shopping-bag", Order = 6, IsActive = true };
+            var catBlog = new LadiPage.Domain.Entities.ToolCategory { Name = "Blog", Icon = "file-text", Order = 7, IsActive = true };
+            var catTienIch = new LadiPage.Domain.Entities.ToolCategory { Name = "Tiện ích", Icon = "puzzle", Order = 8, IsActive = true };
+            var catNoiDung = new LadiPage.Domain.Entities.ToolCategory { Name = "Quản lý nội dung", Icon = "folder", Order = 9, IsActive = true };
+            var catMedia = new LadiPage.Domain.Entities.ToolCategory { Name = "Quản lý Media", Icon = "film", Order = 10, IsActive = true };
+            var catTaiLieu = new LadiPage.Domain.Entities.ToolCategory { Name = "Quản lý tài liệu", Icon = "file-archive", Order = 11, IsActive = true };
+            var catFont = new LadiPage.Domain.Entities.ToolCategory { Name = "Quản lý Font", Icon = "type", Order = 12, IsActive = true };
+            var catYeuThich = new LadiPage.Domain.Entities.ToolCategory { Name = "Yêu thích", Icon = "star", Order = 13, IsActive = true };
 
-            db.ToolCategories.AddRange(catPhanTu, catAssets, catSection, catPopup, catDropbox, catSanPham, catBlog, catTienIch, catNoiDung, catMedia, catTaiLieu, catFont);
+            db.ToolCategories.AddRange(catPhanTu, catAssets, catSection, catPopup, catDropbox, catSanPham, catBlog, catTienIch, catNoiDung, catMedia, catTaiLieu, catFont, catYeuThich);
             await db.SaveChangesAsync();
 
             // Tool Items for "Phần tử"
-            var tiVanBan = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Văn bản", Icon = "type", ElementType = "text", Order = 1, HasSubTabs = true, SubTabsJson = "[\"Tiêu đề\",\"Đoạn văn\",\"Danh sách\"]" };
-            var tiNutBam = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Nút bấm", Icon = "mouse-pointer-click", ElementType = "button", Order = 2, HasSubTabs = false };
-            var tiAnh = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Ảnh", Icon = "image", ElementType = "image", Order = 3, HasSubTabs = false };
-            var tiGallery = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Gallery", Icon = "layout-grid", ElementType = "gallery", Order = 4, HasSubTabs = false };
-            var tiHinhHop = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Hình hộp", Icon = "square", ElementType = "shape", Order = 5, HasSubTabs = false };
-            var tiBieuTuong = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Biểu tượng", Icon = "smile", ElementType = "icon", Order = 6, HasSubTabs = false };
-            var tiDuongKe = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Đường kẻ", Icon = "minus", ElementType = "divider", Order = 7, HasSubTabs = false };
-            var tiForm = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Form", Icon = "clipboard-list", ElementType = "form", Order = 8, HasSubTabs = false };
-            var tiSanPhamMau = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Sản phẩm mẫu", Icon = "package", ElementType = "product", Order = 9, HasSubTabs = false };
-            var tiVideo = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Video", Icon = "play", ElementType = "video", Order = 10, HasSubTabs = false };
-            var tiCollectionList = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Collection List", Icon = "list", ElementType = "collection-list", Order = 11, HasSubTabs = false };
-            var tiCarousel = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Carousel", Icon = "gallery-horizontal", ElementType = "carousel", Order = 12, HasSubTabs = false };
-            var tiTabs = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Tabs", Icon = "panel-top", ElementType = "tabs", Order = 13, HasSubTabs = false };
-            var tiFrame = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Frame", Icon = "frame", ElementType = "frame", Order = 14, HasSubTabs = false };
-            var tiAccordion = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Accordion", Icon = "chevrons-down", ElementType = "accordion", Order = 15, HasSubTabs = false };
-            var tiTable = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Table", Icon = "table", ElementType = "table", Order = 16, HasSubTabs = false };
-            var tiAntigravity = new LadiPage.Core.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Antigravity UI", Icon = "rocket", ElementType = "antigravity", Order = 17, HasSubTabs = false };
+            var tiVanBan = new LadiPage.Domain.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Văn bản", Icon = "type", ElementType = "text", Order = 1, HasSubTabs = true, SubTabsJson = "[\"Tiêu đề\",\"Đoạn văn\",\"Danh sách\"]" };
+            var tiNutBam = new LadiPage.Domain.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Nút bấm", Icon = "mouse-pointer-click", ElementType = "button", Order = 2, HasSubTabs = true, SubTabsJson = "[\"Nút bấm\",\"Nhóm nút bấm\"]" };
+            var tiAnh = new LadiPage.Domain.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Ảnh", Icon = "image", ElementType = "image", Order = 3, HasSubTabs = false };
+            var tiGallery = new LadiPage.Domain.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Gallery", Icon = "layout-grid", ElementType = "gallery", Order = 4, HasSubTabs = true, SubTabsJson = "[\"Gallery\"]" };
+            var tiHinhHop = new LadiPage.Domain.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Hình hộp", Icon = "square", ElementType = "shape", Order = 5, HasSubTabs = true, SubTabsJson = "[\"Hình hộp\"]" };
+            var tiBieuTuong = new LadiPage.Domain.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Biểu tượng", Icon = "smile", ElementType = "icon", Order = 6, HasSubTabs = false };
+            var tiDuongKe = new LadiPage.Domain.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Đường kẻ", Icon = "minus", ElementType = "divider", Order = 7, HasSubTabs = true, SubTabsJson = "[\"Đường kẻ\",\"Pen Tool\"]" };
+            var tiForm = new LadiPage.Domain.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Form", Icon = "clipboard-list", ElementType = "form", Order = 8, HasSubTabs = true, SubTabsJson = "[\"Form\",\"Form checkout\",\"Form Login\",\"Form OTP\"]" };
+            var tiVideo = new LadiPage.Domain.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Video", Icon = "play", ElementType = "video", Order = 9, HasSubTabs = false };
+            var tiFrame = new LadiPage.Domain.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Frame", Icon = "frame", ElementType = "frame", Order = 10, HasSubTabs = false };
+            var tiAccordion = new LadiPage.Domain.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Accordion", Icon = "chevrons-down", ElementType = "accordion", Order = 11, HasSubTabs = false };
+            var tiTable = new LadiPage.Domain.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Table", Icon = "table", ElementType = "table", Order = 12, HasSubTabs = false };
+            var tiAntigravity = new LadiPage.Domain.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Antigravity UI", Icon = "rocket", ElementType = "antigravity", Order = 13, HasSubTabs = false };
+            var tiMaHtml = new LadiPage.Domain.Entities.ToolItem { CategoryId = catPhanTu.Id, Name = "Mã HTML", Icon = "code", ElementType = "html-code", Order = 14, HasSubTabs = true, SubTabsJson = "[\"HTML/JAVASCRIPT\",\"IFRAME\"]" };
 
-            db.ToolItems.AddRange(tiVanBan, tiNutBam, tiAnh, tiGallery, tiHinhHop, tiBieuTuong, tiDuongKe, tiForm, tiSanPhamMau, tiVideo, tiCollectionList, tiCarousel, tiTabs, tiFrame, tiAccordion, tiTable, tiAntigravity);
+            db.ToolItems.AddRange(tiVanBan, tiNutBam, tiAnh, tiGallery, tiHinhHop, tiBieuTuong, tiDuongKe, tiForm, tiVideo, tiFrame, tiAccordion, tiTable, tiAntigravity, tiMaHtml);
 
             // Tool Items for "Section"
-            var tiSectionBlank = new LadiPage.Core.Entities.ToolItem { CategoryId = catSection.Id, Name = "Section trống", Icon = "plus-square", ElementType = "section", Order = 1, HasSubTabs = false };
-            var tiSectionPrebuilt = new LadiPage.Core.Entities.ToolItem { CategoryId = catSection.Id, Name = "Section có sẵn", Icon = "layout", ElementType = "section-preset", Order = 2, HasSubTabs = false };
+            var tiSectionBlank = new LadiPage.Domain.Entities.ToolItem { CategoryId = catSection.Id, Name = "Section trống", Icon = "plus-square", ElementType = "section", Order = 1, HasSubTabs = false };
+            var tiSectionPrebuilt = new LadiPage.Domain.Entities.ToolItem { CategoryId = catSection.Id, Name = "Section có sẵn", Icon = "layout", ElementType = "section-preset", Order = 2, HasSubTabs = false };
             db.ToolItems.AddRange(tiSectionBlank, tiSectionPrebuilt);
 
             // Tool Items for "Popup"
-            var tiPopupBlank = new LadiPage.Core.Entities.ToolItem { CategoryId = catPopup.Id, Name = "Popup trống", Icon = "plus-square", ElementType = "popup", Order = 1, HasSubTabs = false };
-            var tiPopupTemplate = new LadiPage.Core.Entities.ToolItem { CategoryId = catPopup.Id, Name = "Mẫu popup", Icon = "layout", ElementType = "popup-preset", Order = 2, HasSubTabs = false };
+            var tiPopupBlank = new LadiPage.Domain.Entities.ToolItem { CategoryId = catPopup.Id, Name = "Popup trống", Icon = "plus-square", ElementType = "popup", Order = 1, HasSubTabs = false };
+            var tiPopupTemplate = new LadiPage.Domain.Entities.ToolItem { CategoryId = catPopup.Id, Name = "Mẫu popup", Icon = "layout", ElementType = "popup-preset", Order = 2, HasSubTabs = false };
             db.ToolItems.AddRange(tiPopupBlank, tiPopupTemplate);
 
             // Tool Items for "Sản phẩm"
-            var tiSPDanhSach = new LadiPage.Core.Entities.ToolItem { CategoryId = catSanPham.Id, Name = "Danh sách SP", Icon = "list", ElementType = "product-list", Order = 1, HasSubTabs = false };
-            var tiSPChiTiet = new LadiPage.Core.Entities.ToolItem { CategoryId = catSanPham.Id, Name = "Chi tiết SP", Icon = "package", ElementType = "product-detail", Order = 2, HasSubTabs = false };
-            var tiSPGioHang = new LadiPage.Core.Entities.ToolItem { CategoryId = catSanPham.Id, Name = "Giỏ hàng", Icon = "shopping-cart", ElementType = "cart", Order = 3, HasSubTabs = false };
-            db.ToolItems.AddRange(tiSPDanhSach, tiSPChiTiet, tiSPGioHang);
+            var tiSPChiTiet = new LadiPage.Domain.Entities.ToolItem { CategoryId = catSanPham.Id, Name = "Chi tiết sản phẩm", Icon = "shopping-bag", ElementType = "product-detail", Order = 1, HasSubTabs = false };
+            var tiSPDanhSach = new LadiPage.Domain.Entities.ToolItem { CategoryId = catSanPham.Id, Name = "Danh sách sản phẩm", Icon = "layout-grid", ElementType = "collection-list", Order = 2, HasSubTabs = false };
+            var tiSPGioHang = new LadiPage.Domain.Entities.ToolItem { CategoryId = catSanPham.Id, Name = "Giỏ hàng", Icon = "shopping-cart", ElementType = "cart", Order = 3, HasSubTabs = false };
+            db.ToolItems.AddRange(tiSPChiTiet, tiSPDanhSach, tiSPGioHang);
 
             // Tool Items for "Blog"
-            var tiBlogList = new LadiPage.Core.Entities.ToolItem { CategoryId = catBlog.Id, Name = "Danh sách bài", Icon = "list", ElementType = "blog-list", Order = 1, HasSubTabs = false };
-            var tiBlogDetail = new LadiPage.Core.Entities.ToolItem { CategoryId = catBlog.Id, Name = "Chi tiết bài", Icon = "file-text", ElementType = "blog-detail", Order = 2, HasSubTabs = false };
+            var tiBlogList = new LadiPage.Domain.Entities.ToolItem { CategoryId = catBlog.Id, Name = "Danh sách bài", Icon = "list", ElementType = "blog-list", Order = 1, HasSubTabs = false };
+            var tiBlogDetail = new LadiPage.Domain.Entities.ToolItem { CategoryId = catBlog.Id, Name = "Chi tiết bài", Icon = "file-text", ElementType = "blog-detail", Order = 2, HasSubTabs = false };
             db.ToolItems.AddRange(tiBlogList, tiBlogDetail);
 
             // Tool Items for "Tiện ích"
-            var tiCountdown = new LadiPage.Core.Entities.ToolItem { CategoryId = catTienIch.Id, Name = "Đếm ngược", Icon = "timer", ElementType = "countdown", Order = 1, HasSubTabs = false };
-            var tiHtml = new LadiPage.Core.Entities.ToolItem { CategoryId = catTienIch.Id, Name = "HTML tùy chỉnh", Icon = "code", ElementType = "html", Order = 2, HasSubTabs = false };
-            var tiMap = new LadiPage.Core.Entities.ToolItem { CategoryId = catTienIch.Id, Name = "Google Maps", Icon = "map-pin", ElementType = "map", Order = 3, HasSubTabs = false };
-            var tiSocialShare = new LadiPage.Core.Entities.ToolItem { CategoryId = catTienIch.Id, Name = "Chia sẻ MXH", Icon = "share-2", ElementType = "social-share", Order = 4, HasSubTabs = false };
-            var tiRating = new LadiPage.Core.Entities.ToolItem { CategoryId = catTienIch.Id, Name = "Đánh giá sao", Icon = "star", ElementType = "rating", Order = 5, HasSubTabs = false };
-            var tiProgress = new LadiPage.Core.Entities.ToolItem { CategoryId = catTienIch.Id, Name = "Thanh tiến trình", Icon = "bar-chart-2", ElementType = "progress", Order = 6, HasSubTabs = false };
+            var tiCountdown = new LadiPage.Domain.Entities.ToolItem { CategoryId = catTienIch.Id, Name = "Đếm ngược", Icon = "timer", ElementType = "countdown", Order = 1, HasSubTabs = false };
+            var tiHtml = new LadiPage.Domain.Entities.ToolItem { CategoryId = catTienIch.Id, Name = "HTML tùy chỉnh", Icon = "code", ElementType = "html", Order = 2, HasSubTabs = false };
+            var tiMap = new LadiPage.Domain.Entities.ToolItem { CategoryId = catTienIch.Id, Name = "Google Maps", Icon = "map-pin", ElementType = "map", Order = 3, HasSubTabs = false };
+            var tiSocialShare = new LadiPage.Domain.Entities.ToolItem { CategoryId = catTienIch.Id, Name = "Chia sẻ MXH", Icon = "share-2", ElementType = "social-share", Order = 4, HasSubTabs = false };
+            var tiRating = new LadiPage.Domain.Entities.ToolItem { CategoryId = catTienIch.Id, Name = "Đánh giá sao", Icon = "star", ElementType = "rating", Order = 5, HasSubTabs = false };
+            var tiProgress = new LadiPage.Domain.Entities.ToolItem { CategoryId = catTienIch.Id, Name = "Thanh tiến trình", Icon = "bar-chart-2", ElementType = "progress", Order = 6, HasSubTabs = false };
             db.ToolItems.AddRange(tiCountdown, tiHtml, tiMap, tiSocialShare, tiRating, tiProgress);
+
+            // Tool Items for "Yêu thích" - danh mục nhanh với các phần tử thường dùng
+            var tiYtTieuDe = new LadiPage.Domain.Entities.ToolItem { CategoryId = catYeuThich.Id, Name = "Tiêu đề nhanh", Icon = "type", ElementType = "headline", Order = 1, HasSubTabs = true, SubTabsJson = "[\"Tiêu đề\"]" };
+            var tiYtNut = new LadiPage.Domain.Entities.ToolItem { CategoryId = catYeuThich.Id, Name = "Nút CTA", Icon = "mouse-pointer-click", ElementType = "button", Order = 2, HasSubTabs = true, SubTabsJson = "[\"Nút\"]" };
+            var tiYtAnh = new LadiPage.Domain.Entities.ToolItem { CategoryId = catYeuThich.Id, Name = "Hình ảnh", Icon = "image", ElementType = "image", Order = 3, HasSubTabs = true, SubTabsJson = "[\"Ảnh\"]" };
+            var tiYtDoanVan = new LadiPage.Domain.Entities.ToolItem { CategoryId = catYeuThich.Id, Name = "Đoạn văn", Icon = "align-left", ElementType = "paragraph", Order = 4, HasSubTabs = true, SubTabsJson = "[\"Đoạn văn\"]" };
+            var tiYtHinhHop = new LadiPage.Domain.Entities.ToolItem { CategoryId = catYeuThich.Id, Name = "Hình hộp", Icon = "square", ElementType = "shape", Order = 5, HasSubTabs = true, SubTabsJson = "[\"Hình hộp\"]" };
+            var tiYtDuongKe = new LadiPage.Domain.Entities.ToolItem { CategoryId = catYeuThich.Id, Name = "Đường kẻ", Icon = "minus", ElementType = "divider", Order = 6, HasSubTabs = true, SubTabsJson = "[\"Đường kẻ\"]" };
+            db.ToolItems.AddRange(tiYtTieuDe, tiYtNut, tiYtAnh, tiYtDoanVan, tiYtHinhHop, tiYtDuongKe);
 
             await db.SaveChangesAsync();
 
             // Element Presets for "Văn bản" -> Tiêu đề tab
             db.ElementPresets.AddRange(
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Heading 3", TabName = "Tiêu đề", DefaultContent = "Heading 3", StylesJson = "{\"fontSize\":18,\"fontWeight\":600,\"color\":\"#1e293b\"}", DefaultWidth = 400, DefaultHeight = 30, Order = 1 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Heading 2", TabName = "Tiêu đề", DefaultContent = "Heading 2", StylesJson = "{\"fontSize\":24,\"fontWeight\":700,\"color\":\"#1e293b\"}", DefaultWidth = 500, DefaultHeight = 40, Order = 2 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Heading 1", TabName = "Tiêu đề", DefaultContent = "Heading 1", StylesJson = "{\"fontSize\":32,\"fontWeight\":700,\"color\":\"#1e293b\"}", DefaultWidth = 600, DefaultHeight = 50, Order = 3 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Thêm tiêu đề 1", TabName = "Tiêu đề", DefaultContent = "Thêm tiêu đề 1", StylesJson = "{\"fontSize\":20,\"fontWeight\":500,\"color\":\"#334155\"}", DefaultWidth = 400, DefaultHeight = 32, Order = 4 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Thêm tiêu đề 2", TabName = "Tiêu đề", DefaultContent = "Thêm tiêu đề 2", StylesJson = "{\"fontSize\":22,\"fontWeight\":600,\"color\":\"#ea580c\"}", DefaultWidth = 420, DefaultHeight = 35, Order = 5 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Thêm tiêu đề 3", TabName = "Tiêu đề", DefaultContent = "Thêm tiêu đề 3", StylesJson = "{\"fontSize\":28,\"fontWeight\":600,\"color\":\"#dc2626\"}", DefaultWidth = 450, DefaultHeight = 42, Order = 6 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Thêm tiêu đề 4", TabName = "Tiêu đề", DefaultContent = "Thêm tiêu đề 4", StylesJson = "{\"fontSize\":16,\"fontWeight\":400,\"color\":\"#475569\",\"fontStyle\":\"italic\"}", DefaultWidth = 380, DefaultHeight = 28, Order = 7 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Thêm tiêu đề 5", TabName = "Tiêu đề", DefaultContent = "Thêm tiêu đề 5", StylesJson = "{\"fontSize\":14,\"fontWeight\":400,\"color\":\"#64748b\"}", DefaultWidth = 360, DefaultHeight = 24, Order = 8 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Big Title", TabName = "Tiêu đề", DefaultContent = "Big Title", StylesJson = "{\"fontSize\":48,\"fontWeight\":800,\"color\":\"#0f172a\"}", DefaultWidth = 600, DefaultHeight = 70, Order = 9 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "CAPS TITLE", TabName = "Tiêu đề", DefaultContent = "CAPS TITLE", StylesJson = "{\"fontSize\":28,\"fontWeight\":700,\"color\":\"#ea580c\",\"textTransform\":\"uppercase\",\"letterSpacing\":4}", DefaultWidth = 500, DefaultHeight = 42, Order = 10 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Small Title", TabName = "Tiêu đề", DefaultContent = "Small Title", StylesJson = "{\"fontSize\":13,\"fontWeight\":500,\"color\":\"#94a3b8\"}", DefaultWidth = 300, DefaultHeight = 22, Order = 11 }
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Heading 3", TabName = "Tiêu đề", DefaultContent = "Heading 3", StylesJson = "{\"fontSize\":18,\"fontWeight\":600,\"color\":\"#1e293b\"}", DefaultWidth = 400, DefaultHeight = 30, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Heading 2", TabName = "Tiêu đề", DefaultContent = "Heading 2", StylesJson = "{\"fontSize\":24,\"fontWeight\":700,\"color\":\"#1e293b\"}", DefaultWidth = 500, DefaultHeight = 40, Order = 2 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Heading 1", TabName = "Tiêu đề", DefaultContent = "Heading 1", StylesJson = "{\"fontSize\":32,\"fontWeight\":700,\"color\":\"#1e293b\"}", DefaultWidth = 600, DefaultHeight = 50, Order = 3 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Thêm tiêu đề 1", TabName = "Tiêu đề", DefaultContent = "Thêm tiêu đề 1", StylesJson = "{\"fontSize\":20,\"fontWeight\":500,\"color\":\"#334155\"}", DefaultWidth = 400, DefaultHeight = 32, Order = 4 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Thêm tiêu đề 2", TabName = "Tiêu đề", DefaultContent = "Thêm tiêu đề 2", StylesJson = "{\"fontSize\":22,\"fontWeight\":600,\"color\":\"#ea580c\"}", DefaultWidth = 420, DefaultHeight = 35, Order = 5 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Thêm tiêu đề 3", TabName = "Tiêu đề", DefaultContent = "Thêm tiêu đề 3", StylesJson = "{\"fontSize\":28,\"fontWeight\":600,\"color\":\"#dc2626\"}", DefaultWidth = 450, DefaultHeight = 42, Order = 6 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Thêm tiêu đề 4", TabName = "Tiêu đề", DefaultContent = "Thêm tiêu đề 4", StylesJson = "{\"fontSize\":16,\"fontWeight\":400,\"color\":\"#475569\",\"fontStyle\":\"italic\"}", DefaultWidth = 380, DefaultHeight = 28, Order = 7 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Thêm tiêu đề 5", TabName = "Tiêu đề", DefaultContent = "Thêm tiêu đề 5", StylesJson = "{\"fontSize\":14,\"fontWeight\":400,\"color\":\"#64748b\"}", DefaultWidth = 360, DefaultHeight = 24, Order = 8 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Big Title", TabName = "Tiêu đề", DefaultContent = "Big Title", StylesJson = "{\"fontSize\":48,\"fontWeight\":800,\"color\":\"#0f172a\"}", DefaultWidth = 600, DefaultHeight = 70, Order = 9 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "CAPS TITLE", TabName = "Tiêu đề", DefaultContent = "CAPS TITLE", StylesJson = "{\"fontSize\":28,\"fontWeight\":700,\"color\":\"#ea580c\",\"textTransform\":\"uppercase\",\"letterSpacing\":4}", DefaultWidth = 500, DefaultHeight = 42, Order = 10 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Small Title", TabName = "Tiêu đề", DefaultContent = "Small Title", StylesJson = "{\"fontSize\":13,\"fontWeight\":500,\"color\":\"#94a3b8\"}", DefaultWidth = 300, DefaultHeight = 22, Order = 11 }
             );
 
             // Element Presets for "Văn bản" -> Đoạn văn tab
             db.ElementPresets.AddRange(
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Đoạn văn lớn", TabName = "Đoạn văn", DefaultContent = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.", StylesJson = "{\"fontSize\":18,\"fontWeight\":400,\"color\":\"#334155\",\"lineHeight\":1.8}", DefaultWidth = 600, DefaultHeight = 100, Order = 1 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Đoạn văn trung bình", TabName = "Đoạn văn", DefaultContent = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut enim ad minim veniam.", StylesJson = "{\"fontSize\":15,\"fontWeight\":400,\"color\":\"#475569\",\"lineHeight\":1.7}", DefaultWidth = 500, DefaultHeight = 80, Order = 2 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Đoạn văn nhỏ", TabName = "Đoạn văn", DefaultContent = "Mô tả ngắn gọn sản phẩm hoặc dịch vụ của bạn.", StylesJson = "{\"fontSize\":13,\"fontWeight\":400,\"color\":\"#64748b\",\"lineHeight\":1.6}", DefaultWidth = 400, DefaultHeight = 50, Order = 3 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Trích dẫn", TabName = "Đoạn văn", DefaultContent = "\"Đây là một câu trích dẫn nổi bật để thu hút sự chú ý của khách hàng.\"", StylesJson = "{\"fontSize\":20,\"fontWeight\":500,\"color\":\"#7c3aed\",\"fontStyle\":\"italic\",\"lineHeight\":1.6}", DefaultWidth = 550, DefaultHeight = 80, Order = 4 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Chú thích", TabName = "Đoạn văn", DefaultContent = "* Điều kiện và điều khoản áp dụng", StylesJson = "{\"fontSize\":11,\"fontWeight\":400,\"color\":\"#94a3b8\",\"lineHeight\":1.5}", DefaultWidth = 300, DefaultHeight = 20, Order = 5 }
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Đoạn văn lớn", TabName = "Đoạn văn", DefaultContent = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.", StylesJson = "{\"fontSize\":18,\"fontWeight\":400,\"color\":\"#334155\",\"lineHeight\":1.8}", DefaultWidth = 600, DefaultHeight = 100, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Đoạn văn trung bình", TabName = "Đoạn văn", DefaultContent = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut enim ad minim veniam.", StylesJson = "{\"fontSize\":15,\"fontWeight\":400,\"color\":\"#475569\",\"lineHeight\":1.7}", DefaultWidth = 500, DefaultHeight = 80, Order = 2 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Đoạn văn nhỏ", TabName = "Đoạn văn", DefaultContent = "Mô tả ngắn gọn sản phẩm hoặc dịch vụ của bạn.", StylesJson = "{\"fontSize\":13,\"fontWeight\":400,\"color\":\"#64748b\",\"lineHeight\":1.6}", DefaultWidth = 400, DefaultHeight = 50, Order = 3 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Trích dẫn", TabName = "Đoạn văn", DefaultContent = "\"Đây là một câu trích dẫn nổi bật để thu hút sự chú ý của khách hàng.\"", StylesJson = "{\"fontSize\":20,\"fontWeight\":500,\"color\":\"#7c3aed\",\"fontStyle\":\"italic\",\"lineHeight\":1.6}", DefaultWidth = 550, DefaultHeight = 80, Order = 4 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Chú thích", TabName = "Đoạn văn", DefaultContent = "* Điều kiện và điều khoản áp dụng", StylesJson = "{\"fontSize\":11,\"fontWeight\":400,\"color\":\"#94a3b8\",\"lineHeight\":1.5}", DefaultWidth = 300, DefaultHeight = 20, Order = 5 }
             );
 
             // Element Presets for "Văn bản" -> Danh sách tab
             db.ElementPresets.AddRange(
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Danh sách có dấu", TabName = "Danh sách", DefaultContent = "Tính năng thứ nhất\nTính năng thứ hai\nTính năng thứ ba", StylesJson = "{\"fontSize\":14,\"fontWeight\":400,\"color\":\"#334155\",\"listStyle\":\"disc\"}", DefaultWidth = 400, DefaultHeight = 100, Order = 1 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Danh sách đánh số", TabName = "Danh sách", DefaultContent = "Bước 1: Đăng ký tài khoản\nBước 2: Chọn gói dịch vụ\nBước 3: Bắt đầu sử dụng", StylesJson = "{\"fontSize\":14,\"fontWeight\":400,\"color\":\"#334155\",\"listStyle\":\"decimal\"}", DefaultWidth = 400, DefaultHeight = 100, Order = 2 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Danh sách check", TabName = "Danh sách", DefaultContent = "✓ Miễn phí dùng thử 14 ngày\n✓ Không cần thẻ tín dụng\n✓ Hỗ trợ 24/7\n✓ Hủy bất kỳ lúc nào", StylesJson = "{\"fontSize\":14,\"fontWeight\":500,\"color\":\"#16a34a\",\"lineHeight\":2}", DefaultWidth = 400, DefaultHeight = 140, Order = 3 }
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Danh sách có dấu", TabName = "Danh sách", DefaultContent = "Tính năng thứ nhất\nTính năng thứ hai\nTính năng thứ ba", StylesJson = "{\"fontSize\":14,\"fontWeight\":400,\"color\":\"#334155\",\"listStyle\":\"disc\"}", DefaultWidth = 400, DefaultHeight = 100, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Danh sách đánh số", TabName = "Danh sách", DefaultContent = "Bước 1: Đăng ký tài khoản\nBước 2: Chọn gói dịch vụ\nBước 3: Bắt đầu sử dụng", StylesJson = "{\"fontSize\":14,\"fontWeight\":400,\"color\":\"#334155\",\"listStyle\":\"decimal\"}", DefaultWidth = 400, DefaultHeight = 100, Order = 2 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVanBan.Id, Name = "Danh sách check", TabName = "Danh sách", DefaultContent = "✓ Miễn phí dùng thử 14 ngày\n✓ Không cần thẻ tín dụng\n✓ Hỗ trợ 24/7\n✓ Hủy bất kỳ lúc nào", StylesJson = "{\"fontSize\":14,\"fontWeight\":500,\"color\":\"#16a34a\",\"lineHeight\":2}", DefaultWidth = 400, DefaultHeight = 140, Order = 3 }
             );
 
-            // Element Presets for "Nút bấm"
+            // Element Presets for "Nút bấm" -> Nút bấm tab
             db.ElementPresets.AddRange(
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Nút chính", TabName = null, DefaultContent = "Bắt đầu ngay", StylesJson = "{\"fontSize\":16,\"fontWeight\":600,\"color\":\"#ffffff\",\"backgroundColor\":\"#4f46e5\",\"borderRadius\":8}", DefaultWidth = 200, DefaultHeight = 48, Order = 1 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Nút phụ", TabName = null, DefaultContent = "Tìm hiểu thêm", StylesJson = "{\"fontSize\":14,\"fontWeight\":500,\"color\":\"#4f46e5\",\"backgroundColor\":\"#eef2ff\",\"borderRadius\":8}", DefaultWidth = 180, DefaultHeight = 44, Order = 2 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Nút viền", TabName = null, DefaultContent = "Liên hệ", StylesJson = "{\"fontSize\":14,\"fontWeight\":500,\"color\":\"#4f46e5\",\"backgroundColor\":\"transparent\",\"borderRadius\":8,\"border\":\"2px solid #4f46e5\"}", DefaultWidth = 160, DefaultHeight = 44, Order = 3 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Nút tròn", TabName = null, DefaultContent = "Đăng ký", StylesJson = "{\"fontSize\":16,\"fontWeight\":600,\"color\":\"#ffffff\",\"backgroundColor\":\"#dc2626\",\"borderRadius\":50}", DefaultWidth = 200, DefaultHeight = 50, Order = 4 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Nút gradient", TabName = null, DefaultContent = "Mua ngay", StylesJson = "{\"fontSize\":16,\"fontWeight\":700,\"color\":\"#ffffff\",\"background\":\"linear-gradient(135deg,#6366f1,#a855f7)\",\"borderRadius\":12}", DefaultWidth = 220, DefaultHeight = 52, Order = 5 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Nút CTA lớn", TabName = null, DefaultContent = "ĐĂNG KÝ MIỄN PHÍ", StylesJson = "{\"fontSize\":20,\"fontWeight\":800,\"color\":\"#ffffff\",\"backgroundColor\":\"#ea580c\",\"borderRadius\":10,\"letterSpacing\":2}", DefaultWidth = 320, DefaultHeight = 60, Order = 6 }
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Buy Now", TabName = "Nút bấm", DefaultContent = "Buy Now", StylesJson = "{\"fontSize\":14,\"fontWeight\":600,\"color\":\"#ffffff\",\"backgroundColor\":\"#000000\",\"borderRadius\":4}", DefaultWidth = 120, DefaultHeight = 44, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Shop Now", TabName = "Nút bấm", DefaultContent = "Shop Now", StylesJson = "{\"fontSize\":14,\"fontWeight\":600,\"color\":\"#ffffff\",\"backgroundColor\":\"#1e293b\",\"borderRadius\":4}", DefaultWidth = 120, DefaultHeight = 44, Order = 2 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Read More", TabName = "Nút bấm", DefaultContent = "Read More", StylesJson = "{\"fontSize\":14,\"fontWeight\":500,\"color\":\"#000000\",\"backgroundColor\":\"#ffffff\",\"borderRadius\":4,\"borderWidth\":1,\"borderColor\":\"#000000\"}", DefaultWidth = 120, DefaultHeight = 44, Order = 3 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Nút chính", TabName = "Nút bấm", DefaultContent = "Bắt đầu ngay", StylesJson = "{\"fontSize\":16,\"fontWeight\":600,\"color\":\"#ffffff\",\"backgroundColor\":\"#4f46e5\",\"borderRadius\":8}", DefaultWidth = 200, DefaultHeight = 48, Order = 4 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Contact Us", TabName = "Nút bấm", DefaultContent = "Contact Us", StylesJson = "{\"fontSize\":14,\"fontWeight\":600,\"color\":\"#ffffff\",\"backgroundColor\":\"#1e40af\",\"borderRadius\":50}", DefaultWidth = 160, DefaultHeight = 48, Order = 5 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Contact Us viền", TabName = "Nút bấm", DefaultContent = "Contact Us", StylesJson = "{\"fontSize\":14,\"fontWeight\":600,\"color\":\"#1e40af\",\"backgroundColor\":\"transparent\",\"borderRadius\":50,\"borderWidth\":2,\"borderColor\":\"#1e40af\"}", DefaultWidth = 160, DefaultHeight = 48, Order = 6 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Gửi →", TabName = "Nút bấm", DefaultContent = "Gửi →", StylesJson = "{\"fontSize\":14,\"fontWeight\":600,\"color\":\"#ffffff\",\"backgroundColor\":\"#2563eb\",\"borderRadius\":50}", DefaultWidth = 100, DefaultHeight = 44, Order = 7 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Click Here", TabName = "Nút bấm", DefaultContent = "Click Here", StylesJson = "{\"fontSize\":14,\"fontWeight\":500,\"color\":\"#2563eb\",\"backgroundColor\":\"transparent\",\"borderRadius\":0,\"textDecoration\":\"underline\"}", DefaultWidth = 100, DefaultHeight = 32, Order = 8 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Nút viền", TabName = "Nút bấm", DefaultContent = "Liên hệ", StylesJson = "{\"fontSize\":14,\"fontWeight\":500,\"color\":\"#4f46e5\",\"backgroundColor\":\"transparent\",\"borderRadius\":8,\"borderWidth\":2,\"borderColor\":\"#4f46e5\"}", DefaultWidth = 160, DefaultHeight = 44, Order = 9 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Nút tròn (pill)", TabName = "Nút bấm", DefaultContent = "Đăng ký", StylesJson = "{\"fontSize\":16,\"fontWeight\":600,\"color\":\"#ffffff\",\"backgroundColor\":\"#dc2626\",\"borderRadius\":50}", DefaultWidth = 200, DefaultHeight = 50, Order = 10 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Nút có bóng", TabName = "Nút bấm", DefaultContent = "Gửi", StylesJson = "{\"fontSize\":16,\"fontWeight\":600,\"color\":\"#ffffff\",\"backgroundColor\":\"#6366f1\",\"borderRadius\":10,\"boxShadow\":\"0 10px 25px rgba(99,102,241,0.35)\"}", DefaultWidth = 120, DefaultHeight = 48, Order = 11 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Xem Thêm", TabName = "Nút bấm", DefaultContent = "Xem Thêm", StylesJson = "{\"fontSize\":14,\"fontWeight\":600,\"color\":\"#000000\",\"backgroundColor\":\"transparent\",\"borderRadius\":0,\"textDecoration\":\"underline\"}", DefaultWidth = 100, DefaultHeight = 32, Order = 12 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Mua Ngay →", TabName = "Nút bấm", DefaultContent = "Mua Ngay →", StylesJson = "{\"fontSize\":16,\"fontWeight\":600,\"color\":\"#ffffff\",\"backgroundColor\":\"#ea580c\",\"borderRadius\":50}", DefaultWidth = 160, DefaultHeight = 48, Order = 13 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "XEM TẤT CẢ", TabName = "Nút bấm", DefaultContent = "XEM TẤT CẢ", StylesJson = "{\"fontSize\":14,\"fontWeight\":700,\"color\":\"#dc2626\",\"backgroundColor\":\"transparent\",\"borderRadius\":0,\"textTransform\":\"uppercase\"}", DefaultWidth = 140, DefaultHeight = 36, Order = 14 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "TẢI XUỐNG", TabName = "Nút bấm", DefaultContent = "TẢI XUỐNG", StylesJson = "{\"fontSize\":14,\"fontWeight\":700,\"color\":\"#ffffff\",\"backgroundColor\":\"#0d9488\",\"borderRadius\":8,\"textTransform\":\"uppercase\"}", DefaultWidth = 160, DefaultHeight = 48, Order = 15 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "THAM GIA", TabName = "Nút bấm", DefaultContent = "THAM GIA", StylesJson = "{\"fontSize\":14,\"fontWeight\":600,\"color\":\"#1e40af\",\"backgroundColor\":\"#e0e7ff\",\"borderRadius\":50,\"textTransform\":\"uppercase\",\"fontFamily\":\"Georgia, serif\"}", DefaultWidth = 140, DefaultHeight = 44, Order = 16 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Let's Go", TabName = "Nút bấm", DefaultContent = "Let's Go", StylesJson = "{\"fontSize\":14,\"fontWeight\":600,\"color\":\"#2563eb\",\"backgroundColor\":\"#ffffff\",\"borderRadius\":8,\"borderWidth\":1,\"borderColor\":\"#2563eb\"}", DefaultWidth = 120, DefaultHeight = 44, Order = 17 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Nút xám", TabName = "Nút bấm", DefaultContent = "Xem thêm", StylesJson = "{\"fontSize\":14,\"fontWeight\":500,\"color\":\"#1e293b\",\"backgroundColor\":\"#e2e8f0\",\"borderRadius\":8}", DefaultWidth = 120, DefaultHeight = 44, Order = 18 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Nút xanh viền", TabName = "Nút bấm", DefaultContent = "Chi tiết", StylesJson = "{\"fontSize\":14,\"fontWeight\":500,\"color\":\"#2563eb\",\"backgroundColor\":\"#f8fafc\",\"borderRadius\":8,\"borderWidth\":1,\"borderColor\":\"#2563eb\"}", DefaultWidth = 120, DefaultHeight = 44, Order = 19 }
+            );
+            // Element Presets for "Nút bấm" -> Nhóm nút bấm tab (single buttons that look like nav groups - user adds multiple)
+            db.ElementPresets.AddRange(
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Nhóm text link", TabName = "Nhóm nút bấm", DefaultContent = "Products | Solutions | Pricing | Contact", StylesJson = "{\"fontSize\":14,\"fontWeight\":500,\"color\":\"#64748b\",\"backgroundColor\":\"transparent\",\"borderRadius\":0}", DefaultWidth = 400, DefaultHeight = 40, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Nhóm nút viền", TabName = "Nhóm nút bấm", DefaultContent = "Giới thiệu | Dịch vụ | Liên hệ", StylesJson = "{\"fontSize\":13,\"fontWeight\":500,\"color\":\"#1e293b\",\"backgroundColor\":\"transparent\",\"borderRadius\":6,\"borderWidth\":1,\"borderColor\":\"#e2e8f0\"}", DefaultWidth = 320, DefaultHeight = 40, Order = 2 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiNutBam.Id, Name = "Nhóm nút pill", TabName = "Nhóm nút bấm", DefaultContent = "Tab 1 | Tab 2 | Tab 3", StylesJson = "{\"fontSize\":14,\"fontWeight\":600,\"color\":\"#ffffff\",\"backgroundColor\":\"#4f46e5\",\"borderRadius\":20}", DefaultWidth = 280, DefaultHeight = 44, Order = 3 }
             );
 
-            // Presets for Gallery
+            // Presets for Chi tiết sản phẩm
+            var productDetailContent = "{\"images\":[\"https://picsum.photos/400/400?random=1\"],\"title\":\"Áo thun nam cao cấp\",\"price\":\"1.290.000đ\",\"salePrice\":\"990.000đ\",\"description\":\"Chất liệu cotton 100%, thoáng mát, form dáng chuẩn.\",\"badge\":\"Giảm 23%\"}";
             db.ElementPresets.AddRange(
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiGallery.Id, Name = "Gallery 3 cột", TabName = null, DefaultContent = "", StylesJson = "{\"columns\":3,\"gap\":8}", DefaultWidth = 600, DefaultHeight = 400, Order = 1 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiGallery.Id, Name = "Gallery 4 cột", TabName = null, DefaultContent = "", StylesJson = "{\"columns\":4,\"gap\":6}", DefaultWidth = 700, DefaultHeight = 350, Order = 2 }
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiSPChiTiet.Id, Name = "Sản phẩm mẫu", TabName = null, DefaultContent = productDetailContent, StylesJson = "{\"backgroundColor\":\"#ffffff\",\"borderRadius\":12}", DefaultWidth = 360, DefaultHeight = 420, Order = 1 }
             );
 
-            // Presets for Hình hộp
+            // Presets for Danh sách sản phẩm
+            var collectionListContent = "{\"columns\":3,\"items\":[{\"image\":\"https://picsum.photos/200/200?random=2\",\"title\":\"Áo Polo Basic\",\"price\":\"299.000đ\"},{\"image\":\"https://picsum.photos/200/200?random=3\",\"title\":\"Quần Jeans Slim\",\"price\":\"499.000đ\"},{\"image\":\"https://picsum.photos/200/200?random=4\",\"title\":\"Giày Sneaker\",\"price\":\"890.000đ\"}]}";
             db.ElementPresets.AddRange(
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Hộp vuông", TabName = null, DefaultContent = "", StylesJson = "{\"backgroundColor\":\"#e0e7ff\",\"borderRadius\":0}", DefaultWidth = 120, DefaultHeight = 120, Order = 1 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Hộp tròn", TabName = null, DefaultContent = "", StylesJson = "{\"backgroundColor\":\"#dbeafe\",\"borderRadius\":999}", DefaultWidth = 120, DefaultHeight = 120, Order = 2 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Hộp bo góc", TabName = null, DefaultContent = "", StylesJson = "{\"backgroundColor\":\"#fef3c7\",\"borderRadius\":16}", DefaultWidth = 200, DefaultHeight = 150, Order = 3 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Hộp viền", TabName = null, DefaultContent = "", StylesJson = "{\"backgroundColor\":\"transparent\",\"borderRadius\":8,\"border\":\"2px solid #6366f1\"}", DefaultWidth = 200, DefaultHeight = 150, Order = 4 }
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiSPDanhSach.Id, Name = "Danh sách 3 cột", TabName = null, DefaultContent = collectionListContent, StylesJson = "{\"backgroundColor\":\"#f8fafc\",\"borderRadius\":12}", DefaultWidth = 600, DefaultHeight = 280, Order = 1 }
+            );
+
+            // Presets for Gallery - layoutType: grid | product-main-thumbs | minimal | vertical-thumbs
+            db.ElementPresets.AddRange(
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiGallery.Id, Name = "Sản phẩm (ảnh lớn + thumb)", TabName = "Gallery", DefaultContent = "[\"https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=800\",\"https://images.unsplash.com/photo-1544947950-fa07a98d237f?w=200\",\"https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=200\",\"https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=200\"]", StylesJson = "{\"layoutType\":\"product-main-thumbs\",\"columns\":3,\"gap\":8,\"backgroundColor\":\"#ffffff\"}", DefaultWidth = 500, DefaultHeight = 420, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiGallery.Id, Name = "Minimal (ảnh đơn)", TabName = "Gallery", DefaultContent = "[\"https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=800\"]", StylesJson = "{\"layoutType\":\"minimal\",\"backgroundColor\":\"#fce7f3\",\"borderRadius\":12}", DefaultWidth = 400, DefaultHeight = 350, Order = 2 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiGallery.Id, Name = "Thumb dọc bên trái", TabName = "Gallery", DefaultContent = "[\"https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=800\",\"https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=150\",\"https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=150\",\"https://images.unsplash.com/photo-1556742111-a301076d9d18?w=150\"]", StylesJson = "{\"layoutType\":\"vertical-thumbs\",\"gap\":8,\"backgroundColor\":\"#f8fafc\"}", DefaultWidth = 550, DefaultHeight = 400, Order = 3 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiGallery.Id, Name = "Gallery 3 cột", TabName = "Gallery", DefaultContent = "[]", StylesJson = "{\"layoutType\":\"grid\",\"columns\":3,\"gap\":8}", DefaultWidth = 600, DefaultHeight = 400, Order = 4 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiGallery.Id, Name = "Gallery 4 cột", TabName = "Gallery", DefaultContent = "[]", StylesJson = "{\"layoutType\":\"grid\",\"columns\":4,\"gap\":6}", DefaultWidth = 700, DefaultHeight = 350, Order = 5 }
+            );
+
+            // Presets for Hình hộp - solid, outlined, dashed, per-corner radius, shadow
+            db.ElementPresets.AddRange(
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Vuông nền xám", TabName = "Hình hộp", DefaultContent = "[]", StylesJson = "{\"backgroundColor\":\"#e2e8f0\",\"borderRadius\":0,\"borderWidth\":0}", DefaultWidth = 120, DefaultHeight = 120, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Vuông viền", TabName = "Hình hộp", DefaultContent = "[]", StylesJson = "{\"backgroundColor\":\"transparent\",\"borderRadius\":0,\"borderWidth\":2,\"borderColor\":\"#e2e8f0\",\"borderStyle\":\"solid\"}", DefaultWidth = 120, DefaultHeight = 120, Order = 2 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Tròn nền", TabName = "Hình hộp", DefaultContent = "[]", StylesJson = "{\"backgroundColor\":\"#e2e8f0\",\"borderRadius\":999,\"borderWidth\":0}", DefaultWidth = 120, DefaultHeight = 120, Order = 3 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Tròn viền", TabName = "Hình hộp", DefaultContent = "[]", StylesJson = "{\"backgroundColor\":\"transparent\",\"borderRadius\":999,\"borderWidth\":2,\"borderColor\":\"#e2e8f0\",\"borderStyle\":\"solid\"}", DefaultWidth = 120, DefaultHeight = 120, Order = 4 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Chữ nhật nền", TabName = "Hình hộp", DefaultContent = "[]", StylesJson = "{\"backgroundColor\":\"#e2e8f0\",\"borderRadius\":0,\"borderWidth\":0}", DefaultWidth = 200, DefaultHeight = 100, Order = 5 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Chữ nhật viền", TabName = "Hình hộp", DefaultContent = "[]", StylesJson = "{\"backgroundColor\":\"transparent\",\"borderRadius\":0,\"borderWidth\":2,\"borderColor\":\"#e2e8f0\",\"borderStyle\":\"solid\"}", DefaultWidth = 200, DefaultHeight = 100, Order = 6 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Hộp đổ bóng nhẹ", TabName = "Hình hộp", DefaultContent = "[]", StylesJson = "{\"backgroundColor\":\"#ffffff\",\"borderRadius\":8,\"borderWidth\":0,\"boxShadow\":\"0 2px 8px rgba(0,0,0,0.08)\"}", DefaultWidth = 200, DefaultHeight = 100, Order = 7 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Hộp đổ bóng đậm", TabName = "Hình hộp", DefaultContent = "[]", StylesJson = "{\"backgroundColor\":\"#ffffff\",\"borderRadius\":8,\"borderWidth\":0,\"boxShadow\":\"0 4px 12px rgba(0,0,0,0.15)\"}", DefaultWidth = 200, DefaultHeight = 100, Order = 8 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Hộp xanh nền", TabName = "Hình hộp", DefaultContent = "[]", StylesJson = "{\"backgroundColor\":\"#2563eb\",\"borderRadius\":8,\"borderWidth\":0}", DefaultWidth = 200, DefaultHeight = 100, Order = 9 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Hộp xanh viền", TabName = "Hình hộp", DefaultContent = "[]", StylesJson = "{\"backgroundColor\":\"transparent\",\"borderRadius\":8,\"borderWidth\":3,\"borderColor\":\"#2563eb\",\"borderStyle\":\"solid\"}", DefaultWidth = 200, DefaultHeight = 100, Order = 10 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Hộp viền chấm", TabName = "Hình hộp", DefaultContent = "[]", StylesJson = "{\"backgroundColor\":\"transparent\",\"borderRadius\":0,\"borderWidth\":2,\"borderColor\":\"#1e293b\",\"borderStyle\":\"dashed\"}", DefaultWidth = 200, DefaultHeight = 100, Order = 11 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Góc chéo (TL+BR)", TabName = "Hình hộp", DefaultContent = "[]", StylesJson = "{\"backgroundColor\":\"#7c3aed\",\"borderRadius\":12,\"borderTopLeftRadius\":20,\"borderTopRightRadius\":0,\"borderBottomLeftRadius\":0,\"borderBottomRightRadius\":20,\"borderWidth\":0}", DefaultWidth = 200, DefaultHeight = 100, Order = 12 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiHinhHop.Id, Name = "Góc chéo (TR+BL)", TabName = "Hình hộp", DefaultContent = "[]", StylesJson = "{\"backgroundColor\":\"#2e8b57\",\"borderRadius\":12,\"borderTopLeftRadius\":0,\"borderTopRightRadius\":20,\"borderBottomLeftRadius\":20,\"borderBottomRightRadius\":0,\"borderWidth\":0}", DefaultWidth = 200, DefaultHeight = 100, Order = 13 }
+            );
+
+            // Presets for Đường kẻ (divider/line)
+            db.ElementPresets.AddRange(
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiDuongKe.Id, Name = "Nét liền đen vừa", TabName = "Đường kẻ", DefaultContent = "", StylesJson = "{\"backgroundColor\":\"#000000\",\"height\":2,\"lineStyle\":\"solid\"}", DefaultWidth = 400, DefaultHeight = 2, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiDuongKe.Id, Name = "Nét đứt đen đậm", TabName = "Đường kẻ", DefaultContent = "", StylesJson = "{\"backgroundColor\":\"#000000\",\"height\":4,\"lineStyle\":\"dashed\",\"strokeDashArray\":\"[8,4]\"}", DefaultWidth = 400, DefaultHeight = 4, Order = 2 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiDuongKe.Id, Name = "Nét chấm đen", TabName = "Đường kẻ", DefaultContent = "", StylesJson = "{\"backgroundColor\":\"#000000\",\"height\":2,\"lineStyle\":\"dotted\",\"strokeDashArray\":\"[2,4]\"}", DefaultWidth = 400, DefaultHeight = 2, Order = 3 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiDuongKe.Id, Name = "Đường kép đen", TabName = "Đường kẻ", DefaultContent = "", StylesJson = "{\"backgroundColor\":\"#000000\",\"height\":2,\"lineStyle\":\"double\"}", DefaultWidth = 400, DefaultHeight = 6, Order = 4 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiDuongKe.Id, Name = "Nét liền xám", TabName = "Đường kẻ", DefaultContent = "", StylesJson = "{\"backgroundColor\":\"#94a3b8\",\"height\":2,\"lineStyle\":\"solid\"}", DefaultWidth = 400, DefaultHeight = 2, Order = 5 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiDuongKe.Id, Name = "Nét đứt xanh", TabName = "Đường kẻ", DefaultContent = "", StylesJson = "{\"backgroundColor\":\"#2563eb\",\"height\":3,\"lineStyle\":\"dashed\",\"strokeDashArray\":\"[8,4]\"}", DefaultWidth = 400, DefaultHeight = 3, Order = 6 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiDuongKe.Id, Name = "Nét chấm cam", TabName = "Đường kẻ", DefaultContent = "", StylesJson = "{\"backgroundColor\":\"#ea580c\",\"height\":2,\"lineStyle\":\"dotted\",\"strokeDashArray\":\"[2,3]\"}", DefaultWidth = 400, DefaultHeight = 2, Order = 7 }
             );
 
             // Presets for Biểu tượng (icon)
             db.ElementPresets.AddRange(
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiBieuTuong.Id, Name = "Ngôi sao", TabName = null, DefaultContent = "★", StylesJson = "{\"color\":\"#f59e0b\"}", DefaultWidth = 48, DefaultHeight = 48, Order = 1 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiBieuTuong.Id, Name = "Trái tim", TabName = null, DefaultContent = "❤", StylesJson = "{\"color\":\"#ef4444\"}", DefaultWidth = 48, DefaultHeight = 48, Order = 2 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiBieuTuong.Id, Name = "Dấu tick", TabName = null, DefaultContent = "✔", StylesJson = "{\"color\":\"#16a34a\"}", DefaultWidth = 48, DefaultHeight = 48, Order = 3 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiBieuTuong.Id, Name = "Thông tin", TabName = null, DefaultContent = "ℹ", StylesJson = "{\"color\":\"#3b82f6\"}", DefaultWidth = 48, DefaultHeight = 48, Order = 4 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiBieuTuong.Id, Name = "Cảnh báo", TabName = null, DefaultContent = "⚠", StylesJson = "{\"color\":\"#eab308\"}", DefaultWidth = 48, DefaultHeight = 48, Order = 5 }
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiBieuTuong.Id, Name = "Ngôi sao", TabName = null, DefaultContent = "★", StylesJson = "{\"color\":\"#f59e0b\"}", DefaultWidth = 48, DefaultHeight = 48, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiBieuTuong.Id, Name = "Trái tim", TabName = null, DefaultContent = "❤", StylesJson = "{\"color\":\"#ef4444\"}", DefaultWidth = 48, DefaultHeight = 48, Order = 2 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiBieuTuong.Id, Name = "Dấu tick", TabName = null, DefaultContent = "✔", StylesJson = "{\"color\":\"#16a34a\"}", DefaultWidth = 48, DefaultHeight = 48, Order = 3 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiBieuTuong.Id, Name = "Thông tin", TabName = null, DefaultContent = "ℹ", StylesJson = "{\"color\":\"#3b82f6\"}", DefaultWidth = 48, DefaultHeight = 48, Order = 4 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiBieuTuong.Id, Name = "Cảnh báo", TabName = null, DefaultContent = "⚠", StylesJson = "{\"color\":\"#eab308\"}", DefaultWidth = 48, DefaultHeight = 48, Order = 5 }
             );
 
             // Presets for Ảnh
             db.ElementPresets.AddRange(
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiAnh.Id, Name = "Ảnh mặc định", TabName = null, DefaultContent = "Image", StylesJson = "{\"borderRadius\":0}", DefaultWidth = 400, DefaultHeight = 260, Order = 1 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiAnh.Id, Name = "Ảnh bo góc", TabName = null, DefaultContent = "Image", StylesJson = "{\"borderRadius\":16,\"shadow\":\"0 10px 30px rgba(15,23,42,0.21)\"}", DefaultWidth = 420, DefaultHeight = 280, Order = 2 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiAnh.Id, Name = "Ảnh avatar tròn", TabName = null, DefaultContent = "Avatar", StylesJson = "{\"borderRadius\":9999}", DefaultWidth = 160, DefaultHeight = 160, Order = 3 }
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiAnh.Id, Name = "Ảnh mặc định", TabName = null, DefaultContent = "Image", StylesJson = "{\"borderRadius\":0}", DefaultWidth = 400, DefaultHeight = 260, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiAnh.Id, Name = "Ảnh bo góc", TabName = null, DefaultContent = "Image", StylesJson = "{\"borderRadius\":16,\"shadow\":\"0 10px 30px rgba(15,23,42,0.21)\"}", DefaultWidth = 420, DefaultHeight = 280, Order = 2 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiAnh.Id, Name = "Ảnh avatar tròn", TabName = null, DefaultContent = "Avatar", StylesJson = "{\"borderRadius\":9999}", DefaultWidth = 160, DefaultHeight = 160, Order = 3 }
             );
 
             // Presets for Video
             db.ElementPresets.AddRange(
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVideo.Id, Name = "Video 16:9", TabName = null, DefaultContent = "https://www.youtube.com/embed/dQw4w9WgXcQ", StylesJson = "{\"borderRadius\":12}", DefaultWidth = 560, DefaultHeight = 315, Order = 1 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiVideo.Id, Name = "Video 4:3", TabName = null, DefaultContent = "https://www.youtube.com/embed/jNQXAC9IVRw", StylesJson = "{\"borderRadius\":8}", DefaultWidth = 480, DefaultHeight = 360, Order = 2 }
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVideo.Id, Name = "Video 16:9", TabName = null, DefaultContent = "https://www.youtube.com/embed/dQw4w9WgXcQ", StylesJson = "{\"borderRadius\":12}", DefaultWidth = 560, DefaultHeight = 315, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiVideo.Id, Name = "Video 4:3", TabName = null, DefaultContent = "https://www.youtube.com/embed/jNQXAC9IVRw", StylesJson = "{\"borderRadius\":8}", DefaultWidth = 480, DefaultHeight = 360, Order = 2 }
             );
 
             // Presets for Form
             db.ElementPresets.AddRange(
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiForm.Id, Name = "Form 2 trường", TabName = null, DefaultContent = "name,email", StylesJson = "{\"fontSize\":14}", DefaultWidth = 400, DefaultHeight = 260, Order = 1 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiForm.Id, Name = "Form đăng ký", TabName = null, DefaultContent = "name,phone,email", StylesJson = "{\"fontSize\":14}", DefaultWidth = 420, DefaultHeight = 300, Order = 2 }
-            );
-
-            // Presets for Sản phẩm mẫu
-            db.ElementPresets.AddRange(
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiSanPhamMau.Id, Name = "Card sản phẩm", TabName = null, DefaultContent = "Sản phẩm mẫu", StylesJson = "{\"fontSize\":16,\"fontWeight\":600}", DefaultWidth = 260, DefaultHeight = 340, Order = 1 }
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiForm.Id, Name = "Form viền mỏng", TabName = "Form", DefaultContent = "{\"formType\":\"contact\",\"title\":\"Liên hệ\",\"buttonText\":\"Đặt ngay\",\"fields\":[{\"id\":\"name\",\"name\":\"name\",\"label\":\"Họ và tên\",\"placeholder\":\"Họ và tên\",\"type\":\"text\"},{\"id\":\"email\",\"name\":\"email\",\"label\":\"Email\",\"placeholder\":\"Email\",\"type\":\"email\"},{\"id\":\"phone\",\"name\":\"phone\",\"label\":\"Số điện thoại\",\"placeholder\":\"Số điện thoại\",\"type\":\"phone\"},{\"id\":\"message\",\"name\":\"message\",\"label\":\"Để lại lời nhắn\",\"placeholder\":\"Để lại lời nhắn cho chúng tôi\",\"type\":\"textarea\"}],\"inputStyle\":\"outlined\"}", StylesJson = "{\"fontSize\":14}", DefaultWidth = 400, DefaultHeight = 320, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiForm.Id, Name = "Form Login", TabName = "Form Login", DefaultContent = "{\"formType\":\"login\",\"title\":\"\",\"buttonText\":\"Đăng nhập\",\"fields\":[{\"id\":\"accessCode\",\"name\":\"accessCode\",\"label\":\"Mã truy cập\",\"placeholder\":\"Mã truy cập\",\"type\":\"text\"}],\"inputStyle\":\"outlined\"}", StylesJson = "{\"fontSize\":14}", DefaultWidth = 360, DefaultHeight = 56, Order = 2 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiForm.Id, Name = "Form OTP", TabName = "Form OTP", DefaultContent = "{\"formType\":\"otp\",\"title\":\"Vui lòng xác nhận OTP\",\"buttonText\":\"Xác nhận OTP\",\"fields\":[{\"id\":\"otp\",\"name\":\"otp\",\"label\":\"Mã OTP\",\"placeholder\":\"Nhập mã OTP\",\"type\":\"text\"}],\"inputStyle\":\"outlined\"}", StylesJson = "{\"fontSize\":14}", DefaultWidth = 400, DefaultHeight = 180, Order = 3 }
             );
 
             // Presets for tiện ích: Countdown, HTML, Map, Social share, Rating, Progress
             db.ElementPresets.AddRange(
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiCountdown.Id, Name = "Đếm ngược mặc định", TabName = null, DefaultContent = "", StylesJson = "{\"fontSize\":24}", DefaultWidth = 320, DefaultHeight = 80, Order = 1 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiHtml.Id, Name = "Khối HTML trống", TabName = null, DefaultContent = "<div>HTML tùy chỉnh</div>", StylesJson = "{}", DefaultWidth = 400, DefaultHeight = 200, Order = 1 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiMap.Id, Name = "Google Maps mặc định", TabName = null, DefaultContent = "10.762622,106.660172", StylesJson = "{}", DefaultWidth = 500, DefaultHeight = 300, Order = 1 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiSocialShare.Id, Name = "Thanh chia sẻ", TabName = null, DefaultContent = "facebook,zalo,linkedin", StylesJson = "{\"fontSize\":14}", DefaultWidth = 260, DefaultHeight = 40, Order = 1 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiRating.Id, Name = "5 sao", TabName = null, DefaultContent = "5", StylesJson = "{\"color\":\"#f59e0b\"}", DefaultWidth = 200, DefaultHeight = 40, Order = 1 },
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiProgress.Id, Name = "Tiến trình 75%", TabName = null, DefaultContent = "75", StylesJson = "{\"backgroundColor\":\"#e2e8f0\"}", DefaultWidth = 400, DefaultHeight = 24, Order = 1 }
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiCountdown.Id, Name = "Đếm ngược mặc định", TabName = null, DefaultContent = "", StylesJson = "{\"fontSize\":24}", DefaultWidth = 320, DefaultHeight = 80, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiHtml.Id, Name = "Khối HTML trống", TabName = null, DefaultContent = "<div>HTML tùy chỉnh</div>", StylesJson = "{}", DefaultWidth = 400, DefaultHeight = 200, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiMaHtml.Id, Name = "HTML/JAVASCRIPT", TabName = "HTML/JAVASCRIPT", DefaultContent = "{\"subType\":\"html-js\",\"code\":\"<div style=\\\"padding:16px;background:#f8fafc;border-radius:8px;font-family:monospace;font-size:12px\\\">Nhấn <b>Sửa HTML</b> để thêm mã tùy chỉnh</div>\",\"iframeSrc\":\"\"}", StylesJson = "{}", DefaultWidth = 400, DefaultHeight = 250, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiMaHtml.Id, Name = "IFRAME", TabName = "IFRAME", DefaultContent = "{\"subType\":\"iframe\",\"code\":\"\",\"iframeSrc\":\"https://example.com\"}", StylesJson = "{}", DefaultWidth = 400, DefaultHeight = 250, Order = 2 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiMap.Id, Name = "Google Maps mặc định", TabName = null, DefaultContent = "10.762622,106.660172", StylesJson = "{}", DefaultWidth = 500, DefaultHeight = 300, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiSocialShare.Id, Name = "Thanh chia sẻ", TabName = null, DefaultContent = "facebook,zalo,linkedin", StylesJson = "{\"fontSize\":14}", DefaultWidth = 260, DefaultHeight = 40, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiRating.Id, Name = "5 sao", TabName = null, DefaultContent = "5", StylesJson = "{\"color\":\"#f59e0b\"}", DefaultWidth = 200, DefaultHeight = 40, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiProgress.Id, Name = "Tiến trình 75%", TabName = null, DefaultContent = "75", StylesJson = "{\"backgroundColor\":\"#e2e8f0\"}", DefaultWidth = 400, DefaultHeight = 24, Order = 1 }
             );
 
             // Presets for Antigravity UI
             db.ElementPresets.AddRange(
-                new LadiPage.Core.Entities.ElementPreset { ToolItemId = tiAntigravity.Id, Name = "Antigravity UI", TabName = null, DefaultContent = "Antigravity UI Component", StylesJson = "{}", DefaultWidth = 800, DefaultHeight = 600, Order = 1 }
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiAntigravity.Id, Name = "Antigravity UI", TabName = null, DefaultContent = "Antigravity UI Component", StylesJson = "{}", DefaultWidth = 800, DefaultHeight = 600, Order = 1 }
+            );
+
+            // Presets for "Yêu thích"
+            db.ElementPresets.AddRange(
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtTieuDe.Id, Name = "Tiêu đề chính", TabName = "Tiêu đề", DefaultContent = "Tiêu đề của bạn", StylesJson = "{\"fontSize\":28,\"fontWeight\":700,\"color\":\"#1e293b\"}", DefaultWidth = 500, DefaultHeight = 45, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtTieuDe.Id, Name = "Tiêu đề phụ", TabName = "Tiêu đề", DefaultContent = "Tiêu đề phụ", StylesJson = "{\"fontSize\":20,\"fontWeight\":600,\"color\":\"#475569\"}", DefaultWidth = 400, DefaultHeight = 32, Order = 2 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtNut.Id, Name = "Nút CTA chính", TabName = "Nút", DefaultContent = "Bắt đầu ngay", StylesJson = "{\"fontSize\":16,\"fontWeight\":600,\"color\":\"#ffffff\",\"backgroundColor\":\"#4f46e5\",\"borderRadius\":8}", DefaultWidth = 180, DefaultHeight = 48, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtNut.Id, Name = "Nút viền", TabName = "Nút", DefaultContent = "Tìm hiểu thêm", StylesJson = "{\"fontSize\":14,\"fontWeight\":500,\"color\":\"#4f46e5\",\"backgroundColor\":\"transparent\",\"borderRadius\":8,\"borderWidth\":2,\"borderColor\":\"#4f46e5\"}", DefaultWidth = 160, DefaultHeight = 44, Order = 2 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtAnh.Id, Name = "Ảnh mặc định", TabName = "Ảnh", DefaultContent = "Image", StylesJson = "{\"borderRadius\":8}", DefaultWidth = 400, DefaultHeight = 260, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtDoanVan.Id, Name = "Đoạn văn mô tả", TabName = "Đoạn văn", DefaultContent = "Mô tả ngắn gọn về sản phẩm hoặc dịch vụ của bạn. Thu hút khách hàng với nội dung hấp dẫn.", StylesJson = "{\"fontSize\":15,\"fontWeight\":400,\"color\":\"#475569\",\"lineHeight\":1.7}", DefaultWidth = 500, DefaultHeight = 80, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtHinhHop.Id, Name = "Hộp nền", TabName = "Hình hộp", DefaultContent = "[]", StylesJson = "{\"backgroundColor\":\"#e2e8f0\",\"borderRadius\":8,\"borderWidth\":0}", DefaultWidth = 200, DefaultHeight = 100, Order = 1 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtHinhHop.Id, Name = "Hộp viền", TabName = "Hình hộp", DefaultContent = "[]", StylesJson = "{\"backgroundColor\":\"transparent\",\"borderRadius\":8,\"borderWidth\":2,\"borderColor\":\"#e2e8f0\"}", DefaultWidth = 200, DefaultHeight = 100, Order = 2 },
+                new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtDuongKe.Id, Name = "Đường kẻ ngang", TabName = "Đường kẻ", DefaultContent = "", StylesJson = "{\"backgroundColor\":\"#e2e8f0\",\"height\":2,\"lineStyle\":\"solid\"}", DefaultWidth = 400, DefaultHeight = 2, Order = 1 }
             );
 
             await db.SaveChangesAsync();
+        }
+        else
+        {
+            // Thêm danh mục "Yêu thích" nếu chưa có (cho DB đã tồn tại)
+            var catYeuThichExisting = await db.ToolCategories.FirstOrDefaultAsync(c => c.Name == "Yêu thích");
+            if (catYeuThichExisting == null)
+            {
+                var catYeuThich = new LadiPage.Domain.Entities.ToolCategory { Name = "Yêu thích", Icon = "star", Order = 13, IsActive = true };
+                db.ToolCategories.Add(catYeuThich);
+                await db.SaveChangesAsync();
+
+                var tiYtTieuDe = new LadiPage.Domain.Entities.ToolItem { CategoryId = catYeuThich.Id, Name = "Tiêu đề nhanh", Icon = "type", ElementType = "headline", Order = 1, HasSubTabs = true, SubTabsJson = "[\"Tiêu đề\"]" };
+                var tiYtNut = new LadiPage.Domain.Entities.ToolItem { CategoryId = catYeuThich.Id, Name = "Nút CTA", Icon = "mouse-pointer-click", ElementType = "button", Order = 2, HasSubTabs = true, SubTabsJson = "[\"Nút\"]" };
+                var tiYtAnh = new LadiPage.Domain.Entities.ToolItem { CategoryId = catYeuThich.Id, Name = "Hình ảnh", Icon = "image", ElementType = "image", Order = 3, HasSubTabs = true, SubTabsJson = "[\"Ảnh\"]" };
+                var tiYtDoanVan = new LadiPage.Domain.Entities.ToolItem { CategoryId = catYeuThich.Id, Name = "Đoạn văn", Icon = "align-left", ElementType = "paragraph", Order = 4, HasSubTabs = true, SubTabsJson = "[\"Đoạn văn\"]" };
+                var tiYtHinhHop = new LadiPage.Domain.Entities.ToolItem { CategoryId = catYeuThich.Id, Name = "Hình hộp", Icon = "square", ElementType = "shape", Order = 5, HasSubTabs = true, SubTabsJson = "[\"Hình hộp\"]" };
+                var tiYtDuongKe = new LadiPage.Domain.Entities.ToolItem { CategoryId = catYeuThich.Id, Name = "Đường kẻ", Icon = "minus", ElementType = "divider", Order = 6, HasSubTabs = true, SubTabsJson = "[\"Đường kẻ\"]" };
+                db.ToolItems.AddRange(tiYtTieuDe, tiYtNut, tiYtAnh, tiYtDoanVan, tiYtHinhHop, tiYtDuongKe);
+                await db.SaveChangesAsync();
+
+                db.ElementPresets.AddRange(
+                    new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtTieuDe.Id, Name = "Tiêu đề chính", TabName = "Tiêu đề", DefaultContent = "Tiêu đề của bạn", StylesJson = "{\"fontSize\":28,\"fontWeight\":700,\"color\":\"#1e293b\"}", DefaultWidth = 500, DefaultHeight = 45, Order = 1 },
+                    new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtTieuDe.Id, Name = "Tiêu đề phụ", TabName = "Tiêu đề", DefaultContent = "Tiêu đề phụ", StylesJson = "{\"fontSize\":20,\"fontWeight\":600,\"color\":\"#475569\"}", DefaultWidth = 400, DefaultHeight = 32, Order = 2 },
+                    new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtNut.Id, Name = "Nút CTA chính", TabName = "Nút", DefaultContent = "Bắt đầu ngay", StylesJson = "{\"fontSize\":16,\"fontWeight\":600,\"color\":\"#ffffff\",\"backgroundColor\":\"#4f46e5\",\"borderRadius\":8}", DefaultWidth = 180, DefaultHeight = 48, Order = 1 },
+                    new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtNut.Id, Name = "Nút viền", TabName = "Nút", DefaultContent = "Tìm hiểu thêm", StylesJson = "{\"fontSize\":14,\"fontWeight\":500,\"color\":\"#4f46e5\",\"backgroundColor\":\"transparent\",\"borderRadius\":8,\"borderWidth\":2,\"borderColor\":\"#4f46e5\"}", DefaultWidth = 160, DefaultHeight = 44, Order = 2 },
+                    new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtAnh.Id, Name = "Ảnh mặc định", TabName = "Ảnh", DefaultContent = "Image", StylesJson = "{\"borderRadius\":8}", DefaultWidth = 400, DefaultHeight = 260, Order = 1 },
+                    new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtDoanVan.Id, Name = "Đoạn văn mô tả", TabName = "Đoạn văn", DefaultContent = "Mô tả ngắn gọn về sản phẩm hoặc dịch vụ của bạn. Thu hút khách hàng với nội dung hấp dẫn.", StylesJson = "{\"fontSize\":15,\"fontWeight\":400,\"color\":\"#475569\",\"lineHeight\":1.7}", DefaultWidth = 500, DefaultHeight = 80, Order = 1 },
+                    new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtHinhHop.Id, Name = "Hộp nền", TabName = "Hình hộp", DefaultContent = "[]", StylesJson = "{\"backgroundColor\":\"#e2e8f0\",\"borderRadius\":8,\"borderWidth\":0}", DefaultWidth = 200, DefaultHeight = 100, Order = 1 },
+                    new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtHinhHop.Id, Name = "Hộp viền", TabName = "Hình hộp", DefaultContent = "[]", StylesJson = "{\"backgroundColor\":\"transparent\",\"borderRadius\":8,\"borderWidth\":2,\"borderColor\":\"#e2e8f0\"}", DefaultWidth = 200, DefaultHeight = 100, Order = 2 },
+                    new LadiPage.Domain.Entities.ElementPreset { ToolItemId = tiYtDuongKe.Id, Name = "Đường kẻ ngang", TabName = "Đường kẻ", DefaultContent = "", StylesJson = "{\"backgroundColor\":\"#e2e8f0\",\"height\":2,\"lineStyle\":\"solid\"}", DefaultWidth = 400, DefaultHeight = 2, Order = 1 }
+                );
+                await db.SaveChangesAsync();
+            }
         }
 
         if (!await db.Plans.AnyAsync())
         {
             db.Plans.AddRange(
-                new LadiPage.Core.Entities.Plan { Name = "Miễn phí", Code = "free", Price = 0, BillingCycle = "thang", MaxPages = 10, MaxMembers = 1, StorageGb = 1, IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
-                new LadiPage.Core.Entities.Plan { Name = "Pro", Code = "pro", Price = 299000, BillingCycle = "thang", MaxPages = 100, MaxMembers = 5, MaxPageViews = 100000, StorageGb = 10, HasAi = true, HasEcommerce = true, HasAutomation = true, HasAbTest = true, HasCustomDomain = true, IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
-                new LadiPage.Core.Entities.Plan { Name = "Enterprise", Code = "enterprise", Price = 999000, BillingCycle = "thang", MaxPages = 9999, MaxMembers = 50, MaxPageViews = 1000000, StorageGb = 100, HasAi = true, HasEcommerce = true, HasAutomation = true, HasAbTest = true, HasCustomDomain = true, IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow }
+                new LadiPage.Domain.Entities.Plan { Name = "Miễn phí", Code = "free", Price = 0, BillingCycle = "thang", MaxPages = 10, MaxMembers = 1, StorageGb = 1, IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+                new LadiPage.Domain.Entities.Plan { Name = "Pro", Code = "pro", Price = 299000, BillingCycle = "thang", MaxPages = 100, MaxMembers = 5, MaxPageViews = 100000, StorageGb = 10, HasAi = true, HasEcommerce = true, HasAutomation = true, HasAbTest = true, HasCustomDomain = true, IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow },
+                new LadiPage.Domain.Entities.Plan { Name = "Enterprise", Code = "enterprise", Price = 999000, BillingCycle = "thang", MaxPages = 9999, MaxMembers = 50, MaxPageViews = 1000000, StorageGb = 100, HasAi = true, HasEcommerce = true, HasAutomation = true, HasAbTest = true, HasCustomDomain = true, IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow }
             );
             await db.SaveChangesAsync();
         }
@@ -655,9 +680,9 @@ END
         foreach (var uid in usersWithoutNotifs)
         {
             db.Notifications.AddRange(
-                new LadiPage.Core.Entities.Notification { UserId = uid, Title = "Chào mừng đến PagePeak!", Message = "Bạn đã đăng ký thành công. Hãy bắt đầu tạo landing page đầu tiên.", Type = "success", IsRead = false, CreatedAt = DateTime.UtcNow.AddMinutes(-5) },
-                new LadiPage.Core.Entities.Notification { UserId = uid, Title = "Hướng dẫn sử dụng", Message = "Xem hướng dẫn tạo landing page chuyên nghiệp trong 5 phút.", Type = "info", IsRead = false, CreatedAt = DateTime.UtcNow.AddMinutes(-3) },
-                new LadiPage.Core.Entities.Notification { UserId = uid, Title = "Mẫu giao diện mới", Message = "30+ mẫu landing page mới đã được thêm vào thư viện.", Type = "info", IsRead = false, CreatedAt = DateTime.UtcNow.AddMinutes(-1) }
+                new LadiPage.Domain.Entities.Notification { UserId = uid, Title = "Chào mừng đến PagePeak!", Message = "Bạn đã đăng ký thành công. Hãy bắt đầu tạo landing page đầu tiên.", Type = "success", IsRead = false, CreatedAt = DateTime.UtcNow.AddMinutes(-5) },
+                new LadiPage.Domain.Entities.Notification { UserId = uid, Title = "Hướng dẫn sử dụng", Message = "Xem hướng dẫn tạo landing page chuyên nghiệp trong 5 phút.", Type = "info", IsRead = false, CreatedAt = DateTime.UtcNow.AddMinutes(-3) },
+                new LadiPage.Domain.Entities.Notification { UserId = uid, Title = "Mẫu giao diện mới", Message = "30+ mẫu landing page mới đã được thêm vào thư viện.", Type = "info", IsRead = false, CreatedAt = DateTime.UtcNow.AddMinutes(-1) }
             );
         }
         if (usersWithoutNotifs.Count > 0) await db.SaveChangesAsync();
@@ -669,7 +694,7 @@ END
             await db.SaveChangesAsync();
 
             var tpl = (string name, string cat, string thumb, string desc, bool featured, int usage) =>
-                new LadiPage.Core.Entities.Template
+                new LadiPage.Domain.Entities.Template
                 {
                     Name = name, Category = cat, ThumbnailUrl = thumb,
                     Description = desc, IsFeatured = featured, UsageCount = usage,
@@ -742,8 +767,10 @@ END
     }
 }
 
+app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseResponseCompression();
 app.UseCors();
+app.UseResponseCaching();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseOutputCache();
@@ -754,1145 +781,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// OAuth: redirect to Google/Facebook
-app.MapGet("/api/auth/google", (HttpContext ctx, string? redirectUrl) =>
-{
-    var redirectUri = string.IsNullOrEmpty(redirectUrl) ? "/api/auth/external-done" : $"/api/auth/external-done?redirectUrl={Uri.EscapeDataString(redirectUrl)}";
-    var props = new AuthenticationProperties { RedirectUri = redirectUri };
-    return Results.Challenge(props, new[] { GoogleDefaults.AuthenticationScheme });
-}).AllowAnonymous();
-
-app.MapGet("/api/auth/facebook", (HttpContext ctx, string? redirectUrl) =>
-{
-    var redirectUri = string.IsNullOrEmpty(redirectUrl) ? "/api/auth/external-done" : $"/api/auth/external-done?redirectUrl={Uri.EscapeDataString(redirectUrl)}";
-    var props = new AuthenticationProperties { RedirectUri = redirectUri };
-    return Results.Challenge(props, new[] { FacebookDefaults.AuthenticationScheme });
-}).AllowAnonymous();
-
-// OAuth callback: read external user, issue JWT, redirect to frontend
-app.MapGet("/api/auth/external-done", async (
-    HttpContext ctx,
-    IAuthService authService,
-    LadiPage.Infrastructure.Data.AppDbContext db,
-    IConfiguration config,
-    string? redirectUrl) =>
-{
-    var result = await ctx.AuthenticateAsync("ExternalCookie");
-    if (!result.Succeeded || result.Principal == null)
-        return Results.Redirect($"{frontendBaseUrl}/login?error=external_signin_failed");
-
-    var provider = result.Properties?.Items.TryGetValue(".AuthScheme", out var scheme) == true ? scheme : null;
-
-    var email = result.Principal.FindFirstValue(ClaimTypes.Email)
-        ?? result.Principal.FindFirstValue("email")
-        ?? result.Principal.FindFirstValue("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress");
-    var name = result.Principal.FindFirstValue(ClaimTypes.Name)
-        ?? result.Principal.FindFirstValue("name")
-        ?? email?.Split('@')[0] ?? "User";
-
-    if (string.IsNullOrEmpty(email))
-        return Results.Redirect($"{frontendBaseUrl}/login?error=no_email");
-
-    // Neu user da ton tai -> login thang. Neu chua -> chuyen sang trang dang ky bo sung thong tin.
-    var exists = await db.Users.AsNoTracking().AnyAsync(u => u.Email == email, ctx.RequestAborted);
-    if (exists)
-    {
-        var tokens = await authService.LoginOrRegisterExternalAsync(
-            email, name,
-            ctx.Connection.RemoteIpAddress?.ToString(),
-            ctx.Request.Headers.UserAgent);
-        if (tokens == null)
-            return Results.Redirect($"{frontendBaseUrl}/login?error=account_disabled");
-
-        await ctx.SignOutAsync("ExternalCookie");
-
-        var baseUrl = config["Frontend:BaseUrl"] ?? "http://localhost:3000";
-        var callbackUrl = $"{baseUrl.TrimEnd('/')}/auth/callback"
-            + $"?accessToken={Uri.EscapeDataString(tokens.AccessToken)}"
-            + $"&refreshToken={Uri.EscapeDataString(tokens.RefreshToken)}"
-            + $"&expiresAt={Uri.EscapeDataString(tokens.ExpiresAt.ToString("O"))}";
-        return Results.Redirect(callbackUrl);
-    }
-
-    // Create short-lived token to carry external identity to frontend registration form
-    var tokenHandler = new JwtSecurityTokenHandler();
-    var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret));
-    var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
-    var now = DateTime.UtcNow;
-    var extRegToken = tokenHandler.WriteToken(new JwtSecurityToken(
-        issuer: externalRegIssuer,
-        audience: externalRegAudience,
-        claims: new[]
-        {
-            new Claim("typ","external_reg"),
-            new Claim("email", email),
-            new Claim("name", name),
-            new Claim("provider", provider ?? "external")
-        },
-        notBefore: now,
-        expires: now.AddMinutes(10),
-        signingCredentials: creds
-    ));
-
-    await ctx.SignOutAsync("ExternalCookie");
-
-    var regUrl = $"{frontendBaseUrl.TrimEnd('/')}/auth/external-register"
-        + $"?token={Uri.EscapeDataString(extRegToken)}";
-    return Results.Redirect(regUrl);
-}).AllowAnonymous();
-
-app.MapPost("/api/auth/external-register", async (
-    ExternalRegisterRequest req,
-    LadiPage.Infrastructure.Data.AppDbContext db,
-    IAuthService authService) =>
-{
-    try
-    {
-        var handler = new JwtSecurityTokenHandler();
-        var principal = handler.ValidateToken(req.Token, new TokenValidationParameters
-        {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
-            ValidateIssuer = true,
-            ValidIssuer = externalRegIssuer,
-            ValidateAudience = true,
-            ValidAudience = externalRegAudience,
-            ValidateLifetime = true,
-            ClockSkew = TimeSpan.FromMinutes(10)
-        }, out _);
-
-        if (principal.FindFirstValue("typ") != "external_reg")
-            return Results.BadRequest(new { error = "Invalid token type." });
-
-        var email = principal.FindFirstValue("email")
-            ?? principal.FindFirstValue(ClaimTypes.Email)
-            ?? principal.FindFirstValue("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress");
-        var name = principal.FindFirstValue("name")
-            ?? principal.FindFirstValue(ClaimTypes.Name)
-            ?? principal.FindFirstValue("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")
-            ?? email?.Split('@')[0]
-            ?? "User";
-        if (string.IsNullOrWhiteSpace(email))
-            return Results.BadRequest(new { error = "Missing email." });
-
-        var existing = await db.Users.AsNoTracking().AnyAsync(u => u.Email == email);
-        var tokens = await authService.LoginOrRegisterExternalAsync(email, name);
-        if (tokens == null)
-            return Results.BadRequest(new { error = "Account disabled." });
-
-        if (!existing)
-        {
-            var user = await db.Users.FirstAsync(u => u.Email == email);
-            if (!string.IsNullOrWhiteSpace(req.Phone))
-                user.Phone = req.Phone.Trim();
-            user.UpdatedAt = DateTime.UtcNow;
-
-            var ws = await db.Workspaces.FirstOrDefaultAsync(w => w.OwnerId == user.Id && w.IsDefault);
-            if (ws != null && !string.IsNullOrWhiteSpace(req.WorkspaceName))
-            {
-                ws.Name = req.WorkspaceName.Trim();
-                ws.UpdatedAt = DateTime.UtcNow;
-            }
-            await db.SaveChangesAsync();
-        }
-
-        return Results.Ok(tokens);
-    }
-    catch (SecurityTokenException)
-    {
-        return Results.BadRequest(new { error = "Token hết hạn hoặc không hợp lệ." });
-    }
-}).AllowAnonymous();
-
-// Editor Tools endpoints
-app.MapGet("/api/editor-tools", async (LadiPage.Infrastructure.Data.AppDbContext db) =>
-{
-    var categories = await db.ToolCategories
-        .Where(c => c.IsActive)
-        .OrderBy(c => c.Order)
-        .Select(c => new
-        {
-            id = c.Id,
-            name = c.Name,
-            icon = c.Icon,
-            order = c.Order,
-            items = c.Items
-                .Where(i => i.IsActive)
-                .OrderBy(i => i.Order)
-                .Select(i => new
-                {
-                    id = i.Id,
-                    name = i.Name,
-                    icon = i.Icon,
-                    elementType = i.ElementType,
-                    order = i.Order,
-                    hasSubTabs = i.HasSubTabs,
-                    subTabs = i.SubTabsJson,
-                    presets = i.Presets
-                        .OrderBy(p => p.Order)
-                        .Select(p => new
-                        {
-                            id = p.Id,
-                            name = p.Name,
-                            tabName = p.TabName,
-                            defaultContent = p.DefaultContent,
-                            stylesJson = p.StylesJson,
-                            defaultWidth = p.DefaultWidth,
-                            defaultHeight = p.DefaultHeight,
-                            order = p.Order
-                        }).ToList()
-                }).ToList()
-        }).ToListAsync();
-
-    return Results.Ok(categories);
-}).AllowAnonymous();
-
-// Auth endpoints
-app.MapPost("/api/auth/register", async (RegisterRequest req, IMediator mediator, IHttpClientFactory httpFactory, IConfiguration config) =>
-{
-    try
-    {
-        var recaptchaSecret = config["Recaptcha:SecretKey"];
-        if (!string.IsNullOrEmpty(recaptchaSecret) && !string.IsNullOrEmpty(req.RecaptchaToken))
-        {
-            using var client = httpFactory.CreateClient();
-            var verify = await client.PostAsync(
-                "https://www.google.com/recaptcha/api/siteverify",
-                new FormUrlEncodedContent(new[]
-                {
-                    new KeyValuePair<string?, string?>("secret", recaptchaSecret),
-                    new KeyValuePair<string?, string?>("response", req.RecaptchaToken)
-                }));
-            var json = await verify.Content.ReadFromJsonAsync<RecaptchaResponse>();
-            if (json?.Success != true)
-                return Results.BadRequest(new { error = "Xác thực reCAPTCHA không thành công." });
-        }
-        var result = await mediator.Send(new RegisterCommand(req.Email, req.Password, req.FullName, req.Phone, req.RecaptchaToken));
-        return Results.Ok(new { result.UserId, result.EmailVerificationRequired, message = "Đăng ký thành công! Vui lòng kiểm tra email để xác thực tài khoản." });
-    }
-    catch (InvalidOperationException ex) when (ex.Message.Contains("already registered"))
-    {
-        return Results.Conflict(new { error = ex.Message });
-    }
-    catch (ValidationException ex)
-    {
-        return Results.BadRequest(ex.Errors);
-    }
-});
-
-app.MapPost("/api/auth/login", async (LoginRequest req, IMediator mediator, HttpContext ctx) =>
-{
-    try
-    {
-        var cmd = new LoginCommand(req.Email, req.Password,
-            ctx.Connection.RemoteIpAddress?.ToString(),
-            ctx.Request.Headers.UserAgent);
-        var result = await mediator.Send(cmd);
-        if (result == null)
-            return Results.Unauthorized();
-        return Results.Ok(result);
-    }
-    catch (InvalidOperationException ex) when (ex.Message == "EMAIL_NOT_VERIFIED")
-    {
-        return Results.Json(new { error = "EMAIL_NOT_VERIFIED", message = "Email chưa được xác thực. Vui lòng kiểm tra hộp thư." }, statusCode: 403);
-    }
-}).WithName("Login");
-
-app.MapPost("/api/auth/refresh", async (RefreshTokenRequest req, IMediator mediator) =>
-{
-    var result = await mediator.Send(new RefreshTokenCommand(req.RefreshToken));
-    if (result == null)
-        return Results.Unauthorized();
-    return Results.Ok(result);
-});
-
-app.MapPost("/api/auth/revoke", async (RevokeTokenRequest req, IMediator mediator) =>
-{
-    var ok = await mediator.Send(new RevokeTokenCommand(req.RefreshToken));
-    return ok ? Results.Ok() : Results.NotFound();
-}).RequireAuthorization();
-
-app.MapGet("/api/auth/verify-email", async (string token, IAuthService authService) =>
-{
-    var ok = await authService.VerifyEmailAsync(token);
-    if (!ok) return Results.BadRequest(new { error = "Token không hợp lệ hoặc đã hết hạn." });
-    return Results.Ok(new { ok = true, message = "Email đã được xác thực thành công!" });
-}).AllowAnonymous();
-
-app.MapPost("/api/auth/resend-verification", async (ResendVerificationRequest req, IAuthService authService) =>
-{
-    var ok = await authService.ResendVerificationEmailAsync(req.Email);
-    return Results.Ok(new { ok, message = ok ? "Email xác thực đã được gửi lại." : "Email không tồn tại hoặc đã được xác thực." });
-}).AllowAnonymous();
-
-app.MapGet("/api/auth/me", async (IMediator mediator) =>
-{
-    var result = await mediator.Send(new GetProfileQuery());
-    if (result == null)
-        return Results.Unauthorized();
-    return Results.Ok(result);
-}).RequireAuthorization();
-
-// Profile update
-app.MapPut("/api/auth/profile", async (
-    UpdateProfileRequest req,
-    LadiPage.Infrastructure.Data.AppDbContext db,
-    ICurrentUser currentUser) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var user = await db.Users.FindAsync(currentUser.UserId.Value);
-    if (user == null) return Results.Unauthorized();
-
-    if (!string.IsNullOrWhiteSpace(req.FullName))
-        user.FullName = req.FullName.Trim();
-    if (req.Phone != null)
-        user.Phone = string.IsNullOrWhiteSpace(req.Phone) ? null : req.Phone.Trim();
-    if (req.AvatarUrl != null)
-        user.AvatarUrl = string.IsNullOrWhiteSpace(req.AvatarUrl) ? null : req.AvatarUrl.Trim();
-
-    user.UpdatedAt = DateTime.UtcNow;
-    await db.SaveChangesAsync();
-
-    return Results.Ok(new
-    {
-        id = user.Id,
-        email = user.Email,
-        fullName = user.FullName,
-        phone = user.Phone,
-        avatarUrl = user.AvatarUrl,
-        role = user.Role,
-        currentPlanId = user.CurrentPlanId,
-        planExpiresAt = user.PlanExpiresAt
-    });
-}).RequireAuthorization();
-
-// Change password
-app.MapPut("/api/auth/change-password", async (
-    ChangePasswordRequest req,
-    LadiPage.Infrastructure.Data.AppDbContext db,
-    ICurrentUser currentUser) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var user = await db.Users.FindAsync(currentUser.UserId.Value);
-    if (user == null) return Results.Unauthorized();
-
-    if (string.IsNullOrWhiteSpace(req?.CurrentPassword))
-        return Results.BadRequest(new { error = "Vui lòng nhập mật khẩu hiện tại." });
-
-    if (!BCrypt.Net.BCrypt.Verify(req.CurrentPassword, user.PasswordHash))
-        return Results.BadRequest(new { error = "Mật khẩu hiện tại không đúng." });
-
-    if (string.IsNullOrWhiteSpace(req.NewPassword) || req.NewPassword.Length < 6)
-        return Results.BadRequest(new { error = "Mật khẩu mới phải có ít nhất 6 ký tự." });
-
-    user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword);
-    user.UpdatedAt = DateTime.UtcNow;
-    await db.SaveChangesAsync();
-
-    return Results.Ok(new { ok = true });
-}).RequireAuthorization();
-
-// Sessions list
-app.MapGet("/api/auth/sessions", async (
-    LadiPage.Infrastructure.Data.AppDbContext db,
-    ICurrentUser currentUser) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var sessions = await db.Sessions
-        .Where(s => s.UserId == currentUser.UserId.Value)
-        .OrderByDescending(s => s.CreatedAt)
-        .Select(s => new
-        {
-            id = s.Id,
-            ipAddress = s.IpAddress,
-            userAgent = s.UserAgent,
-            createdAt = s.CreatedAt,
-            expiresAt = s.ExpiresAt,
-            isExpired = s.ExpiresAt < DateTime.UtcNow
-        })
-        .ToListAsync();
-    return Results.Ok(sessions);
-}).RequireAuthorization();
-
-// Revoke specific session
-app.MapDelete("/api/auth/sessions/{id:long}", async (
-    long id,
-    LadiPage.Infrastructure.Data.AppDbContext db,
-    ICurrentUser currentUser) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var session = await db.Sessions.FirstOrDefaultAsync(
-        s => s.Id == id && s.UserId == currentUser.UserId.Value);
-    if (session == null) return Results.NotFound();
-    db.Sessions.Remove(session);
-    await db.SaveChangesAsync();
-    return Results.Ok(new { ok = true });
-}).RequireAuthorization();
-
-// Settings: plan info + usage stats
-app.MapGet("/api/settings/plan", async (
-    LadiPage.Infrastructure.Data.AppDbContext db,
-    ICurrentUser currentUser) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var user = await db.Users
-        .AsNoTracking()
-        .Include(u => u.CurrentPlan)
-        .FirstOrDefaultAsync(u => u.Id == currentUser.UserId.Value);
-    if (user == null) return Results.Unauthorized();
-
-    var workspaceIds = await db.Workspaces
-        .Where(w => w.OwnerId == user.Id)
-        .Select(w => w.Id)
-        .ToListAsync();
-
-    var totalPages = workspaceIds.Count > 0
-        ? await db.Pages.CountAsync(p => workspaceIds.Contains(p.WorkspaceId))
-        : 0;
-    var publishedPages = workspaceIds.Count > 0
-        ? await db.Pages.CountAsync(p => workspaceIds.Contains(p.WorkspaceId) && p.Status == "published")
-        : 0;
-
-    var totalMembers = workspaceIds.Count > 0
-        ? await db.WorkspaceMembers.CountAsync(m => workspaceIds.Contains(m.WorkspaceId))
-        : 0;
-
-    var plan = user.CurrentPlan;
-    return Results.Ok(new
-    {
-        plan = plan == null ? null : new
-        {
-            id = plan.Id,
-            name = plan.Name,
-            code = plan.Code,
-            price = plan.Price,
-            billingCycle = plan.BillingCycle,
-            maxPages = plan.MaxPages,
-            maxMembers = plan.MaxMembers,
-            maxPageViews = plan.MaxPageViews,
-            storageGb = plan.StorageGb,
-            hasAi = plan.HasAi,
-            hasEcommerce = plan.HasEcommerce,
-            hasAutomation = plan.HasAutomation,
-            hasAbTest = plan.HasAbTest,
-            hasCustomDomain = plan.HasCustomDomain
-        },
-        usage = new
-        {
-            totalPages,
-            publishedPages,
-            totalMembers
-        },
-        planExpiresAt = user.PlanExpiresAt,
-        emailConfirmed = user.EmailConfirmed,
-        phoneConfirmed = user.PhoneConfirmed,
-        createdAt = user.CreatedAt,
-        lastLoginAt = user.LastLoginAt,
-        referralCode = user.ReferralCode
-    });
-}).RequireAuthorization();
-
-// Upgrade plan (chế độ test: cho phép nâng cấp trực tiếp không cần thanh toán)
-app.MapPost("/api/plans/upgrade", async (
-    UpgradePlanRequest req,
-    LadiPage.Infrastructure.Data.AppDbContext db,
-    ICurrentUser currentUser,
-    IConfiguration config) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var allowTestUpgrade = config.GetValue<bool>("AllowTestUpgrade");
-    if (!allowTestUpgrade)
-        return Results.BadRequest(new { error = "Chức năng nâng cấp đang bảo trì. Vui lòng liên hệ hỗ trợ." });
-
-    var plan = await db.Plans.AsNoTracking().FirstOrDefaultAsync(p => p.Id == req.PlanId && p.IsActive);
-    if (plan == null)
-        return Results.BadRequest(new { error = "Gói không tồn tại hoặc không khả dụng." });
-
-    var user = await db.Users.FindAsync(currentUser.UserId.Value);
-    if (user == null) return Results.Unauthorized();
-
-    user.CurrentPlanId = plan.Id;
-    user.PlanExpiresAt = DateTime.UtcNow.AddYears(1); // Test: 1 năm
-    user.UpdatedAt = DateTime.UtcNow;
-    await db.SaveChangesAsync();
-
-    return Results.Ok(new { ok = true, planName = plan.Name });
-}).RequireAuthorization();
-
-// Workspace endpoints
-app.MapGet("/api/workspaces", async (IMediator mediator) =>
-{
-    var list = await mediator.Send(new GetWorkspacesQuery());
-    return Results.Ok(list);
-}).RequireAuthorization();
-
-app.MapGet("/api/workspaces/{id:long}", async (long id, IMediator mediator) =>
-{
-    var w = await mediator.Send(new GetWorkspaceByIdQuery(id));
-    if (w == null)
-        return Results.NotFound();
-    return Results.Ok(w);
-}).RequireAuthorization();
-
-app.MapPost("/api/workspaces", async (CreateWorkspaceRequest req, IMediator mediator) =>
-{
-    try
-    {
-        var result = await mediator.Send(new CreateWorkspaceCommand(req.Name, req.Slug));
-        return Results.Created($"/api/workspaces/{result.Id}", result);
-    }
-    catch (UnauthorizedAccessException)
-    {
-        return Results.Unauthorized();
-    }
-    catch (InvalidOperationException ex) when (ex.Message.Contains("Slug"))
-    {
-        return Results.Conflict(new { error = ex.Message });
-    }
-    catch (ValidationException ex)
-    {
-        return Results.BadRequest(ex.Errors);
-    }
-}).RequireAuthorization();
-
-// Templates endpoints
-app.MapGet("/api/templates", async (string? category, string? search, string? designType, bool? featured, IMediator mediator) =>
-{
-    var list = await mediator.Send(new GetTemplatesQuery(category, search, designType, featured));
-    return Results.Ok(list);
-}).RequireAuthorization();
-
-app.MapGet("/api/templates/categories", async (IMediator mediator) =>
-{
-    var all = await mediator.Send(new GetTemplatesQuery());
-    var cats = all.Select(t => t.Category).Distinct().OrderBy(c => c).ToList();
-    return Results.Ok(cats);
-}).RequireAuthorization();
-
-app.MapGet("/api/templates/{id:long}", async (long id, IMediator mediator) =>
-{
-    var tpl = await mediator.Send(new GetTemplateByIdQuery(id));
-    return tpl == null ? Results.NotFound() : Results.Ok(tpl);
-}).RequireAuthorization();
-
-// Pages endpoints
-app.MapGet("/api/pages", async (long workspaceId, IMediator mediator) =>
-{
-    var list = await mediator.Send(new GetPagesQuery(workspaceId));
-    return Results.Ok(list);
-}).RequireAuthorization();
-
-app.MapPost("/api/pages", async (CreatePageRequest req, IMediator mediator) =>
-{
-    try
-    {
-        var created = await mediator.Send(new CreatePageCommand(req.WorkspaceId, req.Name, req.Slug, req.TemplateId));
-        return Results.Ok(created);
-    }
-    catch (ValidationException ex)
-    {
-        return Results.BadRequest(ex.Errors);
-    }
-    catch (InvalidOperationException ex)
-    {
-        return Results.BadRequest(new { error = ex.Message });
-    }
-}).RequireAuthorization();
-
-app.MapPost("/api/pages/{id:long}/publish", async (long id, IMediator mediator) =>
-{
-    var result = await mediator.Send(new PublishPageCommand(id));
-    if (result.Error == "Page not found") return Results.NotFound();
-    return result.Success
-        ? Results.Ok(new { ok = true, checks = result.Checks })
-        : Results.Json(new { ok = false, error = result.Error, checks = result.Checks }, statusCode: 422);
-}).RequireAuthorization();
-
-app.MapGet("/api/pages/{id:long}/content", async (long id, IMediator mediator) =>
-{
-    var content = await mediator.Send(new GetPageContentQuery(id));
-    return content is null ? Results.NotFound() : Results.Ok(content);
-}).RequireAuthorization();
-
-app.MapPut("/api/pages/{id:long}/content", async (long id, PageContentDto body, IMediator mediator) =>
-{
-    var ok = await mediator.Send(new UpdatePageContentCommand(id, body));
-    return ok ? Results.Ok(new { ok = true }) : Results.NotFound();
-}).RequireAuthorization();
-
-app.MapPut("/api/pages/{id:long}", async (long id, UpdatePageRequest req, IMediator mediator) =>
-{
-    var result = await mediator.Send(new UpdatePageCommand(id, req.Name, req.Slug));
-    return result != null ? Results.Ok(result) : Results.NotFound();
-}).RequireAuthorization();
-
-app.MapDelete("/api/pages/{id:long}", async (long id, IMediator mediator) =>
-{
-    var ok = await mediator.Send(new DeletePageCommand(id));
-    return ok ? Results.Ok(new { ok = true }) : Results.NotFound();
-}).RequireAuthorization();
-
-app.MapPost("/api/pages/{id:long}/duplicate", async (long id, IMediator mediator) =>
-{
-    var result = await mediator.Send(new DuplicatePageCommand(id));
-    return result != null ? Results.Ok(result) : Results.NotFound();
-}).RequireAuthorization();
-
-app.MapGet("/api/pages/{id:long}/stats", async (long id, IMediator mediator) =>
-{
-    var result = await mediator.Send(new GetPageStatsQuery(id));
-    return result != null ? Results.Ok(result) : Results.NotFound();
-}).RequireAuthorization();
-
-// Debug: xem API dang ket noi toi SQL Server nao (giup tranh nham instance -> "khong thay du lieu")
-app.MapGet("/api/debug/db", (LadiPage.Infrastructure.Data.AppDbContext db, IConfiguration cfg) =>
-{
-    var conn = db.Database.GetDbConnection();
-    return Results.Ok(new
-    {
-        dataSource = conn.DataSource,
-        database = conn.Database,
-        environment = app.Environment.EnvironmentName,
-        configured = cfg.GetConnectionString("DefaultConnection") is string cs && !string.IsNullOrWhiteSpace(cs)
-    });
-}).AllowAnonymous();
-
-// ===== Media API =====
-app.MapPost("/api/media/upload", async (HttpRequest request, IAppDbContext db, IWebHostEnvironment env) =>
-{
-    var userIdClaim = request.HttpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-    if (string.IsNullOrEmpty(userIdClaim) || !long.TryParse(userIdClaim, out var userId))
-        return Results.Unauthorized();
-
-    if (!request.HasFormContentType) return Results.BadRequest(new { error = "Form content required" });
-
-    var form = await request.ReadFormAsync();
-    var file = form.Files.GetFile("file");
-    if (file == null || file.Length == 0) return Results.BadRequest(new { error = "No file uploaded" });
-
-    var allowedTypes = new[] { "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml", "video/mp4", "video/webm" };
-    if (!allowedTypes.Contains(file.ContentType))
-        return Results.BadRequest(new { error = $"File type '{file.ContentType}' not allowed" });
-
-    if (file.Length > 10 * 1024 * 1024)
-        return Results.BadRequest(new { error = "File too large (max 10MB)" });
-
-    var uploadsDir = Path.Combine(env.ContentRootPath, "wwwroot", "uploads", userId.ToString());
-    Directory.CreateDirectory(uploadsDir);
-
-    var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-    if (string.IsNullOrEmpty(ext)) ext = ".png";
-    var fileName = $"{Guid.NewGuid():N}{ext}";
-    var filePath = Path.Combine(uploadsDir, fileName);
-
-    await using (var stream = new FileStream(filePath, FileMode.Create))
-    {
-        await file.CopyToAsync(stream);
-    }
-
-    var wsId = form.ContainsKey("workspaceId") && long.TryParse(form["workspaceId"], out var wid) ? (long?)wid : null;
-    var folder = form.ContainsKey("folder") ? form["folder"].ToString() : null;
-
-    var media = new LadiPage.Core.Entities.Media
-    {
-        UserId = userId,
-        WorkspaceId = wsId,
-        FileName = fileName,
-        OriginalName = file.FileName,
-        ContentType = file.ContentType,
-        FileSize = file.Length,
-        Url = $"/uploads/{userId}/{fileName}",
-        Folder = folder,
-        CreatedAt = DateTime.UtcNow,
-    };
-    db.Medias.Add(media);
-    await db.SaveChangesAsync();
-
-    return Results.Ok(new
-    {
-        media.Id,
-        media.FileName,
-        media.OriginalName,
-        media.ContentType,
-        media.FileSize,
-        media.Width,
-        media.Height,
-        media.Url,
-        media.Folder,
-        media.CreatedAt,
-    });
-}).RequireAuthorization().DisableAntiforgery();
-
-app.MapGet("/api/media", async (HttpRequest request, IAppDbContext db, string? folder, int page = 1, int pageSize = 40) =>
-{
-    var userIdClaim = request.HttpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-    if (string.IsNullOrEmpty(userIdClaim) || !long.TryParse(userIdClaim, out var userId))
-        return Results.Unauthorized();
-
-    var query = db.Medias.Where(m => m.UserId == userId);
-    if (!string.IsNullOrEmpty(folder)) query = query.Where(m => m.Folder == folder);
-
-    var total = await query.CountAsync();
-    var items = await query
-        .OrderByDescending(m => m.CreatedAt)
-        .Skip((page - 1) * pageSize)
-        .Take(pageSize)
-        .Select(m => new
-        {
-            m.Id,
-            m.FileName,
-            m.OriginalName,
-            m.ContentType,
-            m.FileSize,
-            m.Width,
-            m.Height,
-            m.Url,
-            m.ThumbnailUrl,
-            m.AltText,
-            m.Folder,
-            m.CreatedAt,
-        })
-        .ToListAsync();
-
-    return Results.Ok(new { total, page, pageSize, items });
-}).RequireAuthorization();
-
-app.MapDelete("/api/media/{id:long}", async (long id, HttpRequest request, IAppDbContext db, IWebHostEnvironment env) =>
-{
-    var userIdClaim = request.HttpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-    if (string.IsNullOrEmpty(userIdClaim) || !long.TryParse(userIdClaim, out var userId))
-        return Results.Unauthorized();
-
-    var media = await db.Medias.FirstOrDefaultAsync(m => m.Id == id && m.UserId == userId);
-    if (media == null) return Results.NotFound();
-
-    var filePath = Path.Combine(env.ContentRootPath, "wwwroot", media.Url.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
-    if (File.Exists(filePath)) File.Delete(filePath);
-
-    db.Medias.Remove(media);
-    await db.SaveChangesAsync();
-    return Results.Ok(new { ok = true });
-}).RequireAuthorization();
-
-// ===== Tags API =====
-app.MapGet("/api/tags", async (long workspaceId, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, workspaceId)) return Results.NotFound();
-    var items = await db.Tags.Where(t => t.WorkspaceId == workspaceId).OrderBy(t => t.Name).Select(t => new { t.Id, t.Name, t.Color, t.CreatedAt }).ToListAsync();
-    return Results.Ok(items);
-}).RequireAuthorization();
-
-app.MapPost("/api/tags", async (CreateTagRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, req.WorkspaceId)) return Results.NotFound();
-    var tag = new LadiPage.Core.Entities.Tag { WorkspaceId = req.WorkspaceId, Name = req.Name.Trim(), Color = req.Color, CreatedAt = DateTime.UtcNow };
-    db.Tags.Add(tag);
-    await db.SaveChangesAsync();
-    return Results.Ok(new { tag.Id, tag.Name, tag.Color, tag.CreatedAt });
-}).RequireAuthorization();
-
-app.MapPut("/api/tags/{id:long}", async (long id, UpdateTagRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var tag = await db.Tags.FindAsync(id);
-    if (tag == null) return Results.NotFound();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, tag.WorkspaceId)) return Results.NotFound();
-    if (!string.IsNullOrWhiteSpace(req.Name)) tag.Name = req.Name.Trim();
-    if (req.Color != null) tag.Color = req.Color;
-    await db.SaveChangesAsync();
-    return Results.Ok(new { tag.Id, tag.Name, tag.Color });
-}).RequireAuthorization();
-
-app.MapDelete("/api/tags/{id:long}", async (long id, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var tag = await db.Tags.FindAsync(id);
-    if (tag == null) return Results.NotFound();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, tag.WorkspaceId)) return Results.NotFound();
-    db.Tags.Remove(tag);
-    await db.SaveChangesAsync();
-    return Results.Ok(new { ok = true });
-}).RequireAuthorization();
-
-// ===== Domains API =====
-app.MapGet("/api/domains", async (long workspaceId, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, workspaceId)) return Results.NotFound();
-    var items = await db.Domains.Where(d => d.WorkspaceId == workspaceId).OrderByDescending(d => d.CreatedAt).Select(d => new { d.Id, d.DomainName, d.Status, d.VerifiedAt, d.CreatedAt }).ToListAsync();
-    return Results.Ok(items);
-}).RequireAuthorization();
-
-app.MapPost("/api/domains", async (CreateDomainRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, req.WorkspaceId)) return Results.NotFound();
-    var domain = new LadiPage.Core.Entities.Domain { WorkspaceId = req.WorkspaceId, DomainName = req.DomainName.Trim().ToLowerInvariant(), Status = "pending", CreatedAt = DateTime.UtcNow };
-    db.Domains.Add(domain);
-    await db.SaveChangesAsync();
-    return Results.Ok(new { domain.Id, domain.DomainName, domain.Status, domain.CreatedAt });
-}).RequireAuthorization();
-
-app.MapDelete("/api/domains/{id:long}", async (long id, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var domain = await db.Domains.FindAsync(id);
-    if (domain == null) return Results.NotFound();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, domain.WorkspaceId)) return Results.NotFound();
-    db.Domains.Remove(domain);
-    await db.SaveChangesAsync();
-    return Results.Ok(new { ok = true });
-}).RequireAuthorization();
-
-// ===== Forms API =====
-app.MapGet("/api/forms", async (long workspaceId, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, workspaceId)) return Results.NotFound();
-    var items = await db.FormConfigs.Where(f => f.WorkspaceId == workspaceId).OrderByDescending(f => f.CreatedAt).Select(f => new { f.Id, f.Name, f.FieldsJson, f.WebhookUrl, f.EmailNotify, f.CreatedAt }).ToListAsync();
-    return Results.Ok(items);
-}).RequireAuthorization();
-
-app.MapPost("/api/forms", async (CreateFormRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, req.WorkspaceId)) return Results.NotFound();
-    var form = new LadiPage.Core.Entities.FormConfig { WorkspaceId = req.WorkspaceId, Name = req.Name.Trim(), FieldsJson = req.FieldsJson ?? "[]", WebhookUrl = req.WebhookUrl, EmailNotify = req.EmailNotify, CreatedAt = DateTime.UtcNow };
-    db.FormConfigs.Add(form);
-    await db.SaveChangesAsync();
-    return Results.Ok(new { form.Id, form.Name, form.FieldsJson, form.WebhookUrl, form.EmailNotify, form.CreatedAt });
-}).RequireAuthorization();
-
-app.MapPut("/api/forms/{id:long}", async (long id, UpdateFormRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var form = await db.FormConfigs.FindAsync(id);
-    if (form == null) return Results.NotFound();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, form.WorkspaceId)) return Results.NotFound();
-    if (!string.IsNullOrWhiteSpace(req.Name)) form.Name = req.Name.Trim();
-    if (req.FieldsJson != null) form.FieldsJson = req.FieldsJson;
-    if (req.WebhookUrl != null) form.WebhookUrl = string.IsNullOrWhiteSpace(req.WebhookUrl) ? null : req.WebhookUrl.Trim();
-    form.EmailNotify = req.EmailNotify;
-    await db.SaveChangesAsync();
-    return Results.Ok(new { form.Id, form.Name, form.FieldsJson, form.WebhookUrl, form.EmailNotify });
-}).RequireAuthorization();
-
-app.MapDelete("/api/forms/{id:long}", async (long id, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var form = await db.FormConfigs.FindAsync(id);
-    if (form == null) return Results.NotFound();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, form.WorkspaceId)) return Results.NotFound();
-    db.FormConfigs.Remove(form);
-    await db.SaveChangesAsync();
-    return Results.Ok(new { ok = true });
-}).RequireAuthorization();
-
-// ===== Notifications API =====
-app.MapGet("/api/notifications", async (HttpRequest request, IAppDbContext db) =>
-{
-    var uid = request.HttpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-    if (string.IsNullOrEmpty(uid) || !long.TryParse(uid, out var userId)) return Results.Unauthorized();
-    var items = await db.Notifications.Where(n => n.UserId == userId).OrderByDescending(n => n.CreatedAt).Take(50).Select(n => new { n.Id, n.Title, n.Message, n.Type, n.IsRead, n.CreatedAt }).ToListAsync();
-    var unread = await db.Notifications.CountAsync(n => n.UserId == userId && !n.IsRead);
-    return Results.Ok(new { unread, items });
-}).RequireAuthorization();
-
-app.MapPut("/api/notifications/{id:long}/read", async (long id, IAppDbContext db, HttpRequest request) =>
-{
-    var uid = request.HttpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-    if (string.IsNullOrEmpty(uid) || !long.TryParse(uid, out var userId)) return Results.Unauthorized();
-    var n = await db.Notifications.FindAsync(id);
-    if (n == null) return Results.NotFound();
-    if (n.UserId != userId) return Results.NotFound();
-    n.IsRead = true;
-    await db.SaveChangesAsync();
-    return Results.Ok(new { ok = true });
-}).RequireAuthorization();
-
-app.MapPut("/api/notifications/mark-all-read", async (HttpRequest request, IAppDbContext db) =>
-{
-    var uid = request.HttpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-    if (string.IsNullOrEmpty(uid) || !long.TryParse(uid, out var userId)) return Results.Unauthorized();
-    var unread = await db.Notifications.Where(n => n.UserId == userId && !n.IsRead).ToListAsync();
-    foreach (var n in unread) n.IsRead = true;
-    await db.SaveChangesAsync();
-    return Results.Ok(new { ok = true, count = unread.Count });
-}).RequireAuthorization();
-
-// ===== Products API =====
-app.MapGet("/api/products", async (long workspaceId, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, workspaceId)) return Results.NotFound();
-    var items = await db.Products.Where(p => p.WorkspaceId == workspaceId).OrderByDescending(p => p.CreatedAt).Select(p => new { p.Id, p.Name, p.Price, p.Description, p.ImageUrl, p.Category, p.Stock, p.Status, p.CreatedAt }).ToListAsync();
-    return Results.Ok(items);
-}).RequireAuthorization();
-
-app.MapPost("/api/products", async (CreateProductRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, req.WorkspaceId)) return Results.NotFound();
-    var product = new LadiPage.Core.Entities.Product { WorkspaceId = req.WorkspaceId, Name = req.Name.Trim(), Price = req.Price, Description = req.Description, ImageUrl = req.ImageUrl, Category = req.Category, Stock = req.Stock, CreatedAt = DateTime.UtcNow };
-    db.Products.Add(product);
-    await db.SaveChangesAsync();
-    return Results.Ok(new { product.Id, product.Name, product.Price, product.Category, product.Stock, product.Status, product.CreatedAt });
-}).RequireAuthorization();
-
-app.MapPut("/api/products/{id:long}", async (long id, UpdateProductRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var p = await db.Products.FindAsync(id);
-    if (p == null) return Results.NotFound();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, p.WorkspaceId)) return Results.NotFound();
-    if (!string.IsNullOrWhiteSpace(req.Name)) p.Name = req.Name.Trim();
-    if (req.Price.HasValue) p.Price = req.Price.Value;
-    if (req.Description != null) p.Description = req.Description;
-    if (req.ImageUrl != null) p.ImageUrl = req.ImageUrl;
-    if (req.Category != null) p.Category = req.Category;
-    if (req.Stock.HasValue) p.Stock = req.Stock.Value;
-    if (req.Status != null) p.Status = req.Status;
-    await db.SaveChangesAsync();
-    return Results.Ok(new { p.Id, p.Name, p.Price, p.Category, p.Stock, p.Status });
-}).RequireAuthorization();
-
-app.MapDelete("/api/products/{id:long}", async (long id, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var p = await db.Products.FindAsync(id);
-    if (p == null) return Results.NotFound();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, p.WorkspaceId)) return Results.NotFound();
-    db.Products.Remove(p);
-    await db.SaveChangesAsync();
-    return Results.Ok(new { ok = true });
-}).RequireAuthorization();
-
-// ===== Orders API =====
-app.MapGet("/api/orders", async (long workspaceId, string? status, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, workspaceId)) return Results.NotFound();
-    var query = db.Orders.Where(o => o.WorkspaceId == workspaceId);
-    if (!string.IsNullOrEmpty(status)) query = query.Where(o => o.Status == status);
-    var items = await query.OrderByDescending(o => o.CreatedAt).Select(o => new { o.Id, o.CustomerName, o.Email, o.Phone, o.ProductId, o.Amount, o.Status, o.CreatedAt }).ToListAsync();
-    return Results.Ok(items);
-}).RequireAuthorization();
-
-app.MapPost("/api/orders", async (CreateOrderRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, req.WorkspaceId)) return Results.NotFound();
-    var order = new LadiPage.Core.Entities.Order { WorkspaceId = req.WorkspaceId, CustomerName = req.CustomerName.Trim(), Email = req.Email, Phone = req.Phone, ProductId = req.ProductId, Amount = req.Amount, CreatedAt = DateTime.UtcNow };
-    db.Orders.Add(order);
-    await db.SaveChangesAsync();
-    return Results.Ok(new { order.Id, order.CustomerName, order.Amount, order.Status, order.CreatedAt });
-}).RequireAuthorization();
-
-app.MapPut("/api/orders/{id:long}", async (long id, UpdateOrderRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var o = await db.Orders.FindAsync(id);
-    if (o == null) return Results.NotFound();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, o.WorkspaceId)) return Results.NotFound();
-    if (req.Status != null) o.Status = req.Status;
-    if (req.CustomerName != null) o.CustomerName = req.CustomerName.Trim();
-    if (req.Email != null) o.Email = req.Email;
-    if (req.Phone != null) o.Phone = req.Phone;
-    await db.SaveChangesAsync();
-    return Results.Ok(new { o.Id, o.CustomerName, o.Status });
-}).RequireAuthorization();
-
-app.MapDelete("/api/orders/{id:long}", async (long id, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var o = await db.Orders.FindAsync(id);
-    if (o == null) return Results.NotFound();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, o.WorkspaceId)) return Results.NotFound();
-    db.Orders.Remove(o);
-    await db.SaveChangesAsync();
-    return Results.Ok(new { ok = true });
-}).RequireAuthorization();
-
-// ===== Customers API =====
-app.MapGet("/api/customers", async (long workspaceId, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, workspaceId)) return Results.NotFound();
-    var items = await db.Customers.Where(c => c.WorkspaceId == workspaceId).OrderByDescending(c => c.CreatedAt).Select(c => new { c.Id, c.Name, c.Email, c.Phone, c.Group, c.Source, c.CreatedAt }).ToListAsync();
-    return Results.Ok(items);
-}).RequireAuthorization();
-
-app.MapPost("/api/customers", async (CreateCustomerRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, req.WorkspaceId)) return Results.NotFound();
-    var c = new LadiPage.Core.Entities.Customer { WorkspaceId = req.WorkspaceId, Name = req.Name.Trim(), Email = req.Email, Phone = req.Phone, Group = req.Group, Source = req.Source, CreatedAt = DateTime.UtcNow };
-    db.Customers.Add(c);
-    await db.SaveChangesAsync();
-    return Results.Ok(new { c.Id, c.Name, c.Email, c.Phone, c.Group, c.Source, c.CreatedAt });
-}).RequireAuthorization();
-
-app.MapPut("/api/customers/{id:long}", async (long id, UpdateCustomerRequest req, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var c = await db.Customers.FindAsync(id);
-    if (c == null) return Results.NotFound();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, c.WorkspaceId)) return Results.NotFound();
-    if (req.Name != null) c.Name = req.Name.Trim();
-    if (req.Email != null) c.Email = req.Email;
-    if (req.Phone != null) c.Phone = req.Phone;
-    if (req.Group != null) c.Group = req.Group;
-    if (req.Source != null) c.Source = req.Source;
-    await db.SaveChangesAsync();
-    return Results.Ok(new { c.Id, c.Name, c.Email, c.Phone, c.Group, c.Source });
-}).RequireAuthorization();
-
-app.MapDelete("/api/customers/{id:long}", async (long id, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var c = await db.Customers.FindAsync(id);
-    if (c == null) return Results.NotFound();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, c.WorkspaceId)) return Results.NotFound();
-    db.Customers.Remove(c);
-    await db.SaveChangesAsync();
-    return Results.Ok(new { ok = true });
-}).RequireAuthorization();
-
-// ===== Leads API =====
-app.MapGet("/api/leads", async (long workspaceId, long? pageId, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, workspaceId)) return Results.NotFound();
-    var query = db.Leads.Where(l => l.WorkspaceId == workspaceId);
-    if (pageId.HasValue) query = query.Where(l => l.PageId == pageId.Value);
-    var items = await query.OrderByDescending(l => l.CreatedAt).Select(l => new { l.Id, l.PageId, l.FormId, l.DataJson, l.IpAddress, l.CreatedAt }).ToListAsync();
-    return Results.Ok(items);
-}).RequireAuthorization();
-
-app.MapDelete("/api/leads/{id:long}", async (long id, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    var l = await db.Leads.FindAsync(id);
-    if (l == null) return Results.NotFound();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId!.Value, l.WorkspaceId)) return Results.NotFound();
-    db.Leads.Remove(l);
-    await db.SaveChangesAsync();
-    return Results.Ok(new { ok = true });
-}).RequireAuthorization();
-
-// ===== Reports API =====
-app.MapGet("/api/reports/overview", async (long workspaceId, IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess) =>
-{
-    if (currentUser.UserId == null) return Results.Unauthorized();
-    if (!await workspaceAccess.CanAccessWorkspaceAsync(currentUser.UserId.Value, workspaceId)) return Results.NotFound();
-    var totalPages = await db.Pages.CountAsync(p => p.WorkspaceId == workspaceId);
-    var publishedPages = await db.Pages.CountAsync(p => p.WorkspaceId == workspaceId && p.Status == "published");
-    var draftPages = totalPages - publishedPages;
-    var totalSections = await db.PageSections.CountAsync(s => db.Pages.Any(p => p.Id == s.PageId && p.WorkspaceId == workspaceId));
-    var totalElements = await db.PageElements.CountAsync(e => db.PageSections.Any(s => s.Id == e.SectionId && db.Pages.Any(p => p.Id == s.PageId && p.WorkspaceId == workspaceId)));
-    var totalProducts = await db.Products.CountAsync(p => p.WorkspaceId == workspaceId);
-    var totalOrders = await db.Orders.CountAsync(o => o.WorkspaceId == workspaceId);
-    var totalCustomers = await db.Customers.CountAsync(c => c.WorkspaceId == workspaceId);
-    var totalLeads = await db.Leads.CountAsync(l => l.WorkspaceId == workspaceId);
-    return Results.Ok(new { totalPages, publishedPages, draftPages, totalSections, totalElements, totalProducts, totalOrders, totalCustomers, totalLeads });
-}).RequireAuthorization();
-
-// ===== Plans API (for public pricing page) - cached 5 min =====
-app.MapGet("/api/plans", async (IAppDbContext db) =>
-{
-    var plans = await db.Plans.AsNoTracking().Where(p => p.IsActive).OrderBy(p => p.Price).Select(p => new { p.Id, p.Name, p.Code, p.Price, p.BillingCycle, p.MaxPages, p.MaxMembers, p.MaxPageViews, p.StorageGb, p.HasAi, p.HasEcommerce, p.HasAutomation, p.HasAbTest, p.HasCustomDomain }).ToListAsync();
-    return Results.Ok(plans);
-}).AllowAnonymous().CacheOutput("PlansCache");
-
-// Section templates API - cached 2 phút
-app.MapGet("/api/section-templates", async (IAppDbContext db) =>
-{
-    var templates = await db.Templates
-        .AsNoTracking()
-        .Where(t => t.Category == "section")
-        .OrderByDescending(t => t.CreatedAt)
-        .Select(t => new { t.Id, t.Name, t.ThumbnailUrl, t.JsonContent })
-        .ToListAsync();
-    return Results.Ok(templates);
-}).AllowAnonymous().CacheOutput("TemplatesCache");
-
-app.MapPost("/api/section-templates", async (SectionTemplateCreateDto dto, IAppDbContext db) =>
-{
-    var template = new LadiPage.Core.Entities.Template
-    {
-        Name = dto.Name,
-        Category = "section",
-        ThumbnailUrl = dto.PreviewUrl,
-        JsonContent = dto.JsonContent,
-        CreatedAt = DateTime.UtcNow,
-    };
-    db.Templates.Add(template);
-    await ((LadiPage.Infrastructure.Data.AppDbContext)db).SaveChangesAsync();
-    return Results.Created($"/api/section-templates/{template.Id}", new { template.Id, template.Name });
-}).RequireAuthorization();
-
-// Fonts API
-app.MapGet("/api/fonts", () =>
-{
-    var fonts = new[]
-    {
-        "Inter", "Roboto", "Open Sans", "Lato", "Montserrat", "Poppins", "Nunito",
-        "Raleway", "Ubuntu", "Playfair Display", "Merriweather", "Source Sans 3",
-        "Oswald", "Noto Sans", "PT Sans", "Roboto Condensed", "Roboto Slab",
-        "Quicksand", "Work Sans", "Mulish", "Barlow", "DM Sans", "Rubik",
-        "Manrope", "Karla", "Josefin Sans", "Libre Baskerville", "Space Grotesk",
-        "Cabin", "Arimo", "Overpass", "Assistant", "Bitter", "Crimson Text",
-        "Exo 2", "Fira Sans", "Heebo", "Inconsolata", "Kanit", "Lexend",
-        "Libre Franklin", "Maven Pro", "Mukta", "Noto Serif", "Outfit",
-        "Plus Jakarta Sans", "Prompt", "Public Sans", "Red Hat Display",
-        "Signika", "Titillium Web", "Varela Round", "Yanone Kaffeesatz",
-        "Abel", "Archivo", "Asap", "Bebas Neue", "Catamaran", "Comfortaa",
-        "Cormorant Garamond", "Dancing Script", "EB Garamond", "Figtree",
-        "Geologica", "Great Vibes", "Hind", "IBM Plex Sans", "Inter Tight",
-        "Jost", "Kalam", "Lilita One", "Lobster", "Lora", "Nanum Gothic",
-        "Nunito Sans", "Pacifico", "Patrick Hand", "Philosopher", "PT Serif",
-        "Righteous", "Roboto Mono", "Saira", "Satisfy", "Sora", "Space Mono",
-        "Spectral", "Teko", "Ubuntu Mono", "Urbanist", "Vollkorn", "Yantramanav",
-        "Zilla Slab", "Abril Fatface", "Alegreya", "Amatic SC", "Archivo Narrow",
-        "Barlow Condensed", "Be Vietnam Pro", "Cairo", "Chakra Petch",
-        "Cinzel", "Courgette", "Domine", "Dosis", "Encode Sans",
-        "Fira Code", "Fredoka", "Gloria Hallelujah", "Gudea",
-    };
-    return Results.Ok(fonts);
-}).AllowAnonymous();
+app.MapControllers();
 
 app.UseStaticFiles();
 
 app.Run();
-
-record SectionTemplateCreateDto(string Name, string JsonContent, string? PreviewUrl);
-
-// Request DTOs for minimal API binding
-public record RegisterRequest(string Email, string Password, string FullName, string? Phone, string? RecaptchaToken);
-public record RecaptchaResponse(bool Success);
-public record LoginRequest(string Email, string Password);
-public record RefreshTokenRequest(string RefreshToken);
-public record RevokeTokenRequest(string RefreshToken);
-public record CreateWorkspaceRequest(string Name, string Slug);
-public record CreatePageRequest(long WorkspaceId, string Name, string Slug, long? TemplateId);
-public record UpdatePageRequest(string Name, string Slug);
-public record ExternalRegisterRequest(string Token, string? Phone, string? WorkspaceName);
-public record UpdateProfileRequest(string? FullName, string? Phone, string? AvatarUrl);
-public record UpgradePlanRequest([property: System.Text.Json.Serialization.JsonPropertyName("planId")] int PlanId);
-public record ChangePasswordRequest(
-    [property: System.Text.Json.Serialization.JsonPropertyName("currentPassword")] string CurrentPassword,
-    [property: System.Text.Json.Serialization.JsonPropertyName("newPassword")] string NewPassword);
-public record ResendVerificationRequest(string Email);
-public record CreateTagRequest(long WorkspaceId, string Name, string? Color);
-public record UpdateTagRequest(string? Name, string? Color);
-public record CreateDomainRequest(long WorkspaceId, string DomainName);
-public record CreateFormRequest(long WorkspaceId, string Name, string? FieldsJson, string? WebhookUrl, bool EmailNotify);
-public record UpdateFormRequest(string? Name, string? FieldsJson, string? WebhookUrl, bool EmailNotify);
-public record CreateProductRequest(long WorkspaceId, string Name, decimal Price, string? Description, string? ImageUrl, string? Category, int Stock);
-public record UpdateProductRequest(string? Name, decimal? Price, string? Description, string? ImageUrl, string? Category, int? Stock, string? Status);
-public record CreateOrderRequest(long WorkspaceId, string CustomerName, string? Email, string? Phone, long? ProductId, decimal Amount);
-public record UpdateOrderRequest(string? CustomerName, string? Email, string? Phone, string? Status);
-public record CreateCustomerRequest(long WorkspaceId, string Name, string? Email, string? Phone, string? Group, string? Source);
-public record UpdateCustomerRequest(string? Name, string? Email, string? Phone, string? Group, string? Source);

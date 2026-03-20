@@ -61,9 +61,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const user = await authApi.me();
       set({ user });
-    } catch {
-      clearTokens();
-      set({ user: null });
+    } catch (err) {
+      const msg = (err instanceof Error ? err.message : "").toLowerCase();
+      const isAuthError = msg.includes("unauthorized") || msg.includes("401") || msg.includes("token") || msg.includes("jwt");
+      const isNetworkError = msg.includes("failed to fetch") || msg.includes("network");
+      if (isAuthError && !isNetworkError) {
+        clearTokens();
+        set({ user: null });
+      }
     }
   },
 
@@ -74,6 +79,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   hydrate: () => {
     if (get().isHydrated) return;
-    get().fetchMe().then(() => set({ isHydrated: true }));
+    get()
+      .fetchMe()
+      .catch(() => {})
+      .finally(() => set({ isHydrated: true }));
   },
 }));

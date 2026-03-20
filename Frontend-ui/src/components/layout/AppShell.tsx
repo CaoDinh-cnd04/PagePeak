@@ -39,6 +39,7 @@ import {
   Crown,
   Check,
   HelpCircle,
+  Image as ImageIcon,
 } from "lucide-react";
 
 type Workspace = {
@@ -74,6 +75,7 @@ const SUB_MENUS: Record<MainMenuKey, SubDef[]> = {
   "landing-pages": [
     { key: "pages", i18nKey: "sub.pages", href: "/dashboard/pages", icon: <List className="w-4 h-4" /> },
     { key: "templates", i18nKey: "sub.templates", href: "/dashboard/templates", icon: <LayoutGrid className="w-4 h-4" /> },
+    { key: "media", i18nKey: "sub.media", href: "/dashboard/media", icon: <ImageIcon className="w-4 h-4" /> },
     { key: "forms", i18nKey: "sub.formConfig", href: "/dashboard/forms", icon: <ClipboardCheck className="w-4 h-4" /> },
     { key: "tags", i18nKey: "sub.tags", href: "/dashboard/tags", icon: <Tag className="w-4 h-4" /> },
     { key: "domains", i18nKey: "sub.domains", href: "/dashboard/domains", icon: <Globe className="w-4 h-4" /> },

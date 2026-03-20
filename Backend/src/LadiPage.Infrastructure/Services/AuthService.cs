@@ -1,6 +1,6 @@
-using LadiPage.Core.Auth;
-using LadiPage.Core.Entities;
-using LadiPage.Core.Interfaces;
+using LadiPage.Domain.Auth;
+using LadiPage.Domain.Entities;
+using LadiPage.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace LadiPage.Infrastructure.Services;

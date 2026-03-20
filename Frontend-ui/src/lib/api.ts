@@ -1,3 +1,5 @@
+import { saveTokens, clearTokens, getRefreshToken } from "./auth";
+
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
 
 export type PublishCheck = {
@@ -11,18 +13,46 @@ function getToken(): string | null {
   return localStorage.getItem("accessToken");
 }
 
-export async function api<T>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
+/** Gọi API với retry khi 401 (refresh token) */
+async function fetchWithAuth(path: string, options: RequestInit, skipRetry = false): Promise<Response> {
   const token = getToken();
+  const isFormData = options.body instanceof FormData;
   const headers: HeadersInit = {
-    "Content-Type": "application/json",
+    ...(!isFormData && { "Content-Type": "application/json" }),
     ...(options.headers as Record<string, string>),
   };
   if (token) (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
 
   const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+
+  if (res.status === 401 && !skipRetry && !path.includes("/api/auth/refresh")) {
+    const refreshToken = getRefreshToken();
+    if (refreshToken) {
+      try {
+        const refreshRes = await fetch(`${API_URL}/api/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refreshToken }),
+        });
+        const refreshData = (await refreshRes.json()) as { accessToken?: string; refreshToken?: string; expiresAt?: string; error?: string };
+        if (refreshRes.ok && refreshData.accessToken && refreshData.refreshToken && refreshData.expiresAt) {
+          saveTokens(refreshData.accessToken, refreshData.refreshToken, refreshData.expiresAt);
+          return fetchWithAuth(path, options, true);
+        }
+      } catch {
+        /* refresh failed */
+      }
+      clearTokens();
+    }
+  }
+  return res;
+}
+
+export async function api<T>(
+  path: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const res = await fetchWithAuth(path, options);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error((err as { error?: string }).error ?? res.statusText);
@@ -248,20 +278,12 @@ export const mediaApi = {
     ),
 
   upload: async (file: File, workspaceId?: number, folder?: string): Promise<MediaItem> => {
-    const token = getToken();
     const form = new FormData();
     form.append("file", file);
     if (workspaceId) form.append("workspaceId", String(workspaceId));
     if (folder) form.append("folder", folder);
 
-    const headers: HeadersInit = {};
-    if (token) (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
-
-    const res = await fetch(`${API_URL}/api/media/upload`, {
-      method: "POST",
-      headers,
-      body: form,
-    });
+    const res = await fetchWithAuth("/api/media/upload", { method: "POST", body: form });
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
       throw new Error(err.error ?? res.statusText);
@@ -291,10 +313,7 @@ export const pagesApi = {
   duplicate: (id: number) =>
     api<PageItem>(`/api/pages/${id}/duplicate`, { method: "POST" }),
   publish: async (id: number): Promise<{ ok: boolean; checks?: PublishCheck[]; error?: string }> => {
-    const token = getToken();
-    const headers: HeadersInit = { "Content-Type": "application/json" };
-    if (token) (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_URL}/api/pages/${id}/publish`, { method: "POST", headers });
+    const res = await fetchWithAuth(`/api/pages/${id}/publish`, { method: "POST" });
     const data = (await res.json()) as { ok: boolean; checks?: PublishCheck[]; error?: string };
     if (res.status === 422) return data;
     if (!res.ok) throw new Error(data.error ?? res.statusText);
@@ -310,11 +329,26 @@ export const pagesApi = {
     }>(`/api/pages/${id}/stats`),
   getContent: (id: number) =>
     api<import("../types/editor").PageContent>(`/api/pages/${id}/content`),
-  updateContent: (id: number, content: import("../types/editor").PageContent) =>
-    api<{ ok: boolean }>(`/api/pages/${id}/content`, {
+  updateContent: (id: number, content: import("../types/editor").PageContent) => {
+    // Transform frontend format to backend format: visible->isVisible, styles->stylesJson
+    const payload = {
+      ...content,
+      sections: content.sections.map((s) => ({
+        ...s,
+        isVisible: (s as { visible?: boolean }).visible ?? (s as { isVisible?: boolean }).isVisible ?? true,
+        elements: (s.elements ?? []).map((e) => ({
+          ...e,
+          stylesJson: typeof (e as { styles?: unknown }).styles === "object"
+            ? JSON.stringify((e as { styles: Record<string, unknown> }).styles ?? {})
+            : (e as { stylesJson?: string }).stylesJson ?? "{}",
+        })),
+      })),
+    };
+    return api<{ ok: boolean }>(`/api/pages/${id}/content`, {
       method: "PUT",
-      body: JSON.stringify(content),
-    }),
+      body: JSON.stringify(payload),
+    });
+  },
 };
 
 export const tagsApi = {

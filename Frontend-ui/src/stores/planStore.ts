@@ -48,14 +48,14 @@ export const usePlanStore = create<PlanState>((set, get) => ({
     set({ isLoading: true });
     try {
       const data = await settingsApi.getPlanInfo();
-      const plan = data.plan;
-      const usage = data.usage;
+      const plan = data?.plan;
+      const usage = data?.usage ?? { totalPages: 0, publishedPages: 0, totalMembers: 0 };
       set({
-        planInfo: data,
+        planInfo: data ?? null,
         hasAi: plan?.hasAi ?? false,
         hasEcommerce: plan?.hasEcommerce ?? false,
-        canCreatePage: !plan || usage.totalPages < plan.maxPages,
-        canAddMember: !plan || usage.totalMembers < plan.maxMembers,
+        canCreatePage: !plan || (usage.totalPages ?? 0) < (plan.maxPages ?? 999),
+        canAddMember: !plan || (usage.totalMembers ?? 0) < (plan.maxMembers ?? 999),
       });
     } catch {
       set({

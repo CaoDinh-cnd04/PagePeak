@@ -1,5 +1,5 @@
-using LadiPage.Core.Entities;
-using LadiPage.Core.Interfaces;
+using LadiPage.Domain.Entities;
+using LadiPage.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace LadiPage.Infrastructure.Data;
@@ -23,7 +23,7 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<ElementPreset> ElementPresets { get; set; }
     public DbSet<Media> Medias { get; set; }
     public DbSet<Tag> Tags { get; set; }
-    public DbSet<Domain> Domains { get; set; }
+    public DbSet<CustomDomain> Domains { get; set; }
     public DbSet<FormConfig> FormConfigs { get; set; }
     public DbSet<Notification> Notifications { get; set; }
     public DbSet<Product> Products { get; set; }
@@ -311,7 +311,7 @@ public class AppDbContext : DbContext, IAppDbContext
             e.HasOne(x => x.Workspace).WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<Domain>(e =>
+        modelBuilder.Entity<CustomDomain>(e =>
         {
             e.ToTable("TenMien");
             e.HasKey(x => x.Id);

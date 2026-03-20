@@ -1,5 +1,5 @@
 using System.Text.Json;
-using LadiPage.Core.Interfaces;
+using LadiPage.Domain.Interfaces;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 

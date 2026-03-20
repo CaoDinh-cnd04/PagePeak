@@ -1,4 +1,5 @@
-using LadiPage.Core.Interfaces;
+using System.Text.Json;
+using LadiPage.Domain.Interfaces;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -27,7 +28,8 @@ public class GetPageContentQueryHandler : IRequestHandler<GetPageContentQuery, P
             .Select(p => new
             {
                 p.Id, p.WorkspaceId, p.Name, p.Slug, p.Status,
-                p.MetaTitle, p.MetaDescription, p.PageType, p.MobileFriendly
+                p.MetaTitle, p.MetaDescription, p.PageType, p.MobileFriendly,
+                p.JsonContent
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -80,10 +82,43 @@ public class GetPageContentQueryHandler : IRequestHandler<GetPageContentQuery, P
             })
             .ToList();
 
+        PageSettingsDto? pageSettings = null;
+        if (!string.IsNullOrWhiteSpace(page.JsonContent))
+        {
+            try
+            {
+                var json = JsonDocument.Parse(page.JsonContent);
+                if (json.RootElement.TryGetProperty("pageSettings", out var psEl))
+                {
+                    pageSettings = new PageSettingsDto(
+                        psEl.TryGetProperty("metaKeywords", out var mk) ? mk.GetString() : null,
+                        psEl.TryGetProperty("metaImageUrl", out var mi) ? mi.GetString() : null,
+                        psEl.TryGetProperty("faviconUrl", out var fv) ? fv.GetString() : null,
+                        psEl.TryGetProperty("facebookPixelId", out var fp) ? fp.GetString() : null,
+                        psEl.TryGetProperty("googleAnalyticsId", out var ga) ? ga.GetString() : null,
+                        psEl.TryGetProperty("googleAdsId", out var gads) ? gads.GetString() : null,
+                        psEl.TryGetProperty("tiktokPixelId", out var tt) ? tt.GetString() : null,
+                        psEl.TryGetProperty("zaloAdsType", out var za) ? za.GetString() : null,
+                        psEl.TryGetProperty("zaloAdsPixelId", out var zap) ? zap.GetString() : null,
+                        psEl.TryGetProperty("googleTagManagerId", out var gtm) ? gtm.GetString() : null,
+                        psEl.TryGetProperty("codeBeforeHead", out var cbh) ? cbh.GetString() : null,
+                        psEl.TryGetProperty("codeBeforeBody", out var cbb) ? cbb.GetString() : null,
+                        psEl.TryGetProperty("useDelayJS", out var udj) && udj.ValueKind == JsonValueKind.True ? true : null,
+                        psEl.TryGetProperty("useLazyload", out var ull) && ull.ValueKind == JsonValueKind.True ? true : null
+                    );
+                }
+            }
+            catch
+            {
+                // ignore parse errors
+            }
+        }
+
         return new PageContentDto(
             page.Id, page.WorkspaceId, page.Name, page.Slug, page.Status,
             page.MetaTitle, page.MetaDescription, page.PageType, page.MobileFriendly,
-            sectionDtos
+            sectionDtos,
+            pageSettings
         );
     }
 }

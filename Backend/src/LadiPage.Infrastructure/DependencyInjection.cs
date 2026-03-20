@@ -1,4 +1,4 @@
-using LadiPage.Core.Interfaces;
+using LadiPage.Domain.Interfaces;
 using LadiPage.Infrastructure.Data;
 using LadiPage.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;

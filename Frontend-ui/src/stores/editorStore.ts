@@ -5,6 +5,7 @@ import type {
   EditorElement,
   EditorElementType,
   PageContent,
+  PageSettings,
 } from "@/types/editor";
 
 type SelectedTarget =
@@ -24,6 +25,7 @@ type EditorState = {
   metaDescription: string;
   pageType: string;
   mobileFriendly: boolean;
+  pageSettings: PageSettings;
   sections: EditorSection[];
   selected: SelectedTarget;
   deviceType: DeviceType;
@@ -33,6 +35,7 @@ type EditorState = {
 
   zoom: number;
   canvasWidth: number;
+  desktopCanvasWidth: number;
   canvasHeight: number;
   clipboard: EditorElement | null;
   snapToGrid: boolean;
@@ -51,6 +54,8 @@ type EditorActions = {
   updateSection: (id: number, partial: Partial<EditorSection>) => void;
   moveSectionUp: (id: number) => void;
   moveSectionDown: (id: number) => void;
+  moveSectionToIndex: (id: number, newIndex: number) => void;
+  reorderElementInSection: (sectionId: number, elementId: number, newIndex: number) => void;
   duplicateSection: (id: number) => void;
   addElement: (sectionId: number, partial: Partial<EditorElement>) => void;
   updateElement: (id: number, partial: Partial<EditorElement>) => void;
@@ -58,6 +63,7 @@ type EditorActions = {
   duplicateElement: (id: number) => void;
   markSaved: () => void;
   updatePageMeta: (meta: { metaTitle?: string; metaDescription?: string; name?: string }) => void;
+  updatePageSettings: (settings: Partial<PageSettings>) => void;
   undo: () => void;
   redo: () => void;
   pushHistory: () => void;
@@ -67,6 +73,7 @@ type EditorActions = {
 
   setZoom: (level: number) => void;
   setCanvasWidth: (w: number) => void;
+  setDesktopCanvasWidth: (w: number) => void;
   setCanvasHeight: (h: number) => void;
   copyElement: () => void;
   pasteElement: () => void;
@@ -95,14 +102,15 @@ const ELEMENT_DEFAULTS: Record<EditorElementType, Partial<EditorElement>> = {
     width: 180,
     height: 48,
     content: "Click me",
-    styles: { backgroundColor: "#4f46e5", color: "#ffffff", borderRadius: 8, fontSize: 14, fontWeight: 600 },
+    styles: { backgroundColor: "#4f46e5", color: "#ffffff", borderRadius: 8, fontSize: 14, fontWeight: 600, borderWidth: 0, borderColor: "#e2e8f0" },
   },
-  image: { width: 300, height: 200, content: "", imageUrl: "" },
+  image: { width: 280, height: 200, content: "", imageUrl: "" },
   video: { width: 480, height: 270, content: "", videoUrl: "" },
   shape: {
     width: 120,
     height: 120,
-    styles: { backgroundColor: "#e0e7ff", borderRadius: 8 },
+    content: "[]",
+    styles: { backgroundColor: "#e0e7ff", borderRadius: 8, borderWidth: 0, borderColor: "#e2e8f0", borderStyle: "solid" },
   },
   icon: { width: 48, height: 48, content: "star" },
   divider: {
@@ -113,21 +121,51 @@ const ELEMENT_DEFAULTS: Record<EditorElementType, Partial<EditorElement>> = {
   countdown: { width: 300, height: 60, content: "" },
   form: { width: 400, height: 300, content: "" },
   html: { width: 400, height: 200, content: "<div></div>" },
+  "html-code": {
+    width: 400,
+    height: 250,
+    content: JSON.stringify({
+      subType: "html-js",
+      code: "<div style=\"padding:16px;background:#f8fafc;border-radius:8px;font-family:monospace;font-size:12px\">Nhấn <b>Sửa HTML</b> để thêm mã tùy chỉnh</div>",
+      iframeSrc: "",
+    }),
+    styles: {},
+  },
   list: {
     width: 300,
     height: 120,
     content: "Item 1\nItem 2\nItem 3",
   },
   gallery: { width: 500, height: 300, content: "" },
-  carousel: { width: 600, height: 300, content: "", styles: { backgroundColor: "#f8fafc" } },
-  tabs: { width: 500, height: 200, content: "Tab 1\nTab 2\nTab 3", styles: { fontSize: 14 } },
+  "product-detail": {
+    width: 360,
+    height: 480,
+    content: JSON.stringify({
+      images: ["https://picsum.photos/400/400?random=1"],
+      title: "Áo thun nam cao cấp",
+      price: "1.290.000đ",
+      salePrice: "990.000đ",
+      description: "Chất liệu cotton 100%, thoáng mát, form dáng chuẩn. Phù hợp mặc hàng ngày hoặc đi làm.",
+      badge: "Giảm 23%",
+    }),
+    styles: { backgroundColor: "#ffffff", borderRadius: 12 },
+  },
+  "collection-list": {
+    width: 600,
+    height: 340,
+    content: JSON.stringify({
+      columns: 3,
+      items: [
+        { image: "https://picsum.photos/200/200?random=2", title: "Áo Polo Basic", price: "299.000đ" },
+        { image: "https://picsum.photos/200/200?random=3", title: "Quần Jeans Slim", price: "499.000đ" },
+        { image: "https://picsum.photos/200/200?random=4", title: "Giày Sneaker", price: "890.000đ" },
+      ],
+    }),
+    styles: { backgroundColor: "#f8fafc", borderRadius: 12 },
+  },
   frame: { width: 400, height: 300, content: "", styles: { border: "1px solid #e2e8f0", borderRadius: 8 } },
   accordion: { width: 500, height: 200, content: "Câu hỏi 1|Trả lời 1\nCâu hỏi 2|Trả lời 2", styles: { fontSize: 14 } },
   table: { width: 600, height: 200, content: "Col1,Col2,Col3\nR1C1,R1C2,R1C3\nR2C1,R2C2,R2C3", styles: { fontSize: 13 } },
-  "collection-list": { width: 600, height: 300, content: "" },
-  product: { width: 250, height: 320, content: "Sản phẩm mẫu" },
-  "product-list": { width: 700, height: 400, content: "" },
-  "product-detail": { width: 600, height: 500, content: "" },
   cart: { width: 400, height: 300, content: "" },
   "blog-list": { width: 700, height: 400, content: "" },
   "blog-detail": { width: 600, height: 500, content: "" },
@@ -136,6 +174,33 @@ const ELEMENT_DEFAULTS: Record<EditorElementType, Partial<EditorElement>> = {
   "social-share": { width: 200, height: 40, content: "" },
   rating: { width: 200, height: 40, content: "5", styles: { color: "#f59e0b" } },
   progress: { width: 400, height: 24, content: "75", styles: { backgroundColor: "#e2e8f0" } },
+  carousel: {
+    width: 420,
+    height: 280,
+    content: JSON.stringify({
+      layoutType: "media",
+      items: [
+        { image: "https://picsum.photos/800/450?random=21", title: "Slide 1", desc: "Mô tả ngắn cho slide." },
+      ],
+    }),
+    styles: { backgroundColor: "#f8fafc", borderRadius: 12 },
+  },
+  tabs: {
+    width: 520,
+    height: 280,
+    content: JSON.stringify({
+      items: [
+        {
+          label: "Giới thiệu",
+          title: "Tiêu đề tab 1",
+          desc: "Nội dung mô tả cho tab đầu tiên. Chỉnh sửa nhãn, tiêu đề và mô tả trong panel bên phải (mục Tabs).",
+        },
+        { label: "Chi tiết", title: "Tab 2", desc: "Nội dung tab thứ hai." },
+        { label: "Liên hệ", title: "Tab 3", desc: "Thông tin thêm." },
+      ],
+    }),
+    styles: { backgroundColor: "#ffffff", borderRadius: 8 },
+  },
   antigravity: { width: 800, height: 600, content: "Antigravity UI", styles: {} },
 };
 
@@ -152,6 +217,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
     metaDescription: "",
     pageType: "trangdich",
     mobileFriendly: true,
+    pageSettings: {},
     sections: [],
     selected: { type: "page" },
     deviceType: "web",
@@ -161,9 +227,10 @@ export const useEditorStore = create<EditorState & EditorActions>()(
 
     zoom: 1,
     canvasWidth: 960,
+    desktopCanvasWidth: 960,
     canvasHeight: 800,
     clipboard: null,
-    snapToGrid: true,
+    snapToGrid: false,
     gridSize: 10,
     showGuides: true,
 
@@ -178,6 +245,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         metaDescription: content.metaDescription ?? "",
         pageType: content.pageType ?? "trangdich",
         mobileFriendly: content.mobileFriendly ?? true,
+        pageSettings: content.pageSettings ?? {},
         sections: content.sections,
         selected: { type: "page" },
         dirty: false,
@@ -188,7 +256,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
     setDeviceType: (device) =>
       set((state) => {
         state.deviceType = device;
-        state.canvasWidth = device === "mobile" ? 420 : 960;
+        state.canvasWidth = device === "mobile" ? 420 : state.desktopCanvasWidth;
       }),
 
     selectPage: () =>
@@ -201,7 +269,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         state.selected = { type: "section", id };
       }),
 
-    selectElement: (id) =>
+    selectElement: (id: number) =>
       set((state) => {
         state.selected = { type: "element", id };
       }),
@@ -289,6 +357,28 @@ export const useEditorStore = create<EditorState & EditorActions>()(
           state.sections.forEach((s, i) => (s.order = i + 1));
           state.dirty = true;
         }
+      }),
+
+    moveSectionToIndex: (id, newIndex) =>
+      set((state) => {
+        const idx = state.sections.findIndex((s) => s.id === id);
+        if (idx < 0 || newIndex < 0 || newIndex >= state.sections.length) return;
+        const [removed] = state.sections.splice(idx, 1);
+        state.sections.splice(newIndex, 0, removed);
+        state.sections.forEach((s, i) => (s.order = i + 1));
+        state.dirty = true;
+      }),
+
+    reorderElementInSection: (sectionId, elementId, newIndex) =>
+      set((state) => {
+        const section = state.sections.find((s) => s.id === sectionId);
+        if (!section) return;
+        const idx = section.elements.findIndex((e) => e.id === elementId);
+        if (idx < 0 || newIndex < 0 || newIndex >= section.elements.length) return;
+        const [removed] = section.elements.splice(idx, 1);
+        section.elements.splice(newIndex, 0, removed);
+        section.elements.forEach((e, i) => (e.order = i + 1));
+        state.dirty = true;
       }),
 
     duplicateSection: (id) =>
@@ -413,6 +503,12 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         state.dirty = true;
       }),
 
+    updatePageSettings: (settings) =>
+      set((state) => {
+        state.pageSettings = { ...state.pageSettings, ...settings };
+        state.dirty = true;
+      }),
+
     getSelectedElement: () => {
       const state = get();
       if (state.selected.type !== "element") return null;
@@ -444,6 +540,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         metaDescription: state.metaDescription || null,
         pageType: state.pageType,
         mobileFriendly: state.mobileFriendly,
+        pageSettings: state.pageSettings,
         sections: state.sections,
       };
     },
@@ -456,6 +553,13 @@ export const useEditorStore = create<EditorState & EditorActions>()(
     setCanvasWidth: (w) =>
       set((state) => {
         state.canvasWidth = w;
+        if ([960, 1200, 1440].includes(w)) state.desktopCanvasWidth = w;
+      }),
+
+    setDesktopCanvasWidth: (w) =>
+      set((state) => {
+        state.desktopCanvasWidth = w;
+        if (state.deviceType === "web") state.canvasWidth = w;
       }),
 
     setCanvasHeight: (h) =>

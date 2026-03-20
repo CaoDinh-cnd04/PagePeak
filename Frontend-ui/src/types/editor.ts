@@ -11,17 +11,14 @@ export type EditorElementType =
   | "countdown"
   | "form"
   | "html"
+  | "html-code"
   | "list"
   | "gallery"
-  | "carousel"
-  | "tabs"
+  | "product-detail"
+  | "collection-list"
   | "frame"
   | "accordion"
   | "table"
-  | "collection-list"
-  | "product"
-  | "product-list"
-  | "product-detail"
   | "cart"
   | "blog-list"
   | "blog-detail"
@@ -30,6 +27,8 @@ export type EditorElementType =
   | "social-share"
   | "rating"
   | "progress"
+  | "carousel"
+  | "tabs"
   | "antigravity";
 
 export type EditorElement = {
@@ -65,6 +64,8 @@ export type EditorSection = {
   visible: boolean;
   isLocked: boolean;
   customClass?: string | null;
+  layoutMode?: "auto" | "manual";
+  sectionTabs?: boolean;
   elements: EditorElement[];
 };
 
@@ -98,6 +99,23 @@ export type ToolCategoryData = {
   items: ToolItemData[];
 };
 
+export type PageSettings = {
+  metaKeywords?: string;
+  metaImageUrl?: string;
+  faviconUrl?: string;
+  facebookPixelId?: string;
+  googleAnalyticsId?: string;
+  googleAdsId?: string;
+  tiktokPixelId?: string;
+  zaloAdsType?: "ladipage" | "personal" | "none";
+  zaloAdsPixelId?: string;
+  googleTagManagerId?: string;
+  codeBeforeHead?: string;
+  codeBeforeBody?: string;
+  useDelayJS?: boolean;
+  useLazyload?: boolean;
+};
+
 export type PageContent = {
   pageId: number;
   workspaceId: number;
@@ -106,9 +124,13 @@ export type PageContent = {
   status: "draft" | "published";
   metaTitle?: string | null;
   metaDescription?: string | null;
+  metaKeywords?: string | null;
+  faviconUrl?: string | null;
+  metaImageUrl?: string | null;
   pageType: string;
   mobileFriendly: boolean;
   sections: EditorSection[];
+  pageSettings?: PageSettings | null;
 };
 
 export type ZoomLevel = 0.25 | 0.5 | 0.75 | 1 | 1.25 | 1.5 | 2 | 3;

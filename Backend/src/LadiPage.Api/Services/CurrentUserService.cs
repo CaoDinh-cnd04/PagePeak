@@ -1,5 +1,5 @@
 using System.Security.Claims;
-using LadiPage.Core.Interfaces;
+using LadiPage.Domain.Interfaces;
 using Microsoft.AspNetCore.Http;
 
 namespace LadiPage.Api.Services;

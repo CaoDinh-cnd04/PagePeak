@@ -1,5 +1,5 @@
-using LadiPage.Core.Entities;
-using LadiPage.Core.Interfaces;
+using LadiPage.Domain.Entities;
+using LadiPage.Domain.Interfaces;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 

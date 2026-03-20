@@ -68,6 +68,7 @@ function LoginInner() {
 
   useEffect(() => {
     if (errorParam === "external_signin_failed") setError("Đăng nhập Google/Facebook thất bại.");
+    else if (errorParam === "callback_missing_tokens") setError("Phiên đăng nhập không hợp lệ. Vui lòng thử lại.");
     else if (errorParam === "no_email") setError("Không lấy được email từ tài khoản.");
     else if (errorParam === "account_disabled") setError("Tài khoản đã bị khóa.");
   }, [errorParam]);

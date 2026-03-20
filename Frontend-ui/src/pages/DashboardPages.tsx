@@ -1,10 +1,11 @@
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useSearchParams, useNavigate } from "react-router-dom";
 import { pagesApi, templatesApi, workspacesApi, type PageItem } from "@/lib/api";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { MoreVertical, Plus, Pencil, Copy, BarChart3, Trash2, RefreshCw } from "lucide-react";
+import { ActionMenu } from "@/components/ui/ActionMenu";
+import { MoreVertical, Plus, Pencil, Copy, BarChart3, Trash2, RefreshCw, Send } from "lucide-react";
 import { CreateDesignModal, defaultCategories, type TemplateItem } from "@/components/modals/CreateDesignModal";
 import { usePlanStore } from "@/stores/planStore";
 import { CreateLandingPageDetailsModal, type DesignType } from "@/components/modals/CreateLandingPageDetailsModal";
@@ -37,30 +38,13 @@ function StatusBadge({ status }: { status: PageItem["status"] }) {
   );
 }
 
-function useOnClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void, when = true) {
-  useEffect(() => {
-    if (!when) return;
-    const onDown = (e: MouseEvent | TouchEvent) => {
-      const el = ref.current;
-      if (!el) return;
-      if (e.target instanceof Node && el.contains(e.target)) return;
-      handler();
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("touchstart", onDown);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("touchstart", onDown);
-    };
-  }, [ref, handler, when]);
-}
-
 function PageCard({
   page,
   onEdit,
   onDuplicate,
   onRename,
   onViewStats,
+  onPublish,
   onDelete,
 }: {
   page: PageItem;
@@ -68,87 +52,47 @@ function PageCard({
   onDuplicate: () => void;
   onRename: () => void;
   onViewStats: () => void;
+  onPublish: () => void;
   onDelete: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  useOnClickOutside(menuRef, () => setOpen(false), open);
+  const isDraft = page.status === "draft";
 
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
+    <div className="group relative overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm hover:shadow-md transition-shadow">
       {/* Thumbnail */}
       <div className="relative aspect-video bg-slate-100 dark:bg-slate-900 overflow-hidden">
         <PagePreviewThumbnail pageId={page.id} />
         <div className="absolute inset-0 z-10 opacity-0 group-hover:opacity-100 transition">
-          <div className="absolute inset-0 bg-slate-950/35" />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <Button onClick={onEdit} className="bg-indigo-600 hover:bg-indigo-700">
+          <div className="absolute inset-0 bg-slate-950/40" />
+          <div className="absolute inset-0 flex items-center justify-center gap-2">
+            <Button onClick={onEdit} size="sm">
               <Pencil className="w-4 h-4 mr-2" />
               Chỉnh sửa
             </Button>
+            {isDraft && (
+              <Button onClick={onPublish} variant="outline" size="sm" className="border-emerald-600 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-400 dark:text-emerald-400">
+                <Send className="w-4 h-4 mr-2" />
+                Xuất bản
+              </Button>
+            )}
           </div>
         </div>
         <div className="absolute top-3 left-3 z-20">
           <StatusBadge status={page.status} />
         </div>
-        <div className="absolute top-3 right-3 z-20" ref={menuRef}>
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            className="w-9 h-9 rounded-full bg-white/90 hover:bg-white text-slate-700 flex items-center justify-center shadow-sm ring-1 ring-slate-200 transition"
-            aria-label="Menu"
-          >
-            <MoreVertical className="w-4 h-4" />
-          </button>
-          {open && (
-            <div className="absolute right-0 mt-2 w-48 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-lg overflow-hidden z-10">
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false);
-                  onDuplicate();
-                }}
-                className="w-full px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200"
-              >
-                <Copy className="w-4 h-4" />
-                Nhân bản
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false);
-                  onRename();
-                }}
-                className="w-full px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200"
-              >
-                <Pencil className="w-4 h-4" />
-                Đổi tên
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false);
-                  onViewStats();
-                }}
-                className="w-full px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200"
-              >
-                <BarChart3 className="w-4 h-4" />
-                Xem thống kê
-              </button>
-              <div className="h-px bg-slate-200 dark:bg-slate-800" />
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false);
-                  onDelete();
-                }}
-                className="w-full px-3 py-2 text-sm flex items-center gap-2 hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600"
-              >
-                <Trash2 className="w-4 h-4" />
-                Xóa
-              </button>
-            </div>
-          )}
+        <div className="absolute top-3 right-3 z-20">
+          <ActionMenu
+            trigger={<MoreVertical className="w-4 h-4" />}
+            align="right"
+            items={[
+              { key: "duplicate", label: "Nhân bản", icon: <Copy className="w-4 h-4" />, onClick: onDuplicate },
+              { key: "rename", label: "Đổi tên", icon: <Pencil className="w-4 h-4" />, onClick: onRename },
+              { key: "stats", label: "Xem thống kê", icon: <BarChart3 className="w-4 h-4" />, onClick: onViewStats },
+              ...(isDraft ? [{ key: "publish", label: "Xuất bản", icon: <Send className="w-4 h-4" />, onClick: onPublish }] : []),
+              { key: "divider-delete", type: "divider" as const },
+              { key: "delete", label: "Xóa", icon: <Trash2 className="w-4 h-4" />, onClick: onDelete, variant: "destructive" },
+            ]}
+          />
         </div>
       </div>
 
@@ -394,6 +338,7 @@ function PagesInner() {
 
           <Button
             variant="outline"
+            size="sm"
             onClick={() => activeWorkspaceId && load(activeWorkspaceId)}
             disabled={!activeWorkspaceId}
             title="Làm mới danh sách"
@@ -401,12 +346,7 @@ function PagesInner() {
             <RefreshCw className="w-4 h-4 mr-2" />
             Làm mới
           </Button>
-          <Button
-            className="bg-indigo-600 hover:bg-indigo-700"
-            onClick={() => {
-              setCreateOpen(true);
-            }}
-          >
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus className="w-4 h-4 mr-2" />
             Tạo Landing Page
           </Button>
@@ -454,12 +394,7 @@ function PagesInner() {
             </div>
           )}
           <div className="self-start sm:self-auto">
-            <Button
-              type="button"
-              disabled={!activeWorkspaceId}
-              className="bg-indigo-600 hover:bg-indigo-700"
-              onClick={() => setCreateOpen(true)}
-            >
+            <Button type="button" size="sm" disabled={!activeWorkspaceId} onClick={() => setCreateOpen(true)}>
               <Plus className="w-4 h-4 mr-2" />
               Tạo Landing Page
             </Button>
@@ -552,11 +487,12 @@ function PagesInner() {
             </p>
             {deleteError && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{deleteError}</p>}
             <div className="mt-6 flex gap-3 justify-end">
-              <Button variant="outline" onClick={() => { setPageToDelete(null); setDeleteError(""); }}>
+              <Button variant="outline" size="sm" onClick={() => { setPageToDelete(null); setDeleteError(""); }}>
                 Hủy
               </Button>
               <Button
-                className="bg-red-600 hover:bg-red-700"
+                variant="destructive"
+                size="sm"
                 onClick={async () => {
                   setDeleteError("");
                   try {
@@ -606,7 +542,7 @@ function PagesInner() {
             </p>
             <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
               <Button
-                className="bg-indigo-600 hover:bg-indigo-700"
+                size="sm"
                 onClick={() => {
                   const el = document.getElementById("create-form");
                   el?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -615,7 +551,7 @@ function PagesInner() {
                 <Plus className="w-4 h-4 mr-2" />
                 Tạo Landing Page
               </Button>
-              <Button variant="outline" onClick={() => navigate("/dashboard/templates")}>
+              <Button variant="outline" size="sm" onClick={() => navigate("/dashboard/templates")}>
                 Xem templates
               </Button>
             </div>
@@ -627,9 +563,7 @@ function PagesInner() {
             <PageCard
               key={p.id}
               page={p}
-              onEdit={() => {
-                navigate(`/dashboard/editor/${p.id}?type=responsive`);
-              }}
+              onEdit={() => navigate(`/dashboard/editor/${p.id}?type=responsive`)}
               onDuplicate={async () => {
                 setError("");
                 try {
@@ -641,6 +575,16 @@ function PagesInner() {
               }}
               onRename={() => setPageToRename(p)}
               onViewStats={() => setPageForStats(p)}
+              onPublish={async () => {
+                setError("");
+                try {
+                  const res = await pagesApi.publish(p.id);
+                  if (!res.ok && res.error) setError(res.error);
+                  else await load(activeWorkspaceId);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : "Xuất bản thất bại.");
+                }
+              }}
               onDelete={() => setPageToDelete(p)}
             />
           ))}

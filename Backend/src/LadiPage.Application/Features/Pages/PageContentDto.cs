@@ -1,4 +1,23 @@
+using System.Text.Json.Serialization;
+
 namespace LadiPage.Application.Features.Pages;
+
+public record PageSettingsDto(
+    [property: JsonPropertyName("metaKeywords")] string? MetaKeywords,
+    [property: JsonPropertyName("metaImageUrl")] string? MetaImageUrl,
+    [property: JsonPropertyName("faviconUrl")] string? FaviconUrl,
+    [property: JsonPropertyName("facebookPixelId")] string? FacebookPixelId,
+    [property: JsonPropertyName("googleAnalyticsId")] string? GoogleAnalyticsId,
+    [property: JsonPropertyName("googleAdsId")] string? GoogleAdsId,
+    [property: JsonPropertyName("tiktokPixelId")] string? TikTokPixelId,
+    [property: JsonPropertyName("zaloAdsType")] string? ZaloAdsType,
+    [property: JsonPropertyName("zaloAdsPixelId")] string? ZaloAdsPixelId,
+    [property: JsonPropertyName("googleTagManagerId")] string? GoogleTagManagerId,
+    [property: JsonPropertyName("codeBeforeHead")] string? CodeBeforeHead,
+    [property: JsonPropertyName("codeBeforeBody")] string? CodeBeforeBody,
+    [property: JsonPropertyName("useDelayJS")] bool? UseDelayJS,
+    [property: JsonPropertyName("useLazyload")] bool? UseLazyload
+);
 
 public record PageElementDto(
     long Id,
@@ -46,5 +65,6 @@ public record PageContentDto(
     string? MetaDescription,
     string PageType,
     bool MobileFriendly,
-    IReadOnlyList<PageSectionDto> Sections
+    IReadOnlyList<PageSectionDto> Sections,
+    [property: JsonPropertyName("pageSettings")] PageSettingsDto? PageSettings
 );

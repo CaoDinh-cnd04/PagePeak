@@ -1,6 +1,6 @@
 using System.Net;
 using System.Net.Mail;
-using LadiPage.Core.Interfaces;
+using LadiPage.Domain.Interfaces;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
