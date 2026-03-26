@@ -4,10 +4,12 @@
  * within each section div. Zoom is applied via CSS transform: scale(zoom)
  * on the outer container, so editor and preview always match perfectly.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEditorStore } from "@/stores/editorStore";
 import type { EditorElement, EditorSection } from "@/types/editor";
 import { getIconById } from "@/data/iconData";
+import { ElementActionToolbar } from "./ElementActionToolbar";
+import { GOOGLE_FONTS } from "@/lib/fontLoader";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
 
@@ -726,20 +728,26 @@ function DomSection({
   section,
   selectedId,
   selectedSectionId,
+  editingId,
   canvasWidth,
   onSelectElement,
   onDragStart,
   onResizeStart,
   onSectionClick,
+  onStartEdit,
+  onCommitEdit,
 }: {
   section: EditorSection;
   selectedId: number | null;
   selectedSectionId: number | null;
+  editingId: number | null;
   canvasWidth: number;
   onSelectElement: (id: number) => void;
   onDragStart: (e: React.PointerEvent, el: EditorElement, section: EditorSection) => void;
   onResizeStart: (e: React.PointerEvent, el: EditorElement, dir: ResizeDirection) => void;
   onSectionClick: (id: number) => void;
+  onStartEdit: (id: number) => void;
+  onCommitEdit: (id: number, text: string) => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const sectionH = section.height ?? 600;
@@ -798,31 +806,57 @@ function DomSection({
             key={el.id}
             el={el}
             isSelected={el.id === selectedId}
+            isEditing={el.id === editingId}
             onPointerDown={(e) => {
               onSelectElement(el.id);
               onDragStart(e, el, section);
             }}
             onResizeStart={onResizeStart}
+            onStartEdit={onStartEdit}
+            onCommitEdit={onCommitEdit}
           />
         ))}
     </div>
   );
 }
 
+const TEXT_TYPES = new Set(["text", "headline", "paragraph", "button", "list"]);
+
 function ElementWrapper({
   el,
   isSelected,
+  isEditing,
   onPointerDown,
   onResizeStart,
+  onStartEdit,
+  onCommitEdit,
 }: {
   el: EditorElement;
   isSelected: boolean;
+  isEditing: boolean;
   onPointerDown: (e: React.PointerEvent) => void;
   onResizeStart: (e: React.PointerEvent, el: EditorElement, dir: ResizeDirection) => void;
+  onStartEdit: (id: number) => void;
+  onCommitEdit: (id: number, text: string) => void;
 }) {
   const [hovered, setHovered] = useState(false);
+  const editRef = useRef<HTMLDivElement>(null);
   const w = el.width ?? 100;
   const h = el.height ?? 40;
+
+  // Auto-focus when editing starts
+  useEffect(() => {
+    if (isEditing && editRef.current) {
+      editRef.current.focus();
+      // Place cursor at end
+      const range = document.createRange();
+      const sel = window.getSelection();
+      range.selectNodeContents(editRef.current);
+      range.collapse(false);
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    }
+  }, [isEditing]);
 
   const wrapStyle: React.CSSProperties = {
     position: "absolute",
@@ -832,26 +866,74 @@ function ElementWrapper({
     height: h,
     zIndex: (el.zIndex ?? 0) + (isSelected ? 500 : hovered ? 200 : 0),
     transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
-    outline: isSelected ? "2px solid #4f46e5" : hovered && !el.isLocked ? "1.5px dashed #818cf8" : "none",
+    outline: isEditing ? "2px solid #f59e0b" : isSelected ? "2px solid #4f46e5" : hovered && !el.isLocked ? "1.5px dashed #818cf8" : "none",
     outlineOffset: 0,
-    cursor: el.isLocked ? "default" : "move",
-    userSelect: "none",
+    cursor: el.isLocked ? "default" : isEditing ? "text" : "move",
+    userSelect: isEditing ? "text" : "none",
     boxSizing: "border-box",
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (el.isLocked) return;
+    if (TEXT_TYPES.has(el.type)) {
+      onStartEdit(el.id);
+    }
   };
 
   return (
     <div
       style={wrapStyle}
       onPointerDown={(e) => {
+        if (isEditing) { e.stopPropagation(); return; }
         e.stopPropagation();
         onPointerDown(e);
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      onDoubleClick={handleDoubleClick}
       data-element-id={el.id}
     >
-      <InnerElementRenderer el={el} />
-      {isSelected && !el.isLocked && (
+      {isEditing && TEXT_TYPES.has(el.type) ? (
+        <div
+          ref={editRef}
+          contentEditable
+          suppressContentEditableWarning
+          onBlur={(e) => onCommitEdit(el.id, e.currentTarget.innerHTML || e.currentTarget.textContent || "")}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.currentTarget.blur();
+            }
+          }}
+          style={{
+            position: "absolute", inset: 0,
+            outline: "none",
+            cursor: "text",
+            userSelect: "text",
+            padding: el.styles?.padding ? `${el.styles.padding}px` : 2,
+            fontSize: el.styles?.fontSize ? `${el.styles.fontSize}px` : el.type === "headline" ? "28px" : "14px",
+            fontFamily: el.styles?.fontFamily ? `${el.styles.fontFamily}, sans-serif` : undefined,
+            fontWeight: (el.styles?.fontWeight as React.CSSProperties["fontWeight"]) || (el.type === "headline" ? 700 : 400),
+            color: (el.styles?.color as string) || "#1e293b",
+            textAlign: (el.styles?.textAlign as React.CSSProperties["textAlign"]) || "left",
+            lineHeight: String(el.styles?.lineHeight || (el.type === "headline" ? "1.2" : "1.5")),
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            overflow: "auto",
+            boxSizing: "border-box",
+            backgroundColor: el.type === "button" ? ((el.styles?.backgroundColor as string) || "#4f46e5") : "transparent",
+            borderRadius: el.styles?.borderRadius ? `${el.styles.borderRadius}px` : undefined,
+            display: el.type === "button" ? "flex" : undefined,
+            alignItems: el.type === "button" ? "center" : undefined,
+            justifyContent: el.type === "button" ? "center" : undefined,
+          } as React.CSSProperties}
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: user-edited content
+          dangerouslySetInnerHTML={{ __html: el.content || "" }}
+        />
+      ) : (
+        <InnerElementRenderer el={el} />
+      )}
+      {isSelected && !el.isLocked && !isEditing && (
         <>
           {HANDLES.map((dir) => (
             <div
@@ -898,6 +980,8 @@ export default function DomCanvas({
   containerRef,
   onRequestAddImage,
   onRequestChangeIcon,
+  onRequestAddFormField,
+  onRequestSaveFormData,
   onOpenSettings,
 }: DomCanvasProps) {
   const {
@@ -910,6 +994,9 @@ export default function DomCanvas({
     selectSection,
     selectPage,
     updateElement,
+    duplicateElement,
+    removeElement,
+    pushHistory,
   } = useEditorStore();
 
   const canvasContainerRef = useRef<HTMLDivElement>(null);
@@ -917,12 +1004,63 @@ export default function DomCanvas({
   const resizeRef = useRef<ResizeState | null>(null);
   const snapToGrid = useEditorStore((s) => s.snapToGrid);
   const gridSize = useEditorStore((s) => s.gridSize) || 8;
+  const [editingElementId, setEditingElementId] = useState<number | null>(null);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const canvasWidth = desktopCanvasWidth || 960;
   const effectiveZoom = deviceType === "mobile" ? zoom * (420 / canvasWidth) : zoom;
 
   const selectedElementId = selected.type === "element" ? selected.id : null;
   const selectedSectionId = selected.type === "section" ? selected.id : null;
+
+  // Find selected element and its absolute Y offset for toolbar positioning
+  const selEl = useMemo(() => {
+    if (!selectedElementId) return null;
+    let sectionY = 0;
+    for (const s of sections) {
+      const el = s.elements.find((e) => e.id === selectedElementId);
+      if (el) return { el, section: s, sectionY };
+      sectionY += s.height ?? 600;
+    }
+    return null;
+  }, [selectedElementId, sections]);
+
+  const toolbarPos = useMemo(() => {
+    if (!selEl) return null;
+    const { el, sectionY } = selEl;
+    const w = el.width ?? 100;
+    const h = el.height ?? 40;
+    const yTop = sectionY + el.y;
+    const isTop = yTop * effectiveZoom > 50;
+    return {
+      left: (el.x + w / 2) * effectiveZoom,
+      top: isTop ? yTop * effectiveZoom - 10 : (yTop + h) * effectiveZoom + 10,
+      placement: isTop ? "top" : "bottom",
+    };
+  }, [selEl, effectiveZoom]);
+
+  // Text format state derived from selected text element
+  const textFormat = useMemo(() => {
+    if (!selEl) return null;
+    const { el } = selEl;
+    if (!TEXT_TYPES.has(el.type)) return null;
+    const s = el.styles ?? {};
+    const fw = Number(s.fontWeight || 400);
+    const rawFam = (s.fontFamily as string) || "Inter";
+    const fontFamily = rawFam.split(",")[0].replace(/["']/g, "").trim();
+    return {
+      fontSize: Number(s.fontSize || 14),
+      fontFamily,
+      color: (s.color as string) || "#1e293b",
+      fontWeight: fw,
+      textAlign: ((s.textAlign as string) || "left") as "left" | "center" | "right" | "justify",
+      onFontSizeChange: (n: number) => updateElement(el.id, { styles: { ...s, fontSize: n } }),
+      onFontFamilyChange: (font: string) => updateElement(el.id, { styles: { ...s, fontFamily: font } }),
+      onColorChange: (hex: string) => updateElement(el.id, { styles: { ...s, color: hex } }),
+      onBoldToggle: () => updateElement(el.id, { styles: { ...s, fontWeight: fw >= 600 ? 400 : 700 } }),
+      onAlignChange: (align: "left" | "center" | "right") => updateElement(el.id, { styles: { ...s, textAlign: align } }),
+    };
+  }, [selEl, updateElement]);
 
   // expose handle for export
   useEffect(() => {
@@ -1015,22 +1153,26 @@ export default function DomCanvas({
     resizeRef.current = null;
   }, []);
 
-  // double click → open settings
-  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
-    const target = e.target as HTMLElement;
-    const el = target.closest("[data-element-id]") as HTMLElement | null;
-    if (el) {
-      const id = Number(el.dataset.elementId);
-      if (!Number.isNaN(id)) {
-        selectElement(id);
-        onOpenSettings?.();
-        onRequestAddImage?.(id);
-      }
-    }
-  }, [selectElement, onOpenSettings, onRequestAddImage]);
+  const handleStartEdit = useCallback((id: number) => {
+    setEditingElementId(id);
+  }, []);
 
-  // total canvas height
-  const totalHeight = sections.reduce((sum, s) => sum + (s.height ?? 600), 0);
+  const handleCommitEdit = useCallback((id: number, html: string) => {
+    updateElement(id, { content: html });
+    pushHistory();
+    setEditingElementId(null);
+  }, [updateElement, pushHistory]);
+
+  // Close editing when clicking outside
+  const handleCanvasClick = useCallback((e: React.MouseEvent) => {
+    if (editingElementId !== null) {
+      // blur handled by contenteditable onBlur — just clear
+      setEditingElementId(null);
+    }
+    if ((e.target as HTMLElement) === e.currentTarget) selectPage();
+  }, [editingElementId, selectPage]);
+
+  const totalHeight = sections.filter(s => s.visible !== false).reduce((sum, s) => sum + (s.height ?? 600), 0);
 
   return (
     // Outer wrapper: has the VISUAL size of the scaled canvas so the parent can scroll correctly
@@ -1038,18 +1180,15 @@ export default function DomCanvas({
       ref={canvasContainerRef}
       style={{
         width: canvasWidth * effectiveZoom,
-        height: totalHeight * effectiveZoom,
+        height: Math.max(totalHeight * effectiveZoom, 100),
         position: "relative",
-        overflow: "hidden",
+        overflow: "visible",
         flexShrink: 0,
       }}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerLeave={handlePointerUp}
-      onDoubleClick={handleDoubleClick}
-      onClick={(e) => {
-        if ((e.target as HTMLElement) === e.currentTarget) selectPage();
-      }}
+      onClick={handleCanvasClick}
     >
       {/* Inner: full design-space canvas scaled via CSS transform */}
       <div
@@ -1072,6 +1211,7 @@ export default function DomCanvas({
               section={section}
               selectedId={selectedElementId}
               selectedSectionId={selectedSectionId}
+              editingId={editingElementId}
               canvasWidth={canvasWidth}
               onSelectElement={(id) => {
                 selectElement(id);
@@ -1082,9 +1222,62 @@ export default function DomCanvas({
               onSectionClick={(id) => {
                 selectSection(id);
               }}
+              onStartEdit={handleStartEdit}
+              onCommitEdit={handleCommitEdit}
             />
           ))}
       </div>
+
+      {/* Toolbar – positioned in outer (screen-coordinate) space, not in scaled inner */}
+      {toolbarPos && selEl && (
+        <div
+          style={{
+            position: "absolute",
+            left: toolbarPos.left,
+            top: toolbarPos.top,
+            transform: `translate(-50%, ${toolbarPos.placement === "top" ? "-100%" : "0"})`,
+            zIndex: 2000,
+            whiteSpace: "nowrap",
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <ElementActionToolbar
+            elementType={selEl.el.type}
+            isLocked={selEl.el.isLocked}
+            isHidden={selEl.el.isHidden}
+            textFormat={editingElementId === selEl.el.id ? textFormat : null}
+            fontOptions={GOOGLE_FONTS.slice(0, 48)}
+            onDuplicate={() => { duplicateElement(selEl.el.id); pushHistory(); }}
+            onDelete={() => { removeElement(selEl.el.id); pushHistory(); }}
+            onAddImage={() => onRequestAddImage?.(selEl.el.id)}
+            onRequestChangeIcon={selEl.el.type === "icon" ? () => onRequestChangeIcon?.(selEl.el.id) : undefined}
+            onAddFormField={selEl.el.type === "form" ? () => onRequestAddFormField?.(selEl.el.id) : undefined}
+            onSaveFormData={selEl.el.type === "form" ? () => onRequestSaveFormData?.(selEl.el.id) : undefined}
+            onRotateVertical={selEl.el.type === "divider" ? () => {
+              const r = ((selEl.el.rotation ?? 0) + 90) % 360;
+              updateElement(selEl.el.id, { rotation: r });
+              pushHistory();
+            } : undefined}
+            onBringToFront={() => {
+              const maxZ = Math.max(0, ...selEl.section.elements.map(e => e.zIndex ?? 0));
+              updateElement(selEl.el.id, { zIndex: maxZ + 1 });
+              pushHistory();
+            }}
+            onSendToBack={() => {
+              const minZ = Math.min(0, ...selEl.section.elements.map(e => e.zIndex ?? 0));
+              updateElement(selEl.el.id, { zIndex: minZ - 1 });
+              pushHistory();
+            }}
+            onToggleLock={() => { updateElement(selEl.el.id, { isLocked: !selEl.el.isLocked }); pushHistory(); }}
+            onToggleHide={() => { updateElement(selEl.el.id, { isHidden: !selEl.el.isHidden }); pushHistory(); }}
+            onOpenSettings={() => onOpenSettings?.()}
+            onEditHtmlCode={selEl.el.type === "html-code" ? () => onOpenSettings?.() : undefined}
+            showMoreMenu={showMoreMenu}
+            onToggleMore={() => setShowMoreMenu((v) => !v)}
+          />
+        </div>
+      )}
     </div>
   );
 }
