@@ -10,6 +10,8 @@ import type { EditorElement, EditorSection } from "@/types/editor";
 import { getIconById } from "@/data/iconData";
 import { ElementActionToolbar } from "./ElementActionToolbar";
 import { GOOGLE_FONTS } from "@/lib/fontLoader";
+import { parseProductDetailContent } from "@/lib/productDetailContent";
+import { parseTabsContent, parseCarouselContent } from "@/lib/tabsContent";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
 
@@ -670,24 +672,246 @@ function InnerElementRenderer({ el }: { el: EditorElement }) {
       );
     }
 
+    case "product-detail": {
+      const pd = parseProductDetailContent(el.content ?? undefined);
+      const bg = (s.backgroundColor as string) || "#ffffff";
+      const radius = (s.borderRadius as number) || 12;
+      const img = pd.images[0] ? resolveAsset(pd.images[0]) : "";
+      return (
+        <div style={{ ...fill, background: bg, borderRadius: radius, padding: 12, boxSizing: "border-box", display: "flex", flexDirection: "column", overflow: "hidden", opacity: el.opacity ?? 1 }}>
+          {img ? (
+            <div style={{ width: "100%", aspectRatio: "1/1", maxHeight: "52%", borderRadius: 8, overflow: "hidden", background: "#e2e8f0", marginBottom: 10, flexShrink: 0 }}>
+              <img src={img} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+            </div>
+          ) : (
+            <div style={{ width: "100%", aspectRatio: "1/1", maxHeight: "52%", borderRadius: 8, background: "#e2e8f0", marginBottom: 10, flexShrink: 0 }} />
+          )}
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#1e293b", marginBottom: 4, lineHeight: 1.35, wordBreak: "break-word", flexShrink: 0 }}>{pd.title || "Tên sản phẩm"}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#dc2626", flexShrink: 0 }}>{pd.salePrice || pd.price || "0đ"}</div>
+          {pd.badge && <span style={{ display: "inline-block", background: "#dc2626", color: "#fff", fontSize: 9, fontWeight: 600, padding: "2px 6px", borderRadius: 4, marginTop: 4, flexShrink: 0 }}>{pd.badge}</span>}
+          {pd.description && <p style={{ fontSize: 12, color: "#64748b", marginTop: 8, lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word", flexShrink: 0 }}>{pd.description}</p>}
+        </div>
+      );
+    }
+
+    case "collection-list": {
+      let cl: { items?: { image?: string; title?: string; price?: string }[]; columns?: number } = {};
+      try { cl = JSON.parse(el.content || "{}"); } catch {}
+      const items = cl.items ?? [];
+      const cols = Math.max(1, cl.columns ?? 3);
+      const bg = (s.backgroundColor as string) || "#f8fafc";
+      const radius = (s.borderRadius as number) || 12;
+      return (
+        <div style={{ ...fill, background: bg, borderRadius: radius, padding: 12, boxSizing: "border-box", display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 10, alignContent: "start", overflow: "hidden", opacity: el.opacity ?? 1 }}>
+          {items.length === 0 ? (
+            <div style={{ gridColumn: "1 / -1", textAlign: "center", color: "#94a3b8", fontSize: 12, alignSelf: "center" }}>Danh sách sản phẩm</div>
+          ) : items.map((item, i) => {
+            const img = item.image?.trim() ? resolveAsset(item.image) : "";
+            return (
+              <div key={i} style={{ background: "#fff", borderRadius: 8, padding: 8, display: "flex", flexDirection: "column", alignItems: "stretch", boxSizing: "border-box" }}>
+                <div style={{ width: "100%", aspectRatio: "1/1", borderRadius: 6, overflow: "hidden", background: "#e2e8f0", marginBottom: 8 }}>
+                  {img && <img src={img} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#334155", lineHeight: 1.35, marginBottom: 4, wordBreak: "break-word", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{item.title || "Sản phẩm"}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#dc2626" }}>{item.price || "0đ"}</div>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    case "carousel": {
+      const { layoutType: lt, items: carouselItems } = parseCarouselContent(el.content ?? undefined);
+      const bg = (s.backgroundColor as string) || "#f8fafc";
+      const layoutType = lt === "media" ? "media" : "testimonial";
+      const item = carouselItems[0];
+      return (
+        <div style={{ ...fill, background: bg, borderRadius: 12, padding: 16, boxSizing: "border-box", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", overflow: "hidden", opacity: el.opacity ?? 1 }}>
+          {!item ? (
+            <span style={{ color: "#94a3b8", fontSize: 12 }}>Carousel</span>
+          ) : layoutType === "testimonial" ? (
+            <>
+              {item.avatar?.trim() && <div style={{ width: 60, height: 60, borderRadius: "50%", overflow: "hidden", background: "#e2e8f0", marginBottom: 8 }}><img src={resolveAsset(item.avatar)} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>}
+              <div style={{ fontStyle: "italic", fontSize: 12, color: "#374151", textAlign: "center", marginBottom: 8, lineHeight: 1.5 }}>"{(item.quote || "Trích dẫn...").slice(0, 120)}"</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{item.name || "Tên"}</div>
+              {item.role && <div style={{ fontSize: 11, color: "#6b7280" }}>{item.role}</div>}
+            </>
+          ) : (
+            <>
+              {item.image?.trim() && <div style={{ width: "100%", flex: 1, minHeight: 0, borderRadius: 8, overflow: "hidden", background: "#e2e8f0", marginBottom: 8 }}><img src={resolveAsset(item.image)} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>}
+              {(item.title || item.name) && <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", textAlign: "center" }}>{item.title || item.name}</div>}
+            </>
+          )}
+          {carouselItems.length > 1 && (
+            <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 8 }}>
+              {carouselItems.slice(0, 5).map((_, di) => (
+                <div key={di} style={{ width: di === 0 ? 16 : 6, height: 6, borderRadius: 3, background: di === 0 ? "#6366f1" : "#d1d5db" }} />
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    case "tabs": {
+      const [activeTab, setActiveTab] = useState(0);
+      const { items: tabItems } = parseTabsContent(el.content ?? undefined);
+      const bg = (s.backgroundColor as string) || "#ffffff";
+      const slice = tabItems.slice(0, 5);
+      if (slice.length === 0) return (
+        <div style={{ ...fill, background: bg, borderRadius: 8, overflow: "hidden", boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: 8, background: "#f1f5f9", fontSize: 11, color: "#94a3b8" }}>Tab 1 | Tab 2 | Tab 3</div>
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}><span style={{ color: "#94a3b8", fontSize: 12 }}>Nội dung tab</span></div>
+        </div>
+      );
+      const tab = slice[activeTab] || slice[0];
+      return (
+        <div style={{ ...fill, background: bg, borderRadius: 8, overflow: "hidden", boxSizing: "border-box", display: "flex", flexDirection: "column", opacity: el.opacity ?? 1 }}>
+          <div style={{ display: "flex", background: "#f1f5f9", flexShrink: 0 }}>
+            {slice.map((t, ti) => (
+              <button key={ti} type="button"
+                onPointerDown={(e) => { e.stopPropagation(); setActiveTab(ti); }}
+                style={{ padding: "8px 12px", fontSize: 11, fontWeight: ti === activeTab ? 700 : 400, background: ti === activeTab ? "#6366f1" : "transparent", color: ti === activeTab ? "#fff" : "#64748b", border: "none", cursor: "pointer", flex: 1 }}
+              >{t.label || `Tab ${ti + 1}`}</button>
+            ))}
+          </div>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 0 }}>
+            {tab.image?.trim() && <div style={{ flexShrink: 0, maxHeight: "55%", overflow: "hidden", background: "#e2e8f0", borderRadius: 6, margin: 8 }}><img src={resolveAsset(tab.image)} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /></div>}
+            {tab.title && <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b", padding: "0 8px 4px" }}>{tab.title}</div>}
+            {tab.desc && <div style={{ fontSize: 11, color: "#64748b", padding: "0 8px", lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{tab.desc}</div>}
+            {!tab.image && !tab.title && !tab.desc && <span style={{ color: "#94a3b8", fontSize: 12, padding: 8 }}>Chưa có nội dung</span>}
+          </div>
+        </div>
+      );
+    }
+
+    case "accordion": {
+      const [openIdx, setOpenIdx] = useState<number | null>(null);
+      const lines = (el.content ?? "Q|A").split("\n").filter((l) => l.trim());
+      const items = lines.length ? lines : ["Câu hỏi 1|Trả lời 1", "Câu hỏi 2|Trả lời 2"];
+      const borderColor = (s.borderColor as string) || "#e2e8f0";
+      const headerBg = (s.headerBgColor as string) || "#ffffff";
+      const headerColor = (s.headerTextColor as string) || "#0f172a";
+      return (
+        <div style={{ ...fill, overflow: "auto", boxSizing: "border-box", opacity: el.opacity ?? 1 }}>
+          {items.map((line, i) => {
+            const [q, a] = line.split("|");
+            const open = i === openIdx;
+            return (
+              <div key={i} style={{ border: `1px solid ${borderColor}`, borderRadius: 4, padding: "8px 12px", marginBottom: 4, fontSize: 13, background: headerBg, color: headerColor }}>
+                <div style={{ fontWeight: 500, display: "flex", justifyContent: "space-between", cursor: "pointer" }}
+                  onPointerDown={(e) => { e.stopPropagation(); setOpenIdx(open ? null : i); }}>
+                  <span>{q ?? ""}</span><span>{open ? "▲" : "▼"}</span>
+                </div>
+                {open && a && <div style={{ fontSize: 12, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>{a}</div>}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    case "table": {
+      const rows = (el.content ?? "A,B\n1,2").split("\n").filter((r) => r.trim());
+      const borderColor = (s.borderColor as string) || "#e2e8f0";
+      const headerBg = (s.headerBgColor as string) || "#f8fafc";
+      const headerColor = (s.headerTextColor as string) || "#0f172a";
+      const rowBg = (s.rowBgColor as string) || "#ffffff";
+      const cellColor = (s.cellTextColor as string) || "#0f172a";
+      return (
+        <div style={{ ...fill, overflow: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, border: `1px solid ${borderColor}` }}>
+            <tbody>
+              {rows.map((row, ri) => (
+                <tr key={ri}>
+                  {row.split(",").map((cell, ci) => {
+                    const Tag = ri === 0 ? "th" : "td";
+                    return <Tag key={ci} style={{ border: `1px solid ${borderColor}`, padding: "6px 8px", textAlign: "left", background: ri === 0 ? headerBg : rowBg, color: ri === 0 ? headerColor : cellColor, fontWeight: ri === 0 ? 600 : 400 }}>{cell}</Tag>;
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
+    case "countdown": {
+      return (
+        <div style={{ ...fill, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontFamily: "monospace", fontSize: "clamp(14px, 2.5vw, 22px)", fontWeight: 700, opacity: el.opacity ?? 1 }}>
+          <span style={{ background: "#f1f5f9", padding: "8px 12px", borderRadius: 6 }}>00</span>
+          <span>:</span>
+          <span style={{ background: "#f1f5f9", padding: "8px 12px", borderRadius: 6 }}>00</span>
+          <span>:</span>
+          <span style={{ background: "#f1f5f9", padding: "8px 12px", borderRadius: 6 }}>00</span>
+        </div>
+      );
+    }
+
+    case "map": {
+      const raw = (el.content || "").trim();
+      const parts = raw.split(/[,\s]+/).map(Number).filter((n) => !Number.isNaN(n));
+      const lat = parts[0] ?? 10.762622;
+      const lng = parts[1] ?? 106.660172;
+      const src = `https://www.openstreetmap.org/export/embed.html?bbox=${lng - 0.01},${lat - 0.01},${lng + 0.01},${lat + 0.01}&layer=mapnik&marker=${lat},${lng}`;
+      return <iframe src={src} style={{ ...fill, border: "none" }} title="Map" />;
+    }
+
+    case "rating": {
+      const count = Number(s.count || 5);
+      const filled = Number(s.value || 4);
+      const color = (s.color as string) || "#f59e0b";
+      return (
+        <div style={{ ...fill, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, fontSize: Math.min(Number(el.width || 40), Number(el.height || 40)) * 0.35, opacity: el.opacity ?? 1 }}>
+          {Array.from({ length: count }, (_, i) => (
+            <span key={i} style={{ color: i < filled ? color : "#d1d5db" }}>★</span>
+          ))}
+        </div>
+      );
+    }
+
+    case "progress": {
+      const val = Number(s.value || 70);
+      const barColor = (s.color as string) || "#6366f1";
+      const trackColor = (s.trackColor as string) || "#e2e8f0";
+      return (
+        <div style={{ ...fill, display: "flex", flexDirection: "column", justifyContent: "center", padding: "0 4px", opacity: el.opacity ?? 1 }}>
+          <div style={{ width: "100%", height: Math.max(8, Number(el.height || 24) * 0.4), background: trackColor, borderRadius: 999, overflow: "hidden" }}>
+            <div style={{ width: `${Math.min(100, Math.max(0, val))}%`, height: "100%", background: barColor, borderRadius: 999 }} />
+          </div>
+        </div>
+      );
+    }
+
+    case "frame": {
+      const borderColor = (s.borderColor as string) || "#cbd5e1";
+      const radius = (s.borderRadius as number) || 8;
+      return (
+        <div style={{ ...fill, border: `2px dashed ${borderColor}`, borderRadius: radius, display: "flex", alignItems: "center", justifyContent: "center", background: "#f9fafb" }}>
+          <span style={{ color: "#94a3b8", fontSize: 12 }}>Frame</span>
+        </div>
+      );
+    }
+
+    case "social-share": {
+      const networks = ["facebook", "twitter", "zalo"];
+      const colors: Record<string, string> = { facebook: "#1877f2", twitter: "#1da1f2", zalo: "#0068ff" };
+      return (
+        <div style={{ ...fill, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, flexWrap: "wrap", opacity: el.opacity ?? 1 }}>
+          {networks.map((n) => (
+            <div key={n} style={{ padding: "6px 14px", background: colors[n], color: "#fff", borderRadius: 6, fontSize: 12, fontWeight: 600 }}>{n}</div>
+          ))}
+        </div>
+      );
+    }
+
     default: {
       const labelMap: Record<string, string> = {
-        "product-detail": "🛒 Chi tiết sản phẩm",
-        "collection-list": "📦 Danh sách sản phẩm",
-        countdown: "⏱ Đếm ngược",
-        map: "📍 Bản đồ",
-        "social-share": "📣 Chia sẻ",
-        rating: "⭐ Đánh giá",
-        progress: "📊 Tiến trình",
-        carousel: "🎠 Carousel",
-        tabs: "📑 Tabs",
-        accordion: "📂 Accordion",
-        table: "📋 Bảng",
         cart: "🛒 Giỏ hàng",
         "blog-list": "📰 Blog",
         "blog-detail": "📄 Bài viết",
         popup: "💬 Popup",
-        frame: "🖼 Khung",
         antigravity: "✨ Hiệu ứng",
       };
       return (
