@@ -22,7 +22,7 @@ import { parseProductDetailContent } from "@/lib/productDetailContent";
 import { parseTabsContent, parseCarouselContent } from "@/lib/tabsContent";
 import { parseBlogListContent } from "@/lib/blogContent";
 import { getLucideIcon } from "@/lib/iconMap";
-import FabricCanvas from "@/components/editor/FabricCanvas";
+import DomCanvas, { type DomCanvasHandle } from "@/components/editor/DomCanvas";
 import { Rnd } from "react-rnd";
 import { EditorDndProvider, DroppableCanvas } from "@/components/editor/DndCanvas";
 import { SortableLayersPanel } from "@/components/editor/SortableLayers";
@@ -39,7 +39,6 @@ import { loadFontsFromSections } from "@/lib/fontLoader";
 import type { EditorElementType, ToolCategoryData, ToolItemData, ElementPresetData } from "@/types/editor";
 import { ZOOM_PRESETS } from "@/types/editor";
 import { normalizeToolCategories } from "@/lib/normalizeElementType";
-import type { Canvas } from "fabric";
 
 /** Fallback khi API editor-tools lỗi hoặc trả về rỗng */
 const DEFAULT_TOOL_CATEGORIES: ToolCategoryData[] = [
@@ -301,7 +300,7 @@ function EditorInner() {
   const [showPopupManageModal, setShowPopupManageModal] = useState(false);
   const [showUtilitiesHubModal, setShowUtilitiesHubModal] = useState(false);
 
-  const canvasRef = useRef<Canvas | null>(null);
+  const canvasRef = useRef<DomCanvasHandle | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const historyPopoverRef = useRef<HTMLDivElement>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
@@ -767,15 +766,6 @@ function EditorInner() {
   }, [selected, deviceType, desktopCanvasWidth, zoom]);
 
   const handlePreview = useCallback(async () => {
-    // Thoát chế độ chỉnh sửa text trên canvas để đảm bảo nội dung được sync vào store trước khi xem trước
-    if (canvasRef.current) {
-      const active = canvasRef.current.getActiveObject();
-      const textObj = active as { exitEditing?: () => void };
-      if (textObj && typeof textObj.exitEditing === "function") {
-        textObj.exitEditing();
-        await new Promise((r) => setTimeout(r, 50)); // Đợi sync text:changed/object:modified vào store
-      }
-    }
     const s = useEditorStore.getState();
     let rawSections = (s.sections ?? []) as import("@/types/editor").EditorSection[];
     // Fallback: nếu store rỗng, thử tải từ API (trường hợp store chưa sync hoặc đã lưu trước đó)
@@ -920,8 +910,14 @@ function EditorInner() {
     openPublishModal();
   }, [openPublishModal]);
 
-  const handleExportPng = useCallback(() => { if (canvasRef.current) { exportCanvasToPng(canvasRef.current); showToast("Đang xuất PNG...", "info"); } }, [showToast]);
-  const handleExportPdf = useCallback(() => { if (canvasRef.current) { exportCanvasToPdf(canvasRef.current); showToast("Đang xuất PDF...", "info"); } }, [showToast]);
+  const handleExportPng = useCallback(() => {
+    const el = canvasRef.current?.getContainerElement();
+    if (el) { exportCanvasToPng(el as unknown as import("fabric").Canvas); showToast("Đang xuất PNG...", "info"); }
+  }, [showToast]);
+  const handleExportPdf = useCallback(() => {
+    const el = canvasRef.current?.getContainerElement();
+    if (el) { exportCanvasToPdf(el as unknown as import("fabric").Canvas); showToast("Đang xuất PDF...", "info"); }
+  }, [showToast]);
   const handleExportHtml = useCallback(() => {
     const s = useEditorStore.getState();
     downloadHtml(s.sections, {
@@ -948,8 +944,7 @@ function EditorInner() {
     const handler = (e: KeyboardEvent) => {
       const active = document.activeElement as HTMLElement | null;
       const isInput = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT" || active.isContentEditable);
-      const activeObj = canvasRef.current?.getActiveObject() as { isEditing?: boolean } | undefined;
-      const isCanvasTextEditing = activeObj?.isEditing === true;
+      const isCanvasTextEditing = false;
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
       if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) { e.preventDefault(); redo(); }
       if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); handleSave(); }
@@ -1259,46 +1254,39 @@ function EditorInner() {
 
         {/* Canvas area */}
         <div className="flex-1 min-h-0 relative overflow-hidden">
-        {/* Canvas background - checkered pattern, tối ưu theo Desktop/Mobile */}
+        {/* Workspace background */}
         <div
           ref={canvasScrollContainerRef}
-          className="absolute inset-0 flex justify-center overflow-auto"
-          style={{
-            ["--canvas-half" as string]: `${(canvasWidth * zoom) / 2}px`,
-            background: "linear-gradient(90deg, transparent 0%, transparent calc(50% - var(--canvas-half))), repeating-linear-gradient(90deg, transparent, transparent 59px, rgba(59, 130, 246, 0.15) 59px, rgba(59, 130, 246, 0.15) 60px), linear-gradient(transparent 0%, transparent calc(50% - var(--canvas-half))), #f5f5f5",
-            backgroundSize: "100% 100%",
-          }}
+          className="absolute inset-0 overflow-auto"
+          style={{ background: "#e8e8e8" }}
           onClick={(e) => { if (e.target === e.currentTarget) selectPage(); }}
         >
-          <div
-            className="relative min-h-full flex flex-col items-center"
-            style={{
-              backgroundImage: "radial-gradient(circle, #e0e0e0 1px, transparent 1px)",
-              backgroundSize: "20px 20px",
-            }}
-          >
+          {/* Center column – canvas + add-section button */}
+          <div className="flex flex-col items-center min-h-full py-8 px-4">
             {loading ? (
               <div className="flex justify-center items-center h-[60vh]">
                 <div className="w-10 h-10 border-2 border-[#1e2d7d] border-t-transparent rounded-full animate-spin" />
               </div>
             ) : (
-              <div
-                className={deviceType === "mobile" ? "flex flex-col items-center w-full" : ""}
-                style={deviceType === "mobile" ? { maxWidth: 452 } : undefined}
-              >
+              <>
                 {deviceType === "mobile" && (
-                  <div className="w-full max-w-[420px] mx-4 mt-4 mb-2 px-3 py-2 rounded-t-3xl bg-slate-800 flex justify-center">
+                  <div className="mb-2 px-3 py-2 rounded-t-3xl bg-slate-800 flex justify-center" style={{ width: 420 * effectiveZoom + 8 }}>
                     <div className="w-24 h-1.5 rounded-full bg-slate-600" />
                   </div>
                 )}
                 <DroppableCanvas id="canvas-drop">
+                  {/* White canvas paper */}
                   <div
-                    className={`relative ${deviceType === "mobile" ? "bg-white mx-4 rounded-b-3xl overflow-hidden shadow-2xl" : "bg-white mt-4"}`}
-                    style={{ boxShadow: deviceType === "mobile" ? "0 0 0 1px rgba(0,0,0,0.06), 0 25px 50px -12px rgba(0,0,0,0.25)" : "0 0 0 1px rgba(0,0,0,0.06)" }}
+                    className="relative"
+                    style={{
+                      boxShadow: "0 4px 24px rgba(0,0,0,0.18)",
+                      display: "inline-block",
+                      lineHeight: 0,
+                    }}
                   >
-                    <FabricCanvas
+                    <DomCanvas
                       containerRef={canvasContainerRef}
-                      onCanvasReady={(c) => { canvasRef.current = c; }}
+                      onCanvasReady={(h) => { canvasRef.current = h; }}
                       onRequestAddImage={(id, itemIndex, field) => { selectElement(id); setAddImageContext({ elementId: id, itemIndex, field }); }}
                       onRequestChangeIcon={(id) => { selectElement(id); setChangeIconForElementId(id); }}
                       onRequestAddFormField={handleAddFormField}
@@ -1309,11 +1297,12 @@ function EditorInner() {
                   </div>
                 </DroppableCanvas>
                 <button type="button" onClick={handleAddSection}
-                  className={`flex items-center gap-2 px-6 py-3 my-4 border-2 border-dashed border-[#e0e0e0] hover:border-[#1e2d7d] text-slate-400 hover:text-[#1e2d7d] rounded-lg transition text-sm font-medium bg-white/80 ${deviceType === "mobile" ? "max-w-[420px] mx-4" : ""}`}
+                  className="flex items-center gap-2 px-6 py-3 mt-4 border-2 border-dashed border-[#bbb] hover:border-[#1e2d7d] text-slate-400 hover:text-[#1e2d7d] rounded-lg transition text-sm font-medium bg-white/70"
+                  style={{ width: Math.min(canvasWidth * effectiveZoom, 400) }}
                 >
-                  <Plus className="w-4 h-4" /> Thêm Section mới
+                  <Plus className="w-4 h-4 shrink-0" /> Thêm Section mới
                 </button>
-              </div>
+              </>
             )}
           </div>
         </div>
