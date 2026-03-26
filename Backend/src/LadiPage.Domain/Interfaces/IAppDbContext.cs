@@ -20,6 +20,7 @@ public interface IAppDbContext
     DbSet<ElementPreset> ElementPresets { get; }
     DbSet<Media> Medias { get; }
     DbSet<Tag> Tags { get; }
+    DbSet<PageTag> PageTags { get; }
     DbSet<CustomDomain> Domains { get; }
     DbSet<FormConfig> FormConfigs { get; }
     DbSet<Notification> Notifications { get; }

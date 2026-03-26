@@ -87,12 +87,12 @@ function ReportsInner() {
     Promise.all([
       reportsApi.overview(activeWorkspaceId),
       pagesApi.list(activeWorkspaceId),
-      ordersApi.list(activeWorkspaceId),
+      ordersApi.list(activeWorkspaceId, { page: 1, pageSize: 500, sort: "created_desc" }),
     ])
-      .then(([overview, pagesList, ordersList]) => {
+      .then(([overview, pagesList, ordersRes]) => {
         setData(overview);
         setPages(pagesList);
-        setOrders(ordersList);
+        setOrders(ordersRes.items);
       })
       .catch(() => setError("Không tải được báo cáo."))
       .finally(() => setLoading(false));

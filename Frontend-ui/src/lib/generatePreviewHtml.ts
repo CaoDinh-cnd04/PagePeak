@@ -1,14 +1,24 @@
 import DOMPurify from "isomorphic-dompurify";
 import { getIconById } from "@/data/iconData";
-import type { EditorSection, EditorElement } from "@/types/editor";
+import type { EditorSection, EditorElement, UtilityEffectsSettings } from "@/types/editor";
 import { parseProductDetailContent } from "@/lib/productDetailContent";
 import { parseTabsContent, parseCarouselContent } from "@/lib/tabsContent";
+import {
+  parseBlogListContent,
+  parseBlogDetailContent,
+  parsePopupContent,
+  parseSocialShareContent,
+} from "@/lib/blogContent";
+import { parseCartContent, getCartDisplayItems } from "@/lib/cartContent";
 
 /** Ảnh upload lưu dạng `/uploads/...` và phục vụ từ API; trong iframe srcDoc URL tương đối resolve theo origin Vite → cần base trùng backend (giống MediaPanel getFullUrl). */
 const DEFAULT_PREVIEW_ASSET_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
 
 const DESIGN_WIDTH = 960;
 const DESIGN_HEIGHT = 600;
+
+/** Ngữ cảnh gửi lead (page + workspace) khi xuất HTML / xem trước. */
+type LpHtmlContext = { pageId: number; workspaceId: number };
 
 /**
  * Chiều cao section trên canvas có thể nhỏ hơn tổng y+h của phần tử (tràn xuống dưới).
@@ -40,7 +50,25 @@ function getElementContent(el: EditorElement): string {
   return typeof c === "string" ? c : "";
 }
 
-function elementToHtml(el: EditorElement, sectionWidth: number, sectionHeight: number, htmlCodeFullScreen = false): string {
+function formatBlockBodyHtml(raw: string): string {
+  const t = (raw || "").trim();
+  if (!t) return '<p style="margin:0;color:#94a3b8;font-size:12px">Chưa có nội dung</p>';
+  if (/<[a-z][\s\S]*>/i.test(t)) {
+    return DOMPurify.sanitize(t, {
+      ALLOWED_TAGS: ["p", "br", "b", "i", "strong", "em", "a", "ul", "ol", "li", "h1", "h2", "h3", "blockquote", "code", "pre", "span", "div"],
+      ALLOWED_ATTR: ["href", "target", "class", "style"],
+    });
+  }
+  return `<p style="margin:0;white-space:pre-wrap;line-height:1.55">${escHtml(t)}</p>`;
+}
+
+function elementToHtml(
+  el: EditorElement,
+  sectionWidth: number,
+  sectionHeight: number,
+  htmlCodeFullScreen = false,
+  ctx?: LpHtmlContext,
+): string {
   if (el.isHidden) return "";
 
   const e = el as EditorElement & { X?: number; Y?: number; Width?: number; Height?: number };
@@ -76,51 +104,62 @@ function elementToHtml(el: EditorElement, sectionWidth: number, sectionHeight: n
         `position:absolute`,
         `left:${leftPct.toFixed(2)}%`,
         `top:${topPct.toFixed(2)}%`,
-        ew != null ? `width:${widthPct.toFixed(2)}%` : "",
-        /* collection-list: chiều cao theo nội dung lưới — tránh khoảng trống dưới như khung % cố định */
-        eh != null && el.type !== "collection-list"
-          ? `height:${heightPct.toFixed(2)}%`
-          : "",
-        eh != null && el.type === "collection-list"
-          ? `height:auto;max-height:${heightPct.toFixed(2)}%`
-          : "",
+        /* popup: neo không chiếm khung — overlay fixed trong case "popup" */
+        el.type === "popup"
+          ? "width:0;height:0;overflow:visible"
+          : ew != null
+            ? `width:${widthPct.toFixed(2)}%`
+            : "",
+        el.type === "popup"
+          ? ""
+          : eh != null && el.type !== "collection-list"
+            ? `height:${heightPct.toFixed(2)}%`
+            : "",
+        el.type === "popup"
+          ? ""
+          : eh != null && el.type === "collection-list"
+            ? `height:auto;max-height:${heightPct.toFixed(2)}%`
+            : "",
         `z-index:${el.zIndex ?? 0}`,
         el.rotation ? `transform:rotate(${el.rotation}deg)` : "",
         `opacity:${el.opacity ?? 1}`,
       ].filter(Boolean);
 
   const s = el.styles ?? {};
-  if (s.fontSize) styles.push(`font-size:${s.fontSize}px`);
-  if (s.fontWeight) styles.push(`font-weight:${s.fontWeight}`);
-  if (s.color) styles.push(`color:${s.color}`);
-  if (s.fontFamily) styles.push(`font-family:'${s.fontFamily}', sans-serif`);
-  if (s.borderRadius) styles.push(`border-radius:${s.borderRadius}px`);
-  if (s.letterSpacing) styles.push(`letter-spacing:${s.letterSpacing}px`);
-  if (s.lineHeight) styles.push(`line-height:${s.lineHeight}`);
-  if (s.textTransform) styles.push(`text-transform:${s.textTransform}`);
-  if (s.fontStyle) styles.push(`font-style:${s.fontStyle}`);
-  if (s.textDecoration) styles.push(`text-decoration:${s.textDecoration}`);
-  if (s.textAlign) styles.push(`text-align:${s.textAlign}`);
-  if (s.padding) styles.push(`padding:${s.padding}px`);
+  /** Popup: không gộp font/border vào wrapper (wrapper chỉ là neo vị trí) */
+  if (el.type !== "popup") {
+    if (s.fontSize) styles.push(`font-size:${s.fontSize}px`);
+    if (s.fontWeight) styles.push(`font-weight:${s.fontWeight}`);
+    if (s.color) styles.push(`color:${s.color}`);
+    if (s.fontFamily) styles.push(`font-family:'${s.fontFamily}', sans-serif`);
+    if (s.borderRadius) styles.push(`border-radius:${s.borderRadius}px`);
+    if (s.letterSpacing) styles.push(`letter-spacing:${s.letterSpacing}px`);
+    if (s.lineHeight) styles.push(`line-height:${s.lineHeight}`);
+    if (s.textTransform) styles.push(`text-transform:${s.textTransform}`);
+    if (s.fontStyle) styles.push(`font-style:${s.fontStyle}`);
+    if (s.textDecoration) styles.push(`text-decoration:${s.textDecoration}`);
+    if (s.textAlign) styles.push(`text-align:${s.textAlign}`);
+    if (s.padding) styles.push(`padding:${s.padding}px`);
 
-  if (s.borderWidth && Number(s.borderWidth) > 0)
-    styles.push(`border:${s.borderWidth}px solid ${(s.borderColor as string) ?? "#e2e8f0"}`);
+    if (s.borderWidth && Number(s.borderWidth) > 0)
+      styles.push(`border:${s.borderWidth}px solid ${(s.borderColor as string) ?? "#e2e8f0"}`);
 
-  /** Panel Hiệu ứng: animationName / animationIterationCount — tương thích animation cũ */
-  const animName = ((s.animationName as string) || (s.animation as string) || "").trim();
-  if (animName && animName !== "none") {
-    const dur = Number(s.animationDuration) || 1;
-    const delay = Number(s.animationDelay) || 0;
-    const repeat =
-      (s.animationIterationCount as string) === "infinite" || s.animationRepeat ? "infinite" : "1";
-    styles.push(`animation:${animName} ${dur}s ${delay}s ${repeat} both`);
+    /** Panel Hiệu ứng: animationName / animationIterationCount — tương thích animation cũ */
+    const animName = ((s.animationName as string) || (s.animation as string) || "").trim();
+    if (animName && animName !== "none") {
+      const dur = Number(s.animationDuration) || 1;
+      const delay = Number(s.animationDelay) || 0;
+      const repeat =
+        (s.animationIterationCount as string) === "infinite" || s.animationRepeat ? "infinite" : "1";
+      styles.push(`animation:${animName} ${dur}s ${delay}s ${repeat} both`);
+    }
+
+    const hoverAnim = ((s.hoverAnimation as string) || "").trim();
+    if ((hoverAnim && hoverAnim !== "none") || s.hoverEffect) styles.push("transition:all 0.3s ease");
+
+    const actionType = ((s.actionType as string) || "none").trim();
+    if (actionType !== "none" && actionType !== "javascript") styles.push("cursor:pointer");
   }
-
-  const hoverAnim = ((s.hoverAnimation as string) || "").trim();
-  if ((hoverAnim && hoverAnim !== "none") || s.hoverEffect) styles.push("transition:all 0.3s ease");
-
-  const actionType = ((s.actionType as string) || "none").trim();
-  if (actionType !== "none" && actionType !== "javascript") styles.push("cursor:pointer");
 
   const wrapLink = (inner: string) => {
     if (el.href) {
@@ -250,11 +289,12 @@ function elementToHtml(el: EditorElement, sectionWidth: number, sectionHeight: n
       const bl = (s.borderBottomLeftRadius as number) ?? radius;
       const br = (s.borderBottomRightRadius as number) ?? radius;
       const radiusCss = radius >= 999 ? "50%" : `${tl}px ${tr}px ${br}px ${bl}px`;
+      // Không push "position:relative" — phần tử đã có "position:absolute" từ styles[] trên.
+      // Thêm relative sẽ ghi đè absolute khiến shape hiển thị sai vị trí trong preview.
       styles.push(
         `background-color:${bg === "transparent" ? "rgba(248,250,252,0.5)" : bg}`,
         `border-radius:${radiusCss}`,
         "overflow:hidden",
-        "position:relative",
       );
       if (borderW > 0) styles.push(`border:${borderW}px ${borderStyle} ${borderC}`);
       if (boxShadow) styles.push(`box-shadow:${boxShadow}`);
@@ -299,12 +339,27 @@ function elementToHtml(el: EditorElement, sectionWidth: number, sectionHeight: n
     }
 
     case "countdown": {
-      styles.push("display:flex", "align-items:center", "justify-content:center", "gap:8px", "font-family:monospace", "font-size:24px", "font-weight:700");
-      return `<div style="${styles.join(";")}"><span style="background:#f1f5f9;padding:8px 12px;border-radius:6px">00</span>:<span style="background:#f1f5f9;padding:8px 12px;border-radius:6px">00</span>:<span style="background:#f1f5f9;padding:8px 12px;border-radius:6px">00</span></div>`;
+      styles.push("display:flex", "align-items:center", "justify-content:center", "gap:8px", "font-family:monospace", "font-size:clamp(14px,2.5vw,22px)", "font-weight:700");
+      let label = "Đếm ngược";
+      try {
+        const j = JSON.parse(el.content || "{}");
+        if (j?.label && typeof j.label === "string") label = j.label;
+      } catch {
+        /* ignore */
+      }
+      return `<div style="${styles.join(";")}" class="lp-countdown"><span style="color:#64748b;font-size:11px;margin-right:8px">${escHtml(label)}</span><span style="background:#f1f5f9;padding:8px 12px;border-radius:6px">00</span>:<span style="background:#f1f5f9;padding:8px 12px;border-radius:6px">00</span>:<span style="background:#f1f5f9;padding:8px 12px;border-radius:6px">00</span></div>`;
     }
 
     case "form": {
-      let formConfig: { formType?: string; title?: string; buttonText?: string; fields?: { id: string; name?: string; label?: string; placeholder?: string; type?: string }[]; inputStyle?: string } = {};
+      let formConfig: {
+        formType?: string;
+        title?: string;
+        buttonText?: string;
+        formConfigId?: number;
+        redirectUrl?: string;
+        fields?: { id: string; name?: string; label?: string; placeholder?: string; type?: string }[];
+        inputStyle?: string;
+      } = {};
       try {
         const parsed = JSON.parse(el.content || "{}");
         formConfig = typeof parsed === "object" ? parsed : {};
@@ -313,6 +368,26 @@ function elementToHtml(el: EditorElement, sectionWidth: number, sectionHeight: n
         formConfig = { formType: "contact", title: "Liên hệ", buttonText: "Gửi", fields: legacy.map((id) => ({ id, name: id, label: id, placeholder: id, type: "text" })), inputStyle: "outlined" };
       }
       const formType = formConfig.formType ?? "contact";
+      const pid = ctx?.pageId;
+      const wid = ctx?.workspaceId;
+      const hasLeadCtx =
+        pid != null && wid != null && Number.isFinite(Number(pid)) && Number.isFinite(Number(wid));
+      const linkedFormId =
+        typeof formConfig.formConfigId === "number" && Number.isFinite(formConfig.formConfigId)
+          ? formConfig.formConfigId
+          : undefined;
+      const redirectUrl =
+        typeof formConfig.redirectUrl === "string" && formConfig.redirectUrl.trim()
+          ? formConfig.redirectUrl.trim()
+          : "";
+      const leadAttrs =
+        hasLeadCtx
+          ? ` data-lp-lead="1" data-lp-page-id="${Number(pid)}" data-lp-workspace-id="${Number(wid)}"${
+              linkedFormId != null ? ` data-lp-form-config-id="${linkedFormId}"` : ""
+            } data-lp-element-id="${el.id}"${
+              redirectUrl ? ` data-lp-redirect="${escHtml(redirectUrl)}"` : ""
+            }`
+          : "";
       const title = formConfig.title ?? "Liên hệ";
       const buttonText = formConfig.buttonText ?? "Gửi";
       const fields = Array.isArray(formConfig.fields) ? formConfig.fields : [{ id: "name", label: "Họ và tên", placeholder: "Họ và tên", type: "text" }, { id: "email", label: "Email", placeholder: "Email", type: "email" }];
@@ -337,7 +412,7 @@ function elementToHtml(el: EditorElement, sectionWidth: number, sectionHeight: n
           <button type="submit" style="padding:10px 20px;background:#000;color:#fff;border:none;border-radius:4px;font-weight:600;cursor:pointer;font-size:${fs}px">${escHtml(buttonText)}</button>
         </form>`;
       } else {
-        inner += `<form class="lp-form" data-lp-form-type="${escHtml(formType)}">`;
+        inner += `<form class="lp-form" data-lp-form-type="${escHtml(formType)}"${leadAttrs}>`;
         for (const f of fields) {
           const ph = (f.placeholder ?? f.label ?? f.id) as string;
           const nm = (f.name ?? f.id) as string;
@@ -665,9 +740,15 @@ function elementToHtml(el: EditorElement, sectionWidth: number, sectionHeight: n
       return `<div style="${styles.join(";")}">${tableHtml}</div>`;
     }
 
-    case "map":
-      styles.push("background:#ecfdf5", "display:flex", "align-items:center", "justify-content:center", "border:1px solid #a7f3d0", "border-radius:8px");
-      return `<div style="${styles.join(";")}"><span style="color:#059669;font-size:14px">📍 Google Maps</span></div>`;
+    case "map": {
+      const raw = (textContent || "").trim();
+      const parts = raw.split(/[,\s]+/).map(Number).filter((n) => !Number.isNaN(n));
+      const lat = parts[0] ?? 10.762622;
+      const lng = parts[1] ?? 106.660172;
+      const src = `https://maps.google.com/maps?q=${lat},${lng}&z=15&output=embed`;
+      styles.push("overflow:hidden", "border-radius:8px", "border:1px solid #e2e8f0");
+      return `<iframe src="${escHtml(src)}" style="${styles.join(";")}" title="Bản đồ" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>`;
+    }
 
     case "rating": {
       const count = Math.min(5, Number(el.content ?? 5));
@@ -685,13 +766,141 @@ function elementToHtml(el: EditorElement, sectionWidth: number, sectionHeight: n
       return `<div style="${styles.join(";")}"><div style="width:${pct}%;height:100%;background:#4f46e5;border-radius:9999px;transition:width 0.5s"></div></div>`;
     }
 
+    case "cart": {
+      const cd = parseCartContent(textContent);
+      const lines = getCartDisplayItems(cd);
+      const bg = (s.backgroundColor as string) ?? "#ffffff";
+      const radius = (s.borderRadius as number) ?? 12;
+      const emptyMsg = cd.emptyMessage?.trim() || "Giỏ hàng trống";
+      const btnText = cd.checkoutButtonText?.trim() || "Thanh toán";
+      const showThumb = cd.showThumbnail !== false;
+      const showQty = cd.showQty !== false;
+      styles.push(
+        `background-color:${bg}`,
+        `border-radius:${radius}px`,
+        "border:1px solid #e2e8f0",
+        "box-sizing:border-box",
+        "padding:12px",
+        "display:flex",
+        "flex-direction:column",
+        "gap:8px",
+        "font-size:13px",
+      );
+      if (lines.length === 0) {
+        return `<div data-lp-cart="true" style="${styles.join(";")}"><p style="margin:0;text-align:center;color:#94a3b8;font-size:12px;padding:12px">${escHtml(emptyMsg)}</p><button type="button" style="width:100%;padding:10px;background:#1e293b;color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px">${escHtml(btnText)}</button></div>`;
+      }
+      const row = (it: { title?: string; price?: string; qty?: number; image?: string }) => {
+        const thumb = showThumb && it.image?.trim()
+          ? `<div style="width:40px;height:40px;border-radius:6px;overflow:hidden;background:#e2e8f0;flex-shrink:0"><img src="${escHtml(it.image.trim())}" alt="" style="width:100%;height:100%;object-fit:cover" loading="lazy" /></div>`
+          : showThumb
+            ? `<div style="width:40px;height:40px;border-radius:6px;background:#f1f5f9;flex-shrink:0"></div>`
+            : "";
+        const q = showQty && (it.qty ?? 1) > 0 ? `<span style="color:#64748b;font-size:11px">×${it.qty ?? 1}</span>` : "";
+        return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9">${thumb}<div style="flex:1;min-width:0"><div style="font-weight:600;color:#0f172a;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(it.title || "Sản phẩm")}</div></div><div style="text-align:right;white-space:nowrap">${q}<div style="font-weight:700;color:#dc2626;font-size:12px">${escHtml(it.price || "")}</div></div></div>`;
+      };
+      const inner = lines.map((it) => row(it)).join("");
+      return `<div data-lp-cart="true" style="${styles.join(";")}"><div style="font-weight:700;font-size:11px;color:#64748b;text-transform:uppercase;margin-bottom:4px">Giỏ hàng</div>${inner}<button type="button" style="margin-top:4px;width:100%;padding:10px;background:#1e293b;color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px">${escHtml(btnText)}</button></div>`;
+    }
+
+    case "blog-list": {
+      const bl = parseBlogListContent(textContent);
+      const posts = bl.posts ?? [];
+      const cols = Math.max(1, Math.min(6, bl.columns ?? 2));
+      const bg = (s.backgroundColor as string) ?? "#f8fafc";
+      const radius = (s.borderRadius as number) ?? 12;
+      const fs = (s.fontSize as number) ?? 14;
+      styles.push(
+        `display:grid`,
+        `grid-template-columns:repeat(${cols},1fr)`,
+        `gap:12px`,
+        `background-color:${bg}`,
+        `border-radius:${radius}px`,
+        `padding:14px`,
+        `box-sizing:border-box`,
+        `overflow:visible`,
+        `font-size:${fs}px`,
+      );
+      const card = (post: { title?: string; excerpt?: string; date?: string; image?: string }) => {
+        const img = post.image?.trim();
+        const imgBlock = img
+          ? `<div style="width:100%;aspect-ratio:16/10;border-radius:8px;overflow:hidden;background:#e2e8f0;margin-bottom:8px"><img src="${escHtml(img)}" alt="" style="width:100%;height:100%;object-fit:cover" loading="lazy" /></div>`
+          : "";
+        return `<article style="background:#fff;border-radius:10px;padding:10px;border:1px solid #e2e8f0;display:flex;flex-direction:column;align-items:stretch">${imgBlock}<h3 style="margin:0 0 6px;font-size:${Math.min(fs + 2, 18)}px;font-weight:700;color:#0f172a;line-height:1.3">${escHtml(post.title || "Tiêu đề bài")}</h3><p style="margin:0 0 8px;font-size:${Math.max(fs - 2, 11)}px;color:#64748b;line-height:1.45;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${escHtml(post.excerpt || "")}</p><time style="font-size:11px;color:#94a3b8">${escHtml(post.date || "")}</time></article>`;
+      };
+      const inner = posts.length ? posts.map((p) => card(p)).join("") : `<div style="grid-column:1/-1;text-align:center;color:#94a3b8;font-size:12px;padding:16px">Danh sách bài viết — thêm bài ở panel bên phải</div>`;
+      return `<div data-lp-blog-list="true" style="${styles.join(";")}">${inner}</div>`;
+    }
+
+    case "blog-detail": {
+      const bd = parseBlogDetailContent(textContent);
+      const bg = (s.backgroundColor as string) ?? "#ffffff";
+      const radius = (s.borderRadius as number) ?? 12;
+      const fs = (s.fontSize as number) ?? 15;
+      styles.push(
+        `background-color:${bg}`,
+        `border-radius:${radius}px`,
+        `padding:20px`,
+        `box-sizing:border-box`,
+        `overflow:visible`,
+      );
+      const title = bd.title?.trim() || "Tiêu đề bài viết";
+      const meta = [bd.author, bd.date].filter(Boolean).join(" · ");
+      return `<article data-lp-blog-detail="true" style="${styles.join(";")}"><h1 style="margin:0 0 12px;font-size:${Math.min(fs + 10, 28)}px;font-weight:800;color:#0f172a;line-height:1.25">${escHtml(title)}</h1>${meta ? `<p style="margin:0 0 16px;font-size:12px;color:#64748b">${escHtml(meta)}</p>` : ""}<div style="font-size:${fs}px;color:#334155;line-height:1.65">${formatBlockBodyHtml(bd.body ?? "")}</div></article>`;
+    }
+
+    case "popup": {
+      const pop = parsePopupContent(textContent);
+      const title = pop.title?.trim() || "Popup";
+      const bodyRaw = pop.body?.trim() || "Nội dung popup — chỉnh ở panel bên phải.";
+      const bg = (s.backgroundColor as string) ?? "#ffffff";
+      const radius = (s.borderRadius as number) ?? 12;
+      const popupFlat = Number(s.popupFlat) === 1;
+      const headerBg = (s.headerBackgroundColor as string) ?? "#1e293b";
+      const headerColor = (s.headerTextColor as string) ?? "#ffffff";
+      const bodyColor = (s.bodyTextColor as string) ?? (s.color as string) ?? "#334155";
+      const pid = el.id;
+      const maxW = Math.min(920, Math.max(280, Number(ew ?? 500)));
+
+      const cardInner = popupFlat
+        ? (() => {
+            const titleC = (s.headerTextColor as string) ?? (s.color as string) ?? "#0f172a";
+            return `<div data-lp-popup="true" style="background:${escHtml(bg)};border-radius:${radius}px;box-shadow:0 12px 40px rgba(15,23,42,0.12);overflow:hidden;display:flex;flex-direction:column;border:1px solid #e2e8f0"><div style="padding:14px 14px 6px;font-size:15px;font-weight:700;color:${escHtml(
+              titleC,
+            )}">${escHtml(title)}</div><div style="padding:4px 14px 14px;font-size:13px;color:${escHtml(bodyColor)};line-height:1.5">${formatBlockBodyHtml(bodyRaw)}</div></div>`;
+          })()
+        : `<div data-lp-popup="true" style="background:${escHtml(bg)};border-radius:${radius}px;box-shadow:0 12px 40px rgba(15,23,42,0.12);overflow:hidden;display:flex;flex-direction:column;border:1px solid #e2e8f0"><header style="background:${escHtml(headerBg)};color:${escHtml(headerColor)};padding:10px 14px;font-size:13px;font-weight:600">${escHtml(title)}</header><div style="padding:14px;font-size:13px;color:${escHtml(bodyColor)};line-height:1.5">${formatBlockBodyHtml(bodyRaw)}</div></div>`;
+
+      return `<div style="${styles.join(";")}"><div class="lp-popup-overlay" id="lp-popup-overlay-${pid}" data-lp-popup-id="${pid}" style="position:fixed;inset:0;background:rgba(15,23,42,0.5);z-index:99998;display:none;align-items:center;justify-content:center;padding:16px;box-sizing:border-box"><div class="lp-popup-panel" role="dialog" aria-modal="true" style="position:relative;width:100%;max-width:min(90vw, ${maxW}px);margin:auto"><button type="button" class="lp-popup-close" data-lp-popup-close="${pid}" aria-label="Đóng" style="position:absolute;top:8px;right:8px;z-index:2;width:32px;height:32px;border:none;border-radius:8px;background:rgba(15,23,42,0.08);cursor:pointer;font-size:20px;line-height:1;color:#475569">×</button>${cardInner}</div></div></div>`;
+    }
+
+    case "social-share": {
+      const sd = parseSocialShareContent(textContent);
+      const nets = sd.networks?.length ? sd.networks : ["facebook", "twitter", "linkedin", "link"];
+      const labels: Record<string, string> = {
+        facebook: "Facebook",
+        twitter: "X",
+        linkedin: "LinkedIn",
+        instagram: "Instagram",
+        zalo: "Zalo",
+        link: "Copy link",
+      };
+      styles.push("display:flex", "align-items:center", "justify-content:center", "gap:8px", "flex-wrap:wrap", "padding:4px");
+      const chips = nets.slice(0, 8).map((n) => {
+        const lab = labels[n] ?? n;
+        return `<span style="display:inline-flex;align-items:center;justify-content:center;padding:6px 12px;border-radius:9999px;background:#f1f5f9;color:#334155;font-size:11px;font-weight:600;border:1px solid #e2e8f0">${escHtml(lab)}</span>`;
+      });
+      return `<div data-lp-social-share="true" style="${styles.join(";")}" class="lp-social-share">${chips.join("")}</div>`;
+    }
+
     case "antigravity":
       styles.push("background:#0f172a", "display:flex", "align-items:center", "justify-content:center", "border:2px solid #38bdf8", "border-radius:12px");
       return `<div style="${styles.join(";")}"><span style="color:#bae6fd;font-size:16px;font-weight:bold">🚀 Antigravity UI (React Component)</span></div>`;
 
-    default:
+    default: {
+      const fallbackType = String(el.type ?? "element");
       styles.push("background:#f1f5f9", "display:flex", "align-items:center", "justify-content:center", "border:1px dashed #cbd5e1", "border-radius:4px");
-      return `<div style="${styles.join(";")}"><span style="color:#94a3b8;font-size:12px">${escHtml(el.type.replace(/-/g, " "))}</span></div>`;
+      return `<div style="${styles.join(";")}"><span style="color:#94a3b8;font-size:12px">${escHtml(fallbackType.replace(/-/g, " "))}</span></div>`;
+    }
   }
 }
 
@@ -778,7 +987,75 @@ export type PageSettingsOpts = {
   codeBeforeBody?: string;
   useDelayJS?: boolean;
   useLazyload?: boolean;
+  utilityEffects?: UtilityEffectsSettings;
 };
+
+/** Hiệu ứng toàn trang (canvas overlay, z-index dưới popup 99998) */
+function buildUtilityFxInlineScript(fx: UtilityEffectsSettings | undefined): string {
+  const u = fx ?? {};
+  if (!u.snow && !u.cherryBlossom && !u.fireworks) return "";
+  return `
+  (function(){
+    var snow=${u.snow ? "1" : "0"}, cherry=${u.cherryBlossom ? "1" : "0"}, fw=${u.fireworks ? "1" : "0"};
+    var cv=document.createElement("canvas");
+    cv.setAttribute("aria-hidden","true");
+    cv.style.cssText="position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:9990";
+    document.body.appendChild(cv);
+    var ctx=cv.getContext("2d");
+    var W=0,H=0;
+    function resize(){ W=cv.width=innerWidth; H=cv.height=innerHeight; }
+    resize();
+    addEventListener("resize",resize);
+    var parts=[];
+    var i,t;
+    if(snow) for(i=0;i<72;i++) parts.push({k:"s",x:Math.random()*W,y:Math.random()*H,vy:0.6+Math.random()*1.4,r:0.6+Math.random()*1.8});
+    if(cherry) for(i=0;i<36;i++) parts.push({k:"c",x:Math.random()*W,y:-Math.random()*H,vy:0.4+Math.random()*0.9,r:2+Math.random()*3,rot:Math.random()*6.28});
+    var sparks=[];
+    if(fw){
+      setInterval(function(){
+        if(sparks.length<12) sparks.push({x:Math.random()*W,y:Math.random()*H*0.55,life:0});
+      },800);
+    }
+    function loop(){
+      ctx.clearRect(0,0,W,H);
+      for(i=0;i<parts.length;i++){
+        t=parts[i];
+        if(t.k==="s"){
+          ctx.fillStyle="rgba(255,255,255,0.88)";
+          ctx.beginPath(); ctx.arc(t.x,t.y,t.r,0,6.283); ctx.fill();
+          t.y+=t.vy; t.x+=Math.sin(t.y*0.012)*0.6;
+          if(t.y>H+8){ t.y=-8; t.x=Math.random()*W; }
+        } else if(t.k==="c"){
+          ctx.save(); ctx.translate(t.x,t.y); ctx.rotate(t.rot);
+          ctx.fillStyle="rgba(255,183,197,0.55)";
+          ctx.scale(1,0.42);
+          ctx.beginPath(); ctx.arc(0,0,t.r,0,6.283); ctx.fill();
+          ctx.restore();
+          t.y+=t.vy; t.x+=Math.sin(t.y*0.018)*1.8; t.rot+=0.018;
+          if(t.y>H+8){ t.y=-8; t.x=Math.random()*W; }
+        }
+      }
+      if(fw){
+        for(i=sparks.length-1;i>=0;i--){
+          var s=sparks[i]; s.life++;
+          var a=1-s.life/50;
+          if(a<=0){ sparks.splice(i,1); continue; }
+          ctx.strokeStyle="rgba(255,210,80,"+(a*0.9)+")";
+          ctx.lineWidth=2;
+          for(var k=0;k<10;k++){
+            var ang=k*0.628+s.life*0.08;
+            ctx.beginPath();
+            ctx.moveTo(s.x,s.y);
+            ctx.lineTo(s.x+Math.cos(ang)*s.life*2.2,s.y+Math.sin(ang)*s.life*2.2);
+            ctx.stroke();
+          }
+        }
+      }
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  })();`;
+}
 
 export function generatePreviewHtml(
   sections: EditorSection[],
@@ -799,10 +1076,28 @@ export function generatePreviewHtml(
     pageSettings?: PageSettingsOpts;
     /** Origin nơi phục vụ file tĩnh (uploads). Mặc định VITE_API_URL — dùng cho iframe srcDoc / tải HTML. */
     apiBaseUrl?: string;
+    /** Gắn vào form để POST /api/public/leads (trang đã xuất bản). */
+    pageId?: number;
+    workspaceId?: number;
+    /** reCAPTCHA v3 site key; mặc định `VITE_RECAPTCHA_SITE_KEY`. Cần khớp `Recaptcha:SecretKey` trên API. */
+    recaptchaSiteKey?: string;
+    /**
+     * Khi true (xem trước trong editor): buộc page-container rộng đúng designBase px (không co theo viewport)
+     * và scale toàn bộ trang về vừa màn hình — preview luôn khớp tỉ lệ với editor.
+     * Khi false/undefined (xuất bản / download): layout responsive bình thường.
+     */
+    forPreview?: boolean;
   }
 ): string {
   const assetBaseUrl = (opts?.apiBaseUrl ?? DEFAULT_PREVIEW_ASSET_BASE).replace(/\/?$/, "/");
-  const ps = opts?.pageSettings ?? {};
+  const recaptchaSiteKey = (opts?.recaptchaSiteKey ?? (import.meta.env.VITE_RECAPTCHA_SITE_KEY as string | undefined) ?? "").trim();
+  const recaptchaHeadScript = recaptchaSiteKey
+    ? `<script src="https://www.google.com/recaptcha/api.js?render=${escHtml(recaptchaSiteKey)}" async defer></script>`
+    : "";
+  const bodyRecaptchaAttr = recaptchaSiteKey ? ` data-lp-recaptcha-sitekey="${escHtml(recaptchaSiteKey)}"` : "";
+  const lpCtx: LpHtmlContext | undefined =
+    opts?.pageId != null && opts?.workspaceId != null ? { pageId: opts.pageId, workspaceId: opts.workspaceId } : undefined;
+  const ps: PageSettingsOpts = opts?.pageSettings ?? {};
   const title = opts?.metaTitle ?? "Preview";
   const desc = opts?.metaDescription ?? "";
   const keywords = opts?.metaKeywords ?? ps.metaKeywords ?? "";
@@ -811,6 +1106,7 @@ export function generatePreviewHtml(
   const codeBeforeHead = opts?.codeBeforeHead ?? ps.codeBeforeHead ?? "";
   const codeBeforeBody = opts?.codeBeforeBody ?? ps.codeBeforeBody ?? "";
   const useLazyload = opts?.useLazyload ?? ps.useLazyload ?? false;
+  const utilityFxInline = buildUtilityFxInlineScript(ps.utilityEffects);
 
   const safeSections = Array.isArray(sections) ? sections : [];
   const visibleSections = safeSections.filter((s) => {
@@ -828,6 +1124,7 @@ export function generatePreviewHtml(
   const designBase = Math.max(opts?.desktopCanvasWidth ?? DESIGN_WIDTH, 1);
   const layoutMaxWidth = Math.max(opts?.deviceWidth ?? opts?.desktopCanvasWidth ?? DESIGN_WIDTH, 1);
   const htmlCodeFullScreen = opts?.htmlCodeFullScreen ?? false;
+  const forPreview = opts?.forPreview ?? false;
 
   const sectionsHtml =
     visibleSections.length === 0
@@ -859,7 +1156,7 @@ export function generatePreviewHtml(
             const sectionEls = section.elements ?? (section as { Elements?: unknown[] }).Elements ?? [];
             const els = (Array.isArray(sectionEls) ? sectionEls : [])
               .filter((el) => !(htmlCodeFullScreen && el.type === "html-code"))
-              .map((el) => addDataAttrs(el, elementToHtml(el, designBase, sectionH, htmlCodeFullScreen)))
+              .map((el) => addDataAttrs(el, elementToHtml(el, designBase, sectionH, htmlCodeFullScreen, lpCtx)))
               .join("\n");
             const secId = (section as { id?: number }).id ?? 0;
             return `<div id="lp-section-${secId}" class="lp-section" style="${secStyles.join(";")}"><div class="lp-section-inner" style="position:absolute;top:0;left:0;width:100%;height:${innerHeightPct.toFixed(4)}%;overflow:visible">\n${els}\n</div></div>`;
@@ -879,7 +1176,7 @@ export function generatePreviewHtml(
             );
             return (Array.isArray(sectionEls) ? sectionEls : [])
               .filter((el) => !el.isHidden && el.type === "html-code")
-              .map((el) => addDataAttrs(el, elementToHtml(el, designBase, sectionH, true)));
+              .map((el) => addDataAttrs(el, elementToHtml(el, designBase, sectionH, true, lpCtx)));
           })
           .join("\n")
       : "";
@@ -889,7 +1186,7 @@ export function generatePreviewHtml(
 <head>
   <meta charset="UTF-8" />
   <base href="${escHtml(assetBaseUrl)}" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="${forPreview ? `width=${designBase}, initial-scale=1` : "width=device-width, initial-scale=1.0"}" />
   <title>${escHtml(title)}</title>
   ${desc ? `<meta name="description" content="${escHtml(desc)}" />` : ""}
   ${keywords ? `<meta name="keywords" content="${escHtml(keywords)}" />` : ""}
@@ -897,11 +1194,12 @@ export function generatePreviewHtml(
   ${favicon ? `<link rel="icon" href="${escHtml(favicon)}" type="image/x-icon" />` : ""}
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous" />
   ${fontLinks}
+  ${recaptchaHeadScript}
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { min-height: 100vh; }
     body { font-family: Inter, system-ui, -apple-system, sans-serif; background: #e8ecf1; }
-    .page-container { max-width: ${layoutMaxWidth}px; width: 100%; margin: 0 auto; background: #fff; min-height: 100vh; box-shadow: 0 0 40px rgba(0,0,0,0.08); }
+    .page-container { ${forPreview ? `width:${designBase}px` : `max-width:${layoutMaxWidth}px;width:100%`}; margin: 0 auto; background: #fff; min-height: 100vh; box-shadow: 0 0 40px rgba(0,0,0,0.08); }
     .tt-popup { position:absolute; color:#fff; padding:6px 10px; border-radius:6px; font-size:12px; white-space:nowrap; pointer-events:none; z-index:9999; opacity:0; transition:opacity .2s; }
     @keyframes fadeIn{from{opacity:0}to{opacity:1}}
     @keyframes fadeInUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
@@ -955,10 +1253,12 @@ export function generatePreviewHtml(
       .lp-element:not([data-lp-collection-list]) { font-size: 0.85em !important; }
       .lp-element[data-lp-grid] { grid-template-columns: 1fr !important; gap: 4px !important; }
     }
+    body.lp-popup-open { overflow: hidden; }
+    .lp-popup-overlay.lp-popup-visible { display: flex !important; }
   </style>
   ${codeBeforeHead ? codeBeforeHead.trim() : ""}
 </head>
-<body${opts?.thumbnail ? ' style="transform:scale(0.34);transform-origin:0 0;width:960px;min-height:600px"' : ""}${useLazyload ? ' data-lazyload="true"' : ""}>
+<body${opts?.thumbnail ? ' style="transform:scale(0.34);transform-origin:0 0;width:960px;min-height:600px"' : ""}${useLazyload ? ' data-lazyload="true"' : ""}${bodyRecaptchaAttr}>
   <div class="page-container">
     ${sectionsHtml}
   </div>
@@ -976,6 +1276,35 @@ export function generatePreviewHtml(
     });
     el.addEventListener('mouseleave',function(){el.style.transform=orig.transform;el.style.filter=orig.filter;el.style.boxShadow=orig.boxShadow;});
   });
+  function lpClosePopup(pid){
+    var o=document.getElementById('lp-popup-overlay-'+pid);
+    if(!o)return;
+    o.style.display='none';
+    o.classList.remove('lp-popup-visible');
+    if(!document.querySelector('.lp-popup-overlay.lp-popup-visible'))document.body.classList.remove('lp-popup-open');
+  }
+  function lpCloseAllPopups(){
+    document.querySelectorAll('.lp-popup-overlay').forEach(function(o){
+      o.style.display='none';
+      o.classList.remove('lp-popup-visible');
+    });
+    document.body.classList.remove('lp-popup-open');
+  }
+  function lpOpenPopup(pid){
+    lpCloseAllPopups();
+    var o=document.getElementById('lp-popup-overlay-'+pid);
+    if(!o)return;
+    o.style.display='flex';
+    o.classList.add('lp-popup-visible');
+    document.body.classList.add('lp-popup-open');
+  }
+  document.querySelectorAll('[data-lp-popup-close]').forEach(function(btn){
+    btn.addEventListener('click',function(e){ e.stopPropagation(); var id=parseInt(btn.getAttribute('data-lp-popup-close')||'0',10); if(!isNaN(id))lpClosePopup(id); });
+  });
+  document.querySelectorAll('.lp-popup-overlay').forEach(function(overlay){
+    overlay.addEventListener('click',function(e){ if(e.target===overlay){ var id=parseInt(overlay.getAttribute('data-lp-popup-id')||'0',10); if(!isNaN(id))lpClosePopup(id); } });
+  });
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape')lpCloseAllPopups(); });
   document.querySelectorAll('.lp-element[data-action-type]').forEach(function(el){
     var type=el.dataset.actionType,target=(el.dataset.actionTarget||'').trim(),nt=el.dataset.actionNewtab==='true';
     if(!type||type==='none'||type==='javascript')return;
@@ -984,15 +1313,74 @@ export function generatePreviewHtml(
       else if(type==='phone'&&target){ window.location.href='tel:'+target.replace(/\\s/g,''); e.preventDefault(); }
       else if(type==='email'&&target){ window.location.href='mailto:'+target; e.preventDefault(); }
       else if(type==='section'&&target){ var sec=document.getElementById('lp-section-'+target); if(sec)sec.scrollIntoView({behavior:'smooth'}); e.preventDefault(); }
+      else if(type==='popup'&&target){
+        var t=String(target).trim();
+        if(t==='close'){ lpCloseAllPopups(); }
+        else { var pid=parseInt(t,10); if(!isNaN(pid))lpOpenPopup(pid); }
+        e.preventDefault();
+      }
     });
   });
-  document.querySelectorAll('.lp-form').forEach(function(form){
+  function lpWithRecaptcha(cb){
+    var k=document.body.getAttribute('data-lp-recaptcha-sitekey');
+    var g=(window).grecaptcha;
+    if(!k||!g){cb(null);return;}
+    g.ready(function(){
+      g.execute(k,{action:'lead_submit'}).then(function(t){cb(t);}).catch(function(){cb(null);});
+    });
+  }
+  document.querySelectorAll('.lp-form[data-lp-lead="1"]').forEach(function(form){
+    form.addEventListener('submit',function(e){
+      e.preventDefault();
+      var pageId=form.getAttribute('data-lp-page-id');
+      var wsId=form.getAttribute('data-lp-workspace-id');
+      if(!pageId||!wsId)return;
+      var fd=new FormData(form);
+      var data={};
+      fd.forEach(function(v,k){data[k]=String(v);});
+      var fc=form.getAttribute('data-lp-form-config-id');
+      var fid=fc?parseInt(fc,10):NaN;
+      var baseEl=document.querySelector('base');
+      var apiRoot=baseEl&&baseEl.href?baseEl.href:(window.location.origin+'/');
+      var url=new URL('api/public/leads',apiRoot).href;
+      var btn=form.querySelector('button[type="submit"],input[type="submit"]');
+      if(btn){btn.disabled=true;}
+      function doPost(token){
+        var payload={
+          pageId:parseInt(pageId,10),
+          workspaceId:parseInt(wsId,10),
+          formId:!isNaN(fid)?fid:null,
+          elementId:form.getAttribute('data-lp-element-id'),
+          data:data
+        };
+        if(token)payload.recaptchaToken=token;
+        fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+          .then(function(r){return r.text().then(function(t){var j=null;try{j=JSON.parse(t);}catch(x){}return{ok:r.ok,status:r.status,j:j};});})
+          .then(function(x){
+            if(btn){btn.disabled=false;}
+            if(x.ok&&x.j&&x.j.ok){
+              var red=form.getAttribute('data-lp-redirect');
+              if(red&&red.trim()){window.location.href=red.trim();}
+              else{alert('Đã gửi thành công!');}
+            }else{
+              var err=x.j&&x.j.error;
+              if(err==='page_not_published'){alert('Trang cần được xuất bản trước khi gửi form.');}
+              else if(err==='recaptcha_required'||err==='recaptcha_failed'||err==='recaptcha_low_score'){alert('Xác thực bảo mật thất bại. Tải lại trang và thử lại.');}
+              else{alert('Gửi thất bại. Vui lòng thử lại.');}
+            }
+          })
+          .catch(function(){if(btn){btn.disabled=false;}alert('Gửi thất bại. Kiểm tra kết nối mạng.');});
+      }
+      lpWithRecaptcha(doPost);
+    });
+  });
+  document.querySelectorAll('.lp-form:not([data-lp-lead])').forEach(function(form){
     form.addEventListener('submit',function(e){
       e.preventDefault();
       var fd=new FormData(form);
       var data={};
       fd.forEach(function(v,k){data[k]=v;});
-      var msg='Dữ liệu form (tạm thời):\n'+JSON.stringify(data,null,2);
+      var msg='Dữ liệu form (demo):\n'+JSON.stringify(data,null,2);
       alert(msg);
     });
   });
@@ -1031,13 +1419,51 @@ export function generatePreviewHtml(
       btn.addEventListener('click',function(){setActive(idx);});
     });
   });
+  ${utilityFxInline}
   </script>
+  ${forPreview ? `<script>
+  (function(){
+    var d=${designBase};
+    function doScale(){
+      var vw=window.innerWidth;
+      var s=vw<d?vw/d:1;
+      var pc=document.querySelector('.page-container');
+      if(!pc)return;
+      pc.style.transformOrigin='0 0';
+      pc.style.transform=s<1?'scale('+s+')':'';
+      document.body.style.height=s<1?Math.ceil(pc.offsetHeight*s)+'px':'';
+    }
+    doScale();
+    window.addEventListener('resize',doScale);
+    window.addEventListener('load',doScale);
+  })();
+  </script>` : ""}
   ${codeBeforeBody ? codeBeforeBody.trim() : ""}
 </body>
 </html>`;
 }
 
-export function downloadHtml(sections: EditorSection[], opts?: { metaTitle?: string; metaDescription?: string; deviceWidth?: number; desktopCanvasWidth?: number; filename?: string; pageSettings?: PageSettingsOpts; metaKeywords?: string; metaImageUrl?: string; faviconUrl?: string; codeBeforeHead?: string; codeBeforeBody?: string; useLazyload?: boolean; apiBaseUrl?: string }) {
+export function downloadHtml(
+  sections: EditorSection[],
+  opts?: {
+    metaTitle?: string;
+    metaDescription?: string;
+    deviceWidth?: number;
+    desktopCanvasWidth?: number;
+    filename?: string;
+    pageSettings?: PageSettingsOpts;
+    metaKeywords?: string;
+    metaImageUrl?: string;
+    faviconUrl?: string;
+    codeBeforeHead?: string;
+    codeBeforeBody?: string;
+    useLazyload?: boolean;
+    apiBaseUrl?: string;
+    pageId?: number;
+    workspaceId?: number;
+    recaptchaSiteKey?: string;
+  },
+) {
   const html = generatePreviewHtml(sections, opts);
   const blob = new Blob([html], { type: "text/html" });
   const url = URL.createObjectURL(blob);

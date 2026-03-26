@@ -6,6 +6,7 @@ import {
   CheckCircle2, XCircle, AlertTriangle,
   HelpCircle, Settings, Keyboard, LayoutGrid,
   ChevronRight, ChevronDown, Copy, Link2, ExternalLink, ClipboardCopy,
+  History, BookOpen, Maximize2, Minimize2, Grid3x3, FileDown, Image as ImageIcon, FileCode2,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { useEditorStore } from "@/stores/editorStore";
@@ -19,6 +20,7 @@ import FormPickerPanel from "@/components/editor/FormPickerPanel";
 import { generatePreviewHtml, downloadHtml } from "@/lib/generatePreviewHtml";
 import { parseProductDetailContent } from "@/lib/productDetailContent";
 import { parseTabsContent, parseCarouselContent } from "@/lib/tabsContent";
+import { parseBlogListContent } from "@/lib/blogContent";
 import { getLucideIcon } from "@/lib/iconMap";
 import FabricCanvas from "@/components/editor/FabricCanvas";
 import { Rnd } from "react-rnd";
@@ -27,11 +29,16 @@ import { SortableLayersPanel } from "@/components/editor/SortableLayers";
 import { PropertyPanelLadi } from "@/components/editor/PropertyPanelLadi";
 import { GlobalSettingsPanel } from "@/components/editor/GlobalSettingsPanel";
 import { EditorSidebar } from "@/components/editor/EditorSidebar";
+import { PopupManageModal } from "@/components/editor/PopupManageModal";
+import { UtilitiesHubModal } from "@/components/editor/UtilitiesHubModal";
+import { PageUtilityFxPreview } from "@/components/editor/PageUtilityFxPreview";
+import type { PopupTemplateEntry, MySavedPopup } from "@/lib/popupTemplateCatalog";
 import { exportCanvasToPng } from "@/lib/exportPng";
 import { exportCanvasToPdf } from "@/lib/exportPdf";
 import { loadFontsFromSections } from "@/lib/fontLoader";
 import type { EditorElementType, ToolCategoryData, ToolItemData, ElementPresetData } from "@/types/editor";
 import { ZOOM_PRESETS } from "@/types/editor";
+import { normalizeToolCategories } from "@/lib/normalizeElementType";
 import type { Canvas } from "fabric";
 
 /** Fallback khi API editor-tools lỗi hoặc trả về rỗng */
@@ -57,23 +64,76 @@ const DEFAULT_TOOL_CATEGORIES: ToolCategoryData[] = [
     ],
   },
   {
+    id: 4,
+    name: "Assets",
+    icon: "images",
+    order: 2,
+    items: [],
+    sidebarAction: "media",
+  },
+  {
     id: 2,
     name: "Section",
     icon: "layers",
-    order: 2,
+    order: 3,
     items: [
-      { id: 201, name: "Section trống", icon: "plus-square", elementType: "section", order: 1, hasSubTabs: false, presets: [] },
+      { id: 201, name: "Section trống", icon: "plus-square", elementType: "section", order: 1, hasSubTabs: false, presets: [], sectionTemplate: "blank" },
+      { id: 202, name: "Hero (mẫu)", icon: "layout", elementType: "section", order: 2, hasSubTabs: false, presets: [], sectionTemplate: "hero" },
     ],
   },
   {
     id: 3,
     name: "Sản phẩm",
     icon: "shopping-bag",
-    order: 3,
+    order: 4,
     items: [
       { id: 301, name: "Chi tiết sản phẩm", icon: "shopping-bag", elementType: "product-detail", order: 1, hasSubTabs: false, presets: [] },
       { id: 302, name: "Danh sách sản phẩm", icon: "layout-grid", elementType: "collection-list", order: 2, hasSubTabs: false, presets: [] },
     ],
+  },
+  {
+    id: 5,
+    name: "Popup",
+    icon: "message-square",
+    order: 5,
+    sidebarAction: "popup",
+    items: [
+      { id: 501, name: "Popup trống", icon: "plus-square", elementType: "popup", order: 1, hasSubTabs: false, presets: [] },
+      { id: 502, name: "Mẫu popup", icon: "layout", elementType: "popup", order: 2, hasSubTabs: false, presets: [] },
+    ],
+  },
+  {
+    id: 6,
+    name: "Blog",
+    icon: "file-text",
+    order: 6,
+    items: [
+      { id: 601, name: "Danh sách bài viết", icon: "file-text", elementType: "blog-list", order: 1, hasSubTabs: false, presets: [] },
+      { id: 602, name: "Chi tiết bài viết", icon: "file-text", elementType: "blog-detail", order: 2, hasSubTabs: false, presets: [] },
+    ],
+  },
+  {
+    id: 7,
+    name: "Tiện ích",
+    icon: "puzzle",
+    order: 7,
+    sidebarAction: "utilities",
+    items: [
+      { id: 701, name: "Đếm ngược", icon: "timer", elementType: "countdown", order: 1, hasSubTabs: false, presets: [] },
+      { id: 708, name: "HTML tùy chỉnh", icon: "code", elementType: "html-code", order: 2, hasSubTabs: false, presets: [] },
+      { id: 702, name: "Google Maps", icon: "map-pin", elementType: "map", order: 3, hasSubTabs: false, presets: [] },
+      { id: 705, name: "Chia sẻ MXH", icon: "share-2", elementType: "social-share", order: 4, hasSubTabs: false, presets: [] },
+      { id: 703, name: "Đánh giá sao", icon: "star", elementType: "rating", order: 5, hasSubTabs: false, presets: [] },
+      { id: 704, name: "Thanh tiến độ", icon: "bar-chart-2", elementType: "progress", order: 6, hasSubTabs: false, presets: [] },
+    ],
+  },
+  {
+    id: 8,
+    name: "Kết nối",
+    icon: "hard-drive",
+    order: 8,
+    items: [],
+    sidebarAction: "integrations",
   },
 ];
 
@@ -91,6 +151,74 @@ function ensureMaHtmlInPhanTu(cats: ToolCategoryData[]): ToolCategoryData[] {
     return { ...cat, items };
   });
 }
+
+/** Phase 1: luôn có nhóm Assets (Media) nếu API chưa trả */
+function ensureAssetsCategory(cats: ToolCategoryData[]): ToolCategoryData[] {
+  if (cats.some((c) => c.sidebarAction === "media" || c.name === "Assets")) {
+    return [...cats].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  }
+  const assets: ToolCategoryData = {
+    id: 904,
+    name: "Assets",
+    icon: "images",
+    order: 2,
+    items: [],
+    sidebarAction: "media",
+  };
+  return [...cats, assets].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+}
+
+/** Phase 2: nhóm Kết nối (cloud) nếu API chưa có */
+function ensureIntegrationsCategory(cats: ToolCategoryData[]): ToolCategoryData[] {
+  if (cats.some((c) => c.sidebarAction === "integrations" || c.name === "Kết nối")) {
+    return [...cats].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  }
+  const conn: ToolCategoryData = {
+    id: 905,
+    name: "Kết nối",
+    icon: "hard-drive",
+    order: 8,
+    items: [],
+    sidebarAction: "integrations",
+  };
+  return [...cats, conn].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+}
+
+/** Gán sidebar blog LadiPage-style khi API có nhóm "Blog" nhưng chưa có sidebarAction */
+function ensureBlogCategory(cats: ToolCategoryData[]): ToolCategoryData[] {
+  return cats.map((c) => {
+    if (c.sidebarAction === "blog") return c;
+    if (c.name?.trim().toLowerCase() === "blog") {
+      return { ...c, sidebarAction: "blog" as const };
+    }
+    return c;
+  });
+}
+
+/** Panel Popup (Popup trống + Mẫu popup) khi API chưa gửi sidebarAction */
+function ensurePopupCategory(cats: ToolCategoryData[]): ToolCategoryData[] {
+  return cats.map((c) => {
+    if (c.sidebarAction === "popup") return c;
+    if (c.name?.trim().toLowerCase() === "popup") {
+      return { ...c, sidebarAction: "popup" as const };
+    }
+    return c;
+  });
+}
+
+/** Panel Tiện ích (kéo thả + Thư viện) khi API chưa gửi sidebarAction */
+function ensureUtilitiesCategory(cats: ToolCategoryData[]): ToolCategoryData[] {
+  return cats.map((c) => {
+    if (c.sidebarAction === "utilities") return c;
+    const n = c.name?.trim().toLowerCase() ?? "";
+    if (n === "tiện ích" || n === "tien ich") {
+      return { ...c, sidebarAction: "utilities" as const };
+    }
+    return c;
+  });
+}
+
+/** Phase 3: Blog / Popup / chia sẻ MXH / iframe Maps — parser `blogContent`, xuất HTML `generatePreviewHtml`, vẽ canvas `FabricCanvas`, chỉnh panel `PropertyPanelLadi`. */
 
 /* ─── Toast ─── */
 function Toast({ toast, onClose }: { toast: ToastState; onClose: () => void }) {
@@ -165,18 +293,28 @@ function EditorInner() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState<ToastState>({ show: false, message: "", type: "info" });
   const [toolCategories, setToolCategories] = useState<ToolCategoryData[]>([]);
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showHistoryPopover, setShowHistoryPopover] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [isDocFullscreen, setIsDocFullscreen] = useState(false);
+  const [showPopupManageModal, setShowPopupManageModal] = useState(false);
+  const [showUtilitiesHubModal, setShowUtilitiesHubModal] = useState(false);
 
   const canvasRef = useRef<Canvas | null>(null);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+  const historyPopoverRef = useRef<HTMLDivElement>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const canvasScrollContainerRef = useRef<HTMLDivElement>(null);
   const showToast = useCallback((message: string, type: ToastState["type"] = "info") => setToast({ show: true, message, type }), []);
 
   const {
-    sections, deviceType, setDeviceType, loadFromContent, addSection, addElement,
+    sections, deviceType, setDeviceType, loadFromContent, addSection, addElement, updateSection,
     selectSection, selectElement, selectPage, selected, toContentPayload, markSaved,
     canvasWidth, desktopCanvasWidth,
     undo, redo, pushHistory, dirty, zoom, setZoom, copyElement, pasteElement, cutElement,
     snapToGrid, setSnapToGrid, updateElement,
+    history, historyIndex,
   } = useEditorStore();
 
   const effectiveZoom = deviceType === "mobile" ? zoom * (420 / desktopCanvasWidth) : zoom;
@@ -193,12 +331,25 @@ function EditorInner() {
     editorToolsApi.list()
       .then((cats) => {
         const list = Array.isArray(cats) && cats.length > 0 ? cats : DEFAULT_TOOL_CATEGORIES;
-        const withHtml = ensureMaHtmlInPhanTu(list);
+        const normalized = normalizeToolCategories(list);
+        const withHtml = ensureUtilitiesCategory(
+          ensurePopupCategory(
+            ensureBlogCategory(ensureMaHtmlInPhanTu(ensureIntegrationsCategory(ensureAssetsCategory(normalized)))),
+          ),
+        );
         setToolCategories(withHtml);
         setActiveCatId(withHtml[0]?.id ?? null);
       })
       .catch(() => {
-        setToolCategories(DEFAULT_TOOL_CATEGORIES);
+        setToolCategories(
+          ensureUtilitiesCategory(
+            ensurePopupCategory(
+              ensureBlogCategory(
+                ensureIntegrationsCategory(ensureAssetsCategory(ensureMaHtmlInPhanTu(normalizeToolCategories([...DEFAULT_TOOL_CATEGORIES])))),
+              ),
+            ),
+          ),
+        );
         setActiveCatId(DEFAULT_TOOL_CATEGORIES[0]?.id ?? null);
       });
   }, []);
@@ -276,6 +427,41 @@ function EditorInner() {
     pushHistory();
   }, [selected, sections, addElement, pushHistory, addSection]);
 
+  const handleAddPopupFromEntry = useCallback(
+    (entry: PopupTemplateEntry | MySavedPopup) => {
+      let sid =
+        selected.type === "section"
+          ? selected.id
+          : selected.type === "element"
+            ? (() => {
+                for (const s of sections) {
+                  if (s.elements.some((e) => e.id === selected.id)) return s.id;
+                }
+                return sections[0]?.id;
+              })()
+            : sections[0]?.id;
+      if (!sid && sections.length === 0) {
+        addSection();
+        const st = useEditorStore.getState();
+        sid = st.selected.type === "section" ? st.selected.id : st.sections[0]?.id;
+      }
+      if (!sid) return;
+      addElement(sid, {
+        type: "popup",
+        content: entry.content,
+        width: entry.width,
+        height: entry.height,
+        styles: entry.styles,
+      });
+      pushHistory();
+      showToast("Đã thêm popup", "success");
+    },
+    [selected, sections, addElement, pushHistory, addSection, showToast],
+  );
+
+  const openPopupLibrary = useCallback(() => setShowPopupManageModal(true), []);
+  const openUtilitiesLibrary = useCallback(() => setShowUtilitiesHubModal(true), []);
+
   const handleDropFromTool = useCallback((sectionId: number, elType: EditorElementType, x: number, y: number, preset?: ElementPresetData) => {
     const base = { type: elType, x, y };
     if (preset) {
@@ -290,6 +476,62 @@ function EditorInner() {
   }, [addElement, pushHistory, selectSection]);
 
   const handleAddSection = useCallback(() => { addSection(); pushHistory(); }, [addSection, pushHistory]);
+
+  const handleAddSectionTemplate = useCallback(
+    (template: "blank" | "hero") => {
+      if (template === "blank") {
+        addSection();
+        pushHistory();
+        return;
+      }
+      addSection();
+      const st = useEditorStore.getState();
+      const sid = st.sections[st.sections.length - 1]?.id;
+      if (!sid) return;
+      updateSection(sid, {
+        height: 720,
+        backgroundColor: "#0f172a",
+        name: "Hero",
+      });
+      addElement(sid, {
+        type: "headline",
+        x: 72,
+        y: 140,
+        width: 520,
+        height: 72,
+        content: "Headline chính của bạn",
+        styles: { fontSize: 36, fontWeight: 700, color: "#ffffff", textAlign: "left" },
+      });
+      addElement(sid, {
+        type: "paragraph",
+        x: 72,
+        y: 236,
+        width: 480,
+        height: 80,
+        content: "Mô tả ngắn phía dưới dòng tiêu đề. Chỉnh trực tiếp trên canvas hoặc panel bên phải.",
+        styles: { fontSize: 16, color: "#cbd5e1", textAlign: "left" },
+      });
+      addElement(sid, {
+        type: "button",
+        x: 72,
+        y: 360,
+        width: 200,
+        height: 52,
+        content: "Bắt đầu",
+        styles: {
+          backgroundColor: "#6366f1",
+          color: "#ffffff",
+          borderRadius: 10,
+          fontSize: 16,
+          fontWeight: 600,
+          borderWidth: 0,
+        },
+      });
+      pushHistory();
+      showToast("Đã thêm section Hero mẫu", "success");
+    },
+    [addSection, addElement, updateSection, pushHistory, showToast],
+  );
 
   const handleInsertImage = useCallback((url: string, name: string, width?: number, height?: number) => {
     const sid = selected.type === "section" ? selected.id : selected.type === "element" ? sections.find((s) => s.elements.some((e) => e.id === selected.id))?.id ?? sections[0]?.id : sections[0]?.id;
@@ -453,6 +695,20 @@ function EditorInner() {
       } else {
         updateElement(elementId, { content: JSON.stringify({ ...cl, items: [...items, { image: url, title: `Sản phẩm ${items.length + 1}`, price: "0đ" }] }) });
       }
+    } else if (targetEl.type === "blog-list") {
+      const bl = parseBlogListContent(targetEl.content ?? undefined);
+      const posts = [...(bl.posts ?? [])];
+      if (itemIndex != null && itemIndex >= 0 && itemIndex < posts.length) {
+        posts[itemIndex] = { ...posts[itemIndex], image: url };
+        updateElement(elementId, { content: JSON.stringify({ columns: bl.columns ?? 2, posts }) });
+      } else {
+        updateElement(elementId, {
+          content: JSON.stringify({
+            columns: bl.columns ?? 2,
+            posts: [...posts, { title: `Bài ${posts.length + 1}`, excerpt: "", date: "", image: url }],
+          }),
+        });
+      }
     }
     pushHistory();
     setAddImageContext(null);
@@ -586,6 +842,8 @@ function EditorInner() {
       desktopCanvasWidth: s.desktopCanvasWidth ?? 960,
       // Xem trước: khối mã HTML phủ full viewport (giống landing full màn hình); tải HTML riêng vẫn mặc định trong downloadHtml
       htmlCodeFullScreen: true,
+      // forPreview: buộc page-container = designBase px, scale JS về vừa viewport → tỉ lệ khớp editor
+      forPreview: true,
       pageSettings: s.pageSettings,
       metaKeywords: s.pageSettings?.metaKeywords,
       metaImageUrl: s.pageSettings?.metaImageUrl,
@@ -593,6 +851,9 @@ function EditorInner() {
       codeBeforeHead: s.pageSettings?.codeBeforeHead,
       codeBeforeBody: s.pageSettings?.codeBeforeBody,
       useLazyload: s.pageSettings?.useLazyload,
+      apiBaseUrl: import.meta.env.VITE_API_URL,
+      pageId: s.pageId ?? undefined,
+      workspaceId: s.workspaceId ?? undefined,
     });
     setPreviewHtml(html);
     setPreviewDeviceType(s.deviceType);
@@ -676,6 +937,9 @@ function EditorInner() {
       codeBeforeHead: s.pageSettings?.codeBeforeHead,
       codeBeforeBody: s.pageSettings?.codeBeforeBody,
       useLazyload: s.pageSettings?.useLazyload,
+      apiBaseUrl: import.meta.env.VITE_API_URL,
+      pageId: s.pageId ?? undefined,
+      workspaceId: s.workspaceId ?? undefined,
     });
     showToast("Đang tải HTML...", "info");
   }, [showToast]);
@@ -719,6 +983,52 @@ function EditorInner() {
     return () => window.removeEventListener("keydown", handler);
   }, [showPreviewModal]);
 
+  useEffect(() => {
+    const onFs = () => setIsDocFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", onFs);
+    onFs();
+    return () => document.removeEventListener("fullscreenchange", onFs);
+  }, []);
+
+  useEffect(() => {
+    if (!showShortcutsModal && !showHelpModal) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowShortcutsModal(false);
+        setShowHelpModal(false);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [showShortcutsModal, showHelpModal]);
+
+  useEffect(() => {
+    if (!showExportMenu && !showHistoryPopover) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (showExportMenu && exportMenuRef.current && !exportMenuRef.current.contains(t)) {
+        setShowExportMenu(false);
+      }
+      if (showHistoryPopover && historyPopoverRef.current && !historyPopoverRef.current.contains(t)) {
+        setShowHistoryPopover(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [showExportMenu, showHistoryPopover]);
+
+  const toggleEditorFullscreen = useCallback(async () => {
+    try {
+      const root = document.documentElement;
+      if (!document.fullscreenElement) {
+        await root.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch {
+      showToast("Trình duyệt không hỗ trợ toàn màn hình.", "error");
+    }
+  }, [showToast]);
 
   // Show element panel when user selects element or section
   useEffect(() => {
@@ -737,6 +1047,20 @@ function EditorInner() {
     >
     <div className="h-screen bg-[#f5f5f5] overflow-hidden flex flex-col" style={{ fontFamily: "Open Sans, system-ui, sans-serif" }}>
       <Toast toast={toast} onClose={() => setToast((t) => ({ ...t, show: false }))} />
+
+      <PopupManageModal
+        open={showPopupManageModal}
+        onClose={() => setShowPopupManageModal(false)}
+        onPickBlank={() => handleAddElement("popup")}
+        onPickEntry={handleAddPopupFromEntry}
+      />
+
+      <UtilitiesHubModal
+        open={showUtilitiesHubModal}
+        onClose={() => setShowUtilitiesHubModal(false)}
+        onAddElement={handleAddElement}
+        onToast={(message, type) => showToast(message, type ?? "info")}
+      />
 
       {/* ═══ TOP NAV BAR (LadiPage style) ═══ */}
       <div className="h-12 bg-white border-b border-[#e0e0e0] px-4 flex items-center justify-between shrink-0 z-50">
@@ -777,10 +1101,43 @@ function EditorInner() {
 
         {/* Right - Utilities */}
         <div className="flex items-center gap-1">
-          <button type="button" onClick={undo} className="w-8 h-8 rounded flex items-center justify-center hover:bg-slate-100 text-slate-600" title="Hoàn tác"><Undo2 className="w-4 h-4" /></button>
-          <button type="button" onClick={redo} className="w-8 h-8 rounded flex items-center justify-center hover:bg-slate-100 text-slate-600" title="Làm lại"><Redo2 className="w-4 h-4" /></button>
-          <button type="button" className="w-8 h-8 rounded flex items-center justify-center hover:bg-slate-100 text-slate-600" title="Lịch sử"><HelpCircle className="w-4 h-4" /></button>
-          <button type="button" className="w-8 h-8 rounded flex items-center justify-center hover:bg-slate-100 text-slate-600" title="Trợ giúp"><HelpCircle className="w-4 h-4" /></button>
+          <button type="button" onClick={undo} className="w-8 h-8 rounded flex items-center justify-center hover:bg-slate-100 text-slate-600" title="Hoàn tác (Ctrl+Z)"><Undo2 className="w-4 h-4" /></button>
+          <button type="button" onClick={redo} className="w-8 h-8 rounded flex items-center justify-center hover:bg-slate-100 text-slate-600" title="Làm lại (Ctrl+Y)"><Redo2 className="w-4 h-4" /></button>
+
+          <div className="relative" ref={historyPopoverRef}>
+            <button
+              type="button"
+              onClick={() => setShowHistoryPopover((v) => !v)}
+              className={`w-8 h-8 rounded flex items-center justify-center ${showHistoryPopover ? "bg-slate-100 text-[#1e2d7d]" : "hover:bg-slate-100 text-slate-600"}`}
+              title="Lịch sử chỉnh sửa"
+            >
+              <History className="w-4 h-4" />
+            </button>
+            {showHistoryPopover && (
+              <div className="absolute right-0 top-full mt-1 z-[60] w-72 rounded-lg border border-[#e0e0e0] bg-white py-3 px-3 shadow-xl text-left">
+                <p className="text-xs font-semibold text-slate-800">Lịch sử</p>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Bước hiện tại:{" "}
+                  <span className="font-mono text-slate-700">
+                    {history.length > 0 ? historyIndex + 1 : 0} / {history.length}
+                  </span>
+                </p>
+                <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+                  Dùng <kbd className="px-1 py-0.5 rounded bg-slate-100 text-[10px]">Ctrl+Z</kbd> /{" "}
+                  <kbd className="px-1 py-0.5 rounded bg-slate-100 text-[10px]">Ctrl+Y</kbd> hoặc nút Hoàn tác / Làm lại để điều hướng giữa các bản lưu tạm.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowHelpModal(true)}
+            className="w-8 h-8 rounded flex items-center justify-center hover:bg-slate-100 text-slate-600"
+            title="Trợ giúp nhanh"
+          >
+            <BookOpen className="w-4 h-4" />
+          </button>
           <button
             type="button"
             onClick={() => setSnapToGrid(!snapToGrid)}
@@ -791,9 +1148,75 @@ function EditorInner() {
               <path d="M3 3v6h6M21 3v6h-6M3 21v-6h6M21 21v-6h-6" />
             </svg>
           </button>
-          <button type="button" onClick={() => { setShowGlobalSettings(!showGlobalSettings); }} className={`w-8 h-8 rounded flex items-center justify-center ${showGlobalSettings ? "bg-slate-100 text-[#1e2d7d]" : "hover:bg-slate-100 text-slate-600"}`} title="Cài đặt"><Settings className="w-4 h-4" /></button>
-          <button type="button" className="w-8 h-8 rounded flex items-center justify-center hover:bg-slate-100 text-slate-600" title="Phím tắt"><Keyboard className="w-4 h-4" /></button>
-          <button type="button" className="w-8 h-8 rounded flex items-center justify-center hover:bg-slate-100 text-slate-600" title="Toàn màn hình"><LayoutGrid className="w-4 h-4" /></button>
+          <button type="button" onClick={() => { setShowGlobalSettings(!showGlobalSettings); }} className={`w-8 h-8 rounded flex items-center justify-center ${showGlobalSettings ? "bg-slate-100 text-[#1e2d7d]" : "hover:bg-slate-100 text-slate-600"}`} title="Thiết lập trang"><Settings className="w-4 h-4" /></button>
+          <button
+            type="button"
+            onClick={() => setShowShortcutsModal(true)}
+            className="w-8 h-8 rounded flex items-center justify-center hover:bg-slate-100 text-slate-600"
+            title="Phím tắt"
+          >
+            <Keyboard className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={toggleEditorFullscreen}
+            className={`w-8 h-8 rounded flex items-center justify-center ${isDocFullscreen ? "bg-slate-100 text-[#1e2d7d]" : "hover:bg-slate-100 text-slate-600"}`}
+            title={isDocFullscreen ? "Thoát toàn màn hình" : "Toàn màn hình"}
+          >
+            {isDocFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
+
+          <div className="relative" ref={exportMenuRef}>
+            <button
+              type="button"
+              onClick={() => setShowExportMenu((v) => !v)}
+              className={`w-8 h-8 rounded flex items-center justify-center ${showExportMenu ? "bg-slate-100 text-[#1e2d7d]" : "hover:bg-slate-100 text-slate-600"}`}
+              title="Thao tác nhanh — xuất file & zoom"
+            >
+              <Grid3x3 className="w-4 h-4" />
+            </button>
+            {showExportMenu && (
+              <div className="absolute right-0 top-full mt-1 z-[60] w-56 rounded-lg border border-[#e0e0e0] bg-white py-1 shadow-xl text-left">
+                <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Xuất</p>
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50"
+                  onClick={() => { handleExportPng(); setShowExportMenu(false); }}
+                >
+                  <ImageIcon className="w-4 h-4" /> Xuất PNG
+                </button>
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50"
+                  onClick={() => { handleExportPdf(); setShowExportMenu(false); }}
+                >
+                  <FileDown className="w-4 h-4" /> Xuất PDF
+                </button>
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50"
+                  onClick={() => { handleExportHtml(); setShowExportMenu(false); }}
+                >
+                  <FileCode2 className="w-4 h-4" /> Tải HTML
+                </button>
+                <div className="my-1 border-t border-[#e0e0e0]" />
+                <p className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Thu phóng</p>
+                <div className="px-2 pb-2 flex flex-wrap gap-1">
+                  {ZOOM_PRESETS.map((z) => (
+                    <button
+                      key={z.value}
+                      type="button"
+                      onClick={() => { setZoom(z.value); setShowExportMenu(false); }}
+                      className={`px-2 py-1 text-[11px] rounded border ${Math.abs(zoom - z.value) < 0.01 ? "border-[#1e2d7d] bg-[#1e2d7d]/10 text-[#1e2d7d] font-medium" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+                    >
+                      {z.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="px-3 pb-2 text-[10px] text-slate-400">Hoặc Ctrl + cuộn chuột</p>
+              </div>
+            )}
+          </div>
 
           <div className="w-px h-5 bg-[#e0e0e0] mx-1" />
 
@@ -820,6 +1243,7 @@ function EditorInner() {
           onSelectItem={setActiveItemId}
           onAddElement={handleAddElement}
           onAddSection={handleAddSection}
+          onAddSectionTemplate={handleAddSectionTemplate}
           onInsertImage={handleInsertImage}
           onInsertIcon={handleInsertIcon}
           onInsertLine={handleInsertLine}
@@ -827,6 +1251,10 @@ function EditorInner() {
           onInsertVideo={handleInsertVideo}
           onOpenMedia={() => { setActiveCatId(null); setActiveItemId(null); setShowMedia(true); }}
           onClose={() => { setActiveCatId(null); setActiveItemId(null); }}
+          sections={sections}
+          onSelectElement={selectElement}
+          onOpenPopupLibrary={openPopupLibrary}
+          onOpenUtilitiesLibrary={openUtilitiesLibrary}
         />
 
         {/* Canvas area */}
@@ -865,7 +1293,7 @@ function EditorInner() {
                 )}
                 <DroppableCanvas id="canvas-drop">
                   <div
-                    className={deviceType === "mobile" ? "bg-white mx-4 rounded-b-3xl overflow-hidden shadow-2xl" : "bg-white mt-4"}
+                    className={`relative ${deviceType === "mobile" ? "bg-white mx-4 rounded-b-3xl overflow-hidden shadow-2xl" : "bg-white mt-4"}`}
                     style={{ boxShadow: deviceType === "mobile" ? "0 0 0 1px rgba(0,0,0,0.06), 0 25px 50px -12px rgba(0,0,0,0.25)" : "0 0 0 1px rgba(0,0,0,0.06)" }}
                   >
                     <FabricCanvas
@@ -877,6 +1305,7 @@ function EditorInner() {
                       onRequestSaveFormData={handleSaveFormData}
                       onOpenSettings={() => setShowElementPanel(true)}
                     />
+                    <PageUtilityFxPreview />
                   </div>
                 </DroppableCanvas>
                 <button type="button" onClick={handleAddSection}
@@ -934,6 +1363,7 @@ function EditorInner() {
               onRequestChangeIcon={(id) => { selectElement(id); setChangeIconForElementId(id); }}
               onOpenMedia={() => setShowMedia(true)}
               onScrollToElement={scrollToElement}
+              onToast={showToast}
             />
           </Rnd>
         )}
@@ -1141,6 +1571,86 @@ function EditorInner() {
                   : { height: "100%", minHeight: 0 }
               }
             />
+          </div>
+        </div>
+      )}
+
+      {/* Phím tắt */}
+      {showShortcutsModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4" onClick={() => setShowShortcutsModal(false)}>
+          <div
+            className="w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-[#e0e0e0] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Keyboard className="w-5 h-5 text-[#1e2d7d]" />
+                <h3 className="text-base font-bold text-slate-900">Phím tắt</h3>
+              </div>
+              <button type="button" onClick={() => setShowShortcutsModal(false)} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-slate-100" aria-label="Đóng">
+                <X className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
+            <div className="px-5 py-4 max-h-[70vh] overflow-y-auto space-y-2 text-sm">
+              {[
+                ["Lưu trang", "Ctrl + S"],
+                ["Hoàn tác", "Ctrl + Z"],
+                ["Làm lại", "Ctrl + Y hoặc Ctrl + Shift + Z"],
+                ["Sao chép phần tử", "Ctrl + C"],
+                ["Dán", "Ctrl + V"],
+                ["Cắt", "Ctrl + X"],
+                ["Nhân đôi phần tử đang chọn", "Ctrl + D"],
+                ["Xóa phần tử", "Delete / Backspace"],
+                ["Thu phóng canvas", "Ctrl + + / Ctrl + -"],
+                ["Thu phóng (chuột)", "Ctrl + cuộn"],
+              ].map(([label, keys]) => (
+                <div key={label} className="flex items-center justify-between gap-4 py-1.5 border-b border-slate-100 last:border-0">
+                  <span className="text-slate-600">{label}</span>
+                  <kbd className="shrink-0 px-2 py-1 rounded bg-slate-100 text-[11px] font-mono text-slate-800">{keys}</kbd>
+                </div>
+              ))}
+            </div>
+            <div className="px-5 py-3 border-t border-[#e0e0e0] bg-slate-50">
+              <p className="text-[11px] text-slate-500">Nhấn ESC để đóng. Trên Mac dùng ⌘ thay cho Ctrl.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Trợ giúp nhanh */}
+      {showHelpModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4" onClick={() => setShowHelpModal(false)}>
+          <div
+            className="w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-[#e0e0e0] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <HelpCircle className="w-5 h-5 text-[#1e2d7d]" />
+                <h3 className="text-base font-bold text-slate-900">Trợ giúp nhanh</h3>
+              </div>
+              <button type="button" onClick={() => setShowHelpModal(false)} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-slate-100" aria-label="Đóng">
+                <X className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-3 text-sm text-slate-600">
+              <p>• Kéo thả phần tử từ cột trái vào canvas hoặc chọn Section để thêm khối.</p>
+              <p>• Double-click vào chữ để sửa trực tiếp trên canvas.</p>
+              <p>• Nút <strong className="text-slate-800">Layers</strong> mở bảng lớp; <strong className="text-slate-800">Thiết lập trang</strong> (bánh răng) cho SEO và mã nhúng.</p>
+              <p>• Menu <strong className="text-slate-800">lưới 3×3</strong> trên header: xuất PNG, PDF, HTML và chỉnh mức zoom nhanh.</p>
+              <Link to="/dashboard/pages" className="inline-flex items-center gap-1 text-[#1e2d7d] font-medium text-sm hover:underline">
+                ← Về danh sách trang
+              </Link>
+            </div>
+            <div className="px-5 py-3 border-t border-[#e0e0e0] flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowHelpModal(false)}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-[#1e2d7d] text-white hover:bg-[#162558]"
+              >
+                Đã hiểu
+              </button>
+            </div>
           </div>
         </div>
       )}

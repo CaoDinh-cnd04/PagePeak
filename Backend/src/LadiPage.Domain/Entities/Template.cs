@@ -10,6 +10,8 @@ public class Template
     public string? Description { get; set; }
     public string DesignType { get; set; } = "responsive";
     public bool IsFeatured { get; set; }
+    /// <summary>Mẫu trả phí / Pro (hiển thị badge trên thư viện).</summary>
+    public bool IsPremium { get; set; }
     public int UsageCount { get; set; }
     public DateTime CreatedAt { get; set; }
 }

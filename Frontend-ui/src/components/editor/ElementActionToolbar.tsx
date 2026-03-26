@@ -77,6 +77,7 @@ export function ElementActionToolbar({
     elementType === "shape" ||
     elementType === "product-detail" ||
     elementType === "collection-list" ||
+    elementType === "blog-list" ||
     elementType === "tabs" ||
     elementType === "carousel";
   const showEditHtml = elementType === "html-code";
@@ -89,10 +90,10 @@ export function ElementActionToolbar({
       <button type="button" className="p-1.5 rounded hover:bg-slate-100 text-slate-500" title="Di chuyển">
         <GripVertical className="w-4 h-4" />
       </button>
-      <button type="button" onClick={onBringToFront} className="p-1.5 rounded hover:bg-slate-100 text-slate-500" title="Đưa lên trước">
+      <button type="button" onClick={onBringToFront} className="p-1.5 rounded hover:bg-slate-100 text-slate-500" title="Lên một lớp (trên phần tử kế bên)">
         <ArrowUpToLine className="w-4 h-4" />
       </button>
-      <button type="button" onClick={onSendToBack} className="p-1.5 rounded hover:bg-slate-100 text-slate-500" title="Đưa ra sau">
+      <button type="button" onClick={onSendToBack} className="p-1.5 rounded hover:bg-slate-100 text-slate-500" title="Xuống một lớp (dưới phần tử kế bên)">
         <ArrowDownToLine className="w-4 h-4" />
       </button>
       <div className="w-px h-5 bg-slate-200 mx-0.5" />

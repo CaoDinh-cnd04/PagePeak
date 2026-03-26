@@ -5,7 +5,21 @@ import { Card, CardHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { ActionMenu } from "@/components/ui/ActionMenu";
-import { MoreVertical, Plus, Pencil, Copy, BarChart3, Trash2, RefreshCw, Send } from "lucide-react";
+import {
+  MoreVertical,
+  Plus,
+  Pencil,
+  Copy,
+  BarChart3,
+  Trash2,
+  RefreshCw,
+  Send,
+  Search,
+  LayoutGrid,
+  List,
+  Monitor,
+  Smartphone,
+} from "lucide-react";
 import { CreateDesignModal, defaultCategories, type TemplateItem } from "@/components/modals/CreateDesignModal";
 import { usePlanStore } from "@/stores/planStore";
 import { CreateLandingPageDetailsModal, type DesignType } from "@/components/modals/CreateLandingPageDetailsModal";
@@ -33,7 +47,21 @@ function StatusBadge({ status }: { status: PageItem["status"] }) {
           : "bg-slate-100 text-slate-700 ring-1 ring-slate-200"
       }`}
     >
-      {isPublished ? "Published" : "Draft"}
+      {isPublished ? "Đã xuất bản" : "Nháp"}
+    </span>
+  );
+}
+
+/** Nhãn trạng thái kiểu LadiPage (chữ hoa) */
+function StatusBadgeLadiTable({ status }: { status: PageItem["status"] }) {
+  const isPublished = status === "published";
+  return (
+    <span
+      className={`inline-flex items-center px-2 py-1 rounded text-[11px] font-bold uppercase tracking-wide ${
+        isPublished ? "bg-emerald-100 text-emerald-800" : "bg-slate-200/90 text-slate-700"
+      }`}
+    >
+      {isPublished ? "Đã xuất bản" : "Chưa xuất bản"}
     </span>
   );
 }
@@ -112,6 +140,80 @@ function PageCard({
   );
 }
 
+function PagesTableRow({
+  page,
+  onEdit,
+  onDuplicate,
+  onRename,
+  onViewStats,
+  onPublish,
+  onDelete,
+}: {
+  page: PageItem;
+  onEdit: () => void;
+  onDuplicate: () => void;
+  onRename: () => void;
+  onViewStats: () => void;
+  onPublish: () => void;
+  onDelete: () => void;
+}) {
+  const isDraft = page.status === "draft";
+  return (
+    <tr className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/80 dark:hover:bg-slate-900/50 transition-colors">
+      <td className="py-3 px-4">
+        <div className="min-w-0">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="text-left font-semibold text-[#2563eb] hover:underline truncate block max-w-[240px] sm:max-w-md"
+          >
+            {page.name}
+          </button>
+          <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
+            <span>/{page.slug}</span>
+            <span className="inline-flex items-center gap-1 text-slate-400">
+              <Monitor className="w-3.5 h-3.5" />
+              <Smartphone className="w-3.5 h-3.5" />
+            </span>
+          </p>
+          <p className="text-[11px] text-slate-400 mt-1">
+            Sửa {new Date(page.updatedAt).toLocaleString("vi-VN")}
+          </p>
+        </div>
+      </td>
+      <td className="py-3 px-4 align-middle">
+        <StatusBadgeLadiTable status={page.status} />
+      </td>
+      <td className="py-3 px-4 align-middle text-center">
+        <button type="button" onClick={onViewStats} className="text-[#2563eb] font-semibold text-sm hover:underline">
+          —
+        </button>
+      </td>
+      <td className="py-3 px-4 align-middle text-center">
+        <button type="button" onClick={onViewStats} className="text-[#2563eb] font-semibold text-sm hover:underline">
+          —
+        </button>
+      </td>
+      <td className="py-3 px-4 align-middle text-center text-slate-400 text-sm">—</td>
+      <td className="py-3 px-4 align-middle text-right">
+        <ActionMenu
+          trigger={<MoreVertical className="w-4 h-4" />}
+          align="right"
+          items={[
+            { key: "edit", label: "Chỉnh sửa giao diện", icon: <Pencil className="w-4 h-4" />, onClick: onEdit },
+            { key: "rename", label: "Chỉnh sửa Tên/Tag", icon: <Pencil className="w-4 h-4" />, onClick: onRename },
+            { key: "stats", label: "Báo cáo", icon: <BarChart3 className="w-4 h-4" />, onClick: onViewStats },
+            { key: "duplicate", label: "Nhân bản", icon: <Copy className="w-4 h-4" />, onClick: onDuplicate },
+            ...(isDraft ? [{ key: "publish", label: "Xuất bản", icon: <Send className="w-4 h-4" />, onClick: onPublish }] : []),
+            { key: "divider-delete", type: "divider" as const },
+            { key: "delete", label: "Xóa", icon: <Trash2 className="w-4 h-4" />, onClick: onDelete, variant: "destructive" },
+          ]}
+        />
+      </td>
+    </tr>
+  );
+}
+
 export default function PagesPage() {
   return (
     <Suspense
@@ -127,7 +229,7 @@ export default function PagesPage() {
 }
 
 function PagesInner() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const canCreatePage = usePlanStore((s) => s.canCreatePage);
   const fetchPlan = usePlanStore((s) => s.fetchPlan);
   const hasAi = usePlanStore((s) => s.hasAi);
@@ -150,6 +252,7 @@ function PagesInner() {
   const [pageForStats, setPageForStats] = useState<PageItem | null>(null);
   const [statsData, setStatsData] = useState<{ viewCount: number; conversionCount: number; lastViewedAt: string | null } | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [viewMode, setViewMode] = useState<"grid" | "table">("table");
 
   const activeWorkspace = useMemo(
     () => workspaces.find((w) => w.id === activeWorkspaceId) ?? null,
@@ -291,24 +394,41 @@ function PagesInner() {
 
   return (
     <div className="space-y-6">
-      {/* Toolbar */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-extrabold text-slate-900 dark:text-slate-100">
-            Danh sách Landing Page
+      {/* Toolbar — kiểu LadiPage */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-2xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight">
+            Landing Pages
           </h1>
-          <p className="text-sm text-slate-600 dark:text-slate-300 mt-1 truncate">
+          <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
             {activeWorkspace ? (
               <>
-                Workspace:{" "}
+                Workspace{" "}
                 <span className="font-semibold text-slate-800 dark:text-slate-100">
                   {activeWorkspace.name}
                 </span>
+                {" — "}
+                Quản lý trang đích, trạng thái xuất bản và liên kết.
               </>
             ) : (
               "Chưa có workspace."
             )}
           </p>
+          <div className="mt-4 max-w-xl">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="search"
+                placeholder="Tìm kiếm Landing Page"
+                value={searchParams.get("q") ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setSearchParams(v.trim() ? { q: v } : {});
+                }}
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 pl-10 pr-3 py-2.5 text-sm text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#5e35b1]/40"
+              />
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -336,6 +456,24 @@ function PagesInner() {
             })}
           </div>
 
+          <div className="inline-flex rounded-xl border border-slate-200 dark:border-slate-700 p-0.5 bg-slate-50 dark:bg-slate-900/50">
+            <button
+              type="button"
+              title="Dạng bảng"
+              onClick={() => setViewMode("table")}
+              className={`p-2 rounded-lg transition ${viewMode === "table" ? "bg-white dark:bg-slate-800 shadow-sm text-[#5e35b1]" : "text-slate-500"}`}
+            >
+              <List className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              title="Dạng lưới"
+              onClick={() => setViewMode("grid")}
+              className={`p-2 rounded-lg transition ${viewMode === "grid" ? "bg-white dark:bg-slate-800 shadow-sm text-[#5e35b1]" : "text-slate-500"}`}
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -346,7 +484,7 @@ function PagesInner() {
             <RefreshCw className="w-4 h-4 mr-2" />
             Làm mới
           </Button>
-          <Button size="sm" onClick={() => setCreateOpen(true)}>
+          <Button size="sm" className="bg-[#2563eb] hover:bg-[#1d4ed8] text-white border-0" onClick={() => setCreateOpen(true)}>
             <Plus className="w-4 h-4 mr-2" />
             Tạo Landing Page
           </Button>
@@ -555,6 +693,65 @@ function PagesInner() {
                 Xem templates
               </Button>
             </div>
+          </div>
+        </div>
+      ) : viewMode === "table" ? (
+        <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left min-w-[720px]">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400">
+                  <th className="py-3 px-4 font-semibold">Landing Page</th>
+                  <th className="py-3 px-4 font-semibold">Trạng thái</th>
+                  <th className="py-3 px-4 font-semibold text-center">Truy cập</th>
+                  <th className="py-3 px-4 font-semibold text-center">Chuyển đổi</th>
+                  <th className="py-3 px-4 font-semibold text-center">Doanh thu</th>
+                  <th className="py-3 px-4 font-semibold text-right w-12" />
+                </tr>
+              </thead>
+              <tbody>
+                {filteredPages.map((p) => (
+                  <PagesTableRow
+                    key={p.id}
+                    page={p}
+                    onEdit={() => navigate(`/dashboard/editor/${p.id}?type=responsive`)}
+                    onDuplicate={async () => {
+                      setError("");
+                      try {
+                        await pagesApi.duplicate(p.id);
+                        await load(activeWorkspaceId);
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Nhân bản thất bại.");
+                      }
+                    }}
+                    onRename={() => setPageToRename(p)}
+                    onViewStats={() => setPageForStats(p)}
+                    onPublish={async () => {
+                      setError("");
+                      try {
+                        const res = await pagesApi.publish(p.id);
+                        if (!res.ok && res.error) setError(res.error);
+                        else await load(activeWorkspaceId);
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : "Xuất bản thất bại.");
+                      }
+                    }}
+                    onDelete={() => setPageToDelete(p)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-4 py-2.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/50 text-xs text-slate-500">
+            {filteredPages.length === 0 ? (
+              "Không có bản ghi."
+            ) : (
+              <>
+                Đang hiển thị <span className="font-semibold text-slate-700 dark:text-slate-300">1</span> đến{" "}
+                <span className="font-semibold text-slate-700 dark:text-slate-300">{filteredPages.length}</span> của{" "}
+                <span className="font-semibold text-slate-700 dark:text-slate-300">{filteredPages.length}</span> bản ghi
+              </>
+            )}
           </div>
         </div>
       ) : (

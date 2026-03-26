@@ -8,6 +8,7 @@ public record TemplateDto(
     string? Description,
     string DesignType,
     bool IsFeatured,
+    bool IsPremium,
     int UsageCount,
     DateTime CreatedAt
 );
@@ -20,6 +21,7 @@ public record TemplateDetailDto(
     string? Description,
     string DesignType,
     bool IsFeatured,
+    bool IsPremium,
     int UsageCount,
     string JsonContent,
     DateTime CreatedAt

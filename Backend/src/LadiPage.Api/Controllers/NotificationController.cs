@@ -22,7 +22,8 @@ public class NotificationController : ControllerBase
             return Unauthorized();
         var items = await _db.Notifications.Where(n => n.UserId == userId).OrderByDescending(n => n.CreatedAt).Take(50)
             .Select(n => new { n.Id, n.Title, n.Message, n.Type, n.IsRead, n.CreatedAt }).ToListAsync(ct);
-        return Ok(items);
+        var unread = items.Count(n => !n.IsRead);
+        return Ok(new { items, unread });
     }
 
     [HttpPut("{id:long}/read")]

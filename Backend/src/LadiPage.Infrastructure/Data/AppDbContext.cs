@@ -23,6 +23,7 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<ElementPreset> ElementPresets { get; set; }
     public DbSet<Media> Medias { get; set; }
     public DbSet<Tag> Tags { get; set; }
+    public DbSet<PageTag> PageTags { get; set; }
     public DbSet<CustomDomain> Domains { get; set; }
     public DbSet<FormConfig> FormConfigs { get; set; }
     public DbSet<Notification> Notifications { get; set; }
@@ -171,6 +172,7 @@ public class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.Description).HasColumnName("MoTa").HasMaxLength(500);
             e.Property(x => x.DesignType).HasColumnName("LoaiThietKe").HasMaxLength(30).HasDefaultValue("responsive");
             e.Property(x => x.IsFeatured).HasColumnName("NoiBat").HasDefaultValue(false);
+            e.Property(x => x.IsPremium).HasColumnName("LaPro").HasDefaultValue(false);
             e.Property(x => x.UsageCount).HasColumnName("SoLuotDung").HasDefaultValue(0);
             e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
             e.HasIndex(x => x.Category);
@@ -308,7 +310,20 @@ public class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.Name).HasColumnName("TenNhan").HasMaxLength(100);
             e.Property(x => x.Color).HasColumnName("MauSac").HasMaxLength(20);
             e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
+            e.Property(x => x.UpdatedAt).HasColumnName("NgayCapNhat");
             e.HasOne(x => x.Workspace).WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PageTag>(e =>
+        {
+            e.ToTable("TrangNhan");
+            e.HasKey(x => new { x.PageId, x.TagId });
+            e.Property(x => x.PageId).HasColumnName("MaTrang");
+            e.Property(x => x.TagId).HasColumnName("MaNhan");
+            e.HasOne(x => x.Page).WithMany().HasForeignKey(x => x.PageId).OnDelete(DeleteBehavior.Cascade);
+            // Restrict: SQL Server không cho 2 CASCADE tới TrangNhan (Trang + NhanDan đều CASCADE từ KhongGianLamViec).
+            e.HasOne(x => x.Tag).WithMany().HasForeignKey(x => x.TagId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => x.TagId);
         });
 
         modelBuilder.Entity<CustomDomain>(e =>
@@ -360,6 +375,7 @@ public class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.WorkspaceId).HasColumnName("MaKhongGian");
             e.Property(x => x.Name).HasColumnName("TenSanPham").HasMaxLength(300);
             e.Property(x => x.Price).HasColumnName("GiaTien").HasPrecision(12, 2);
+            e.Property(x => x.SalePrice).HasColumnName("GiaKhuyenMai").HasPrecision(12, 2);
             e.Property(x => x.Description).HasColumnName("MoTa");
             e.Property(x => x.ImageUrl).HasColumnName("AnhSanPham").HasMaxLength(500);
             e.Property(x => x.Category).HasColumnName("DanhMuc").HasMaxLength(100);
@@ -376,11 +392,12 @@ public class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.Id).HasColumnName("MaDonHang");
             e.Property(x => x.WorkspaceId).HasColumnName("MaKhongGian");
             e.Property(x => x.CustomerName).HasColumnName("TenKhachHang").HasMaxLength(200);
-            e.Property(x => x.Email).HasColumnName("Email").HasMaxLength(255);
-            e.Property(x => x.Phone).HasColumnName("SoDienThoai").HasMaxLength(20);
+            // Cột bảng DonHang (code-first / tài liệu schema LadiPage)
+            e.Property(x => x.Email).HasColumnName("EmailKhachHang").HasMaxLength(255);
+            e.Property(x => x.Phone).HasColumnName("SdtKhachHang").HasMaxLength(20);
             e.Property(x => x.ProductId).HasColumnName("MaSanPham");
             e.Property(x => x.Amount).HasColumnName("TongTien").HasPrecision(12, 2);
-            e.Property(x => x.Status).HasColumnName("TrangThai").HasMaxLength(20);
+            e.Property(x => x.Status).HasColumnName("TrangThaiDonHang").HasMaxLength(30);
             e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
             e.HasOne(x => x.Workspace).WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Product).WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.NoAction);

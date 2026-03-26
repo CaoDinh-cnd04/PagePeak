@@ -29,7 +29,7 @@ public class ProductController : ControllerBase
         if (_currentUser.UserId == null) return Unauthorized();
         if (!await _workspaceAccess.CanAccessWorkspaceAsync(_currentUser.UserId.Value, workspaceId)) return NotFound();
         var items = await _db.Products.Where(p => p.WorkspaceId == workspaceId).OrderByDescending(p => p.CreatedAt)
-            .Select(p => new { p.Id, p.Name, p.Price, p.Description, p.ImageUrl, p.Category, p.Stock, p.Status, p.CreatedAt }).ToListAsync(ct);
+            .Select(p => new { p.Id, p.Name, p.Price, p.SalePrice, p.Description, p.ImageUrl, p.Category, p.Stock, p.Status, p.CreatedAt }).ToListAsync(ct);
         return Ok(items);
     }
 
@@ -38,10 +38,22 @@ public class ProductController : ControllerBase
     {
         if (_currentUser.UserId == null) return Unauthorized();
         if (!await _workspaceAccess.CanAccessWorkspaceAsync(_currentUser.UserId.Value, req.WorkspaceId)) return NotFound();
-        var p = new Product { WorkspaceId = req.WorkspaceId, Name = req.Name.Trim(), Price = req.Price, Description = req.Description, ImageUrl = req.ImageUrl, Category = req.Category, Stock = req.Stock, Status = "active", CreatedAt = DateTime.UtcNow };
+        var p = new Product
+        {
+            WorkspaceId = req.WorkspaceId,
+            Name = req.Name.Trim(),
+            Price = req.Price,
+            SalePrice = req.SalePrice,
+            Description = req.Description,
+            ImageUrl = req.ImageUrl,
+            Category = req.Category,
+            Stock = req.Stock,
+            Status = "active",
+            CreatedAt = DateTime.UtcNow,
+        };
         _db.Products.Add(p);
         await _db.SaveChangesAsync(ct);
-        return Ok(new { p.Id, p.Name, p.Price, p.Description, p.ImageUrl, p.Category, p.Stock, p.Status, p.CreatedAt });
+        return Ok(new { p.Id, p.Name, p.Price, p.SalePrice, p.Description, p.ImageUrl, p.Category, p.Stock, p.Status, p.CreatedAt });
     }
 
     [HttpPut("{id:long}")]
@@ -59,7 +71,7 @@ public class ProductController : ControllerBase
         if (req.Stock.HasValue) p.Stock = req.Stock.Value;
         if (!string.IsNullOrWhiteSpace(req.Status)) p.Status = req.Status;
         await _db.SaveChangesAsync(ct);
-        return Ok(new { p.Id, p.Name, p.Price, p.Stock, p.Status });
+        return Ok(new { p.Id, p.Name, p.Price, p.SalePrice, p.Stock, p.Status });
     }
 
     [HttpDelete("{id:long}")]

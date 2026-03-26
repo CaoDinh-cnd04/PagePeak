@@ -19,14 +19,16 @@ public record UpdatePageRequest(string Name, string Slug);
 
 public record CreateTagRequest(long WorkspaceId, string Name, string? Color);
 public record UpdateTagRequest(string? Name, string? Color);
+public record BulkDeleteTagsRequest([property: System.Text.Json.Serialization.JsonPropertyName("ids")] long[]? Ids);
+public record SyncPageTagsRequest([property: System.Text.Json.Serialization.JsonPropertyName("tagIds")] long[]? TagIds);
 
 public record CreateDomainRequest(long WorkspaceId, string DomainName);
 
 public record CreateFormRequest(long WorkspaceId, string Name, string? FieldsJson, string? WebhookUrl, bool EmailNotify);
 public record UpdateFormRequest(string? Name, string? FieldsJson, string? WebhookUrl, bool EmailNotify);
 
-public record CreateProductRequest(long WorkspaceId, string Name, decimal Price, string? Description, string? ImageUrl, string? Category, int Stock);
-public record UpdateProductRequest(string? Name, decimal? Price, string? Description, string? ImageUrl, string? Category, int? Stock, string? Status);
+public record CreateProductRequest(long WorkspaceId, string Name, decimal Price, decimal? SalePrice, string? Description, string? ImageUrl, string? Category, int Stock);
+public record UpdateProductRequest(string? Name, decimal? Price, decimal? SalePrice, string? Description, string? ImageUrl, string? Category, int? Stock, string? Status);
 
 public record CreateOrderRequest(long WorkspaceId, string CustomerName, string? Email, string? Phone, long? ProductId, decimal Amount);
 public record UpdateOrderRequest(string? CustomerName, string? Email, string? Phone, string? Status);

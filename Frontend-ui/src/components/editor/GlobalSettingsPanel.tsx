@@ -65,7 +65,14 @@ export function GlobalSettingsPanel({ onClose, onRequestImagePicker }: { onClose
       resizeHandleStyles={{ right: { cursor: "ew-resize" }, bottom: { cursor: "ns-resize" }, bottomRight: { cursor: "nwse-resize" } }}
       dragHandleClassName="global-settings-drag-handle"
       className="!fixed z-[100] rounded-lg shadow-xl border border-[#e0e0e0] overflow-hidden bg-white flex flex-col"
-      style={{ boxShadow: "0 4px 20px rgba(0,0,0,0.08)" }}
+      style={{
+        boxShadow: "0 4px 20px rgba(0,0,0,0.08)",
+        // react-rnd merges display:inline-block — that breaks flex + flex-1 scroll; override via inline style
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+        minWidth: 0,
+      }}
     >
       {/* Header */}
       <div className="global-settings-drag-handle flex items-center justify-between px-3 py-2 border-b border-[#e0e0e0] shrink-0 cursor-grab active:cursor-grabbing">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   X, GripVertical, Maximize2, Pencil, Zap, Wand2, Settings,
   Copy, Trash2, Lock, Unlock, EyeOff, ArrowUp, ArrowDown,
@@ -15,6 +15,18 @@ import FontPicker from "./FontPicker";
 import { mediaApi } from "@/lib/api";
 import { parseProductDetailContent } from "@/lib/productDetailContent";
 import { parseTabsContent, type TabsItem } from "@/lib/tabsContent";
+import { parseBlogListContent, parseBlogDetailContent, parsePopupContent, parseSocialShareContent } from "@/lib/blogContent";
+import { parseCartContent, type CartLineItem } from "@/lib/cartContent";
+import { productsApi, formsApi, type ProductItem } from "@/lib/api";
+import { parseFieldsJson, type FormFieldDefinition } from "@/lib/formConfigSchema";
+import {
+  COLLECTION_LIST_PRESETS,
+  PRODUCT_DETAIL_PRESETS,
+  CART_PRESETS,
+  BLOG_LIST_PRESETS,
+  BLOG_DETAIL_PRESETS,
+} from "@/lib/editorDataPresets";
+import { saveMyPopup } from "@/lib/popupTemplateCatalog";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
 
@@ -358,6 +370,18 @@ function VideoSettings({
 
 function EventsTab({ el, onUpdate, onPushHistory }: { el: EditorElement, onUpdate: (id: number, partial: any) => void, onPushHistory: () => void }) {
   const sections = useEditorStore((s) => s.sections);
+  const popupTargets = useMemo(
+    () =>
+      sections.flatMap((sec) =>
+        (sec.elements ?? [])
+          .filter((e) => e.type === "popup" && e.id !== el.id)
+          .map((e) => {
+            const p = parsePopupContent(e.content ?? undefined);
+            return { id: e.id, label: p.title?.trim() || `Popup #${e.id}` };
+          }),
+      ),
+    [sections, el.id],
+  );
   const actionType = (el.styles?.actionType as string) ?? "none";
   const actionTarget = (el.styles?.actionTarget as string) ?? "";
   const actionOpenNewTab = (el.styles?.actionOpenNewTab as string) === "true";
@@ -422,17 +446,20 @@ function EventsTab({ el, onUpdate, onPushHistory }: { el: EditorElement, onUpdat
       {actionType === "popup" && (
         <div className="space-y-2 border-t border-slate-100 pt-3">
           <label className="block">
-            <span className="text-[10px] text-slate-400 font-bold block mb-1">Chọn Popup / Hành động</span>
+            <span className="text-[10px] text-slate-400 font-bold block mb-1">Chọn Popup (theo ID phần tử)</span>
             <select value={actionTarget}
               onChange={(e) => { onUpdate(el.id, { styles: { ...el.styles, actionTarget: e.target.value } }); onPushHistory(); }}
               className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white">
               <option value="">-- Chọn --</option>
-              <option value="close">Đóng Popup hiện tại</option>
-              {sections.map((s) => (
-                <option key={s.id} value={s.id.toString()}>{s.name || `Section ${s.order}`}</option>
+              <option value="close">Đóng mọi popup đang mở</option>
+              {popupTargets.map((p) => (
+                <option key={p.id} value={String(p.id)}>{p.label}</option>
               ))}
             </select>
           </label>
+          {popupTargets.length === 0 && el.type !== "popup" && (
+            <p className="text-[10px] text-amber-700 bg-amber-50 rounded px-2 py-1.5">Chưa có phần tử Popup trên trang. Thêm từ nhóm Popup trái.</p>
+          )}
         </div>
       )}
 
@@ -638,20 +665,60 @@ interface PropertyPanelLadiProps {
   onRequestChangeIcon?: (elementId: number) => void;
   onOpenMedia?: () => void;
   onScrollToElement?: () => void;
+  onToast?: (message: string, type?: "success" | "info" | "error") => void;
 }
 
-export function PropertyPanelLadi({ onClose, dragHandleClassName, onRequestAddImage, onRequestChangeIcon, onOpenMedia, onScrollToElement }: PropertyPanelLadiProps) {
+export function PropertyPanelLadi({ onClose, dragHandleClassName, onRequestAddImage, onRequestChangeIcon, onOpenMedia, onScrollToElement, onToast }: PropertyPanelLadiProps) {
   const {
     selected, getSelectedElement, getSelectedSection,
     updateElement, updateSection, removeElement, duplicateElement,
     removeSection, duplicateSection, moveSectionUp, moveSectionDown,
     metaTitle, metaDescription, updatePageMeta, pushHistory,
     moveElementLayer,
+    workspaceId,
   } = useEditorStore();
 
   const [activeTab, setActiveTab] = useState<PropPanelTab>("design");
   const el = getSelectedElement();
   const sec = getSelectedSection();
+  const [catalogProducts, setCatalogProducts] = useState<ProductItem[]>([]);
+  const [workspaceForms, setWorkspaceForms] = useState<{ id: number; name: string; fieldsJson: string }[]>([]);
+  useEffect(() => {
+    if (!el || el.type !== "form" || workspaceId == null) {
+      setWorkspaceForms([]);
+      return;
+    }
+    let cancelled = false;
+    formsApi
+      .list(workspaceId)
+      .then((list) => {
+        if (!cancelled) setWorkspaceForms(list);
+      })
+      .catch(() => {
+        if (!cancelled) setWorkspaceForms([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [el?.type, el?.id, workspaceId]);
+
+  useEffect(() => {
+    if (!el || el.type !== "cart" || workspaceId == null) {
+      return;
+    }
+    let cancelled = false;
+    productsApi
+      .list(workspaceId)
+      .then((list) => {
+        if (!cancelled) setCatalogProducts(list);
+      })
+      .catch(() => {
+        if (!cancelled) setCatalogProducts([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [el?.id, el?.type, workspaceId]);
 
   const getPanelTitle = () => {
     if (selected.type === "element" && el) return el.type.toUpperCase();
@@ -774,7 +841,17 @@ export function PropertyPanelLadi({ onClose, dragHandleClassName, onRequestAddIm
                 <div className="border-t border-slate-100 pt-3 space-y-3">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Thiết lập Form</p>
                   {(() => {
-                    let cfg: { formType?: string; title?: string; buttonText?: string; fields?: { id: string; name?: string; label?: string; placeholder?: string; type?: string }[]; inputStyle?: string; formOtp?: boolean; autoComplete?: boolean } = {};
+                    let cfg: {
+                      formType?: string;
+                      title?: string;
+                      buttonText?: string;
+                      formConfigId?: number;
+                      redirectUrl?: string;
+                      fields?: { id: string; name?: string; label?: string; placeholder?: string; type?: string }[];
+                      inputStyle?: string;
+                      formOtp?: boolean;
+                      autoComplete?: boolean;
+                    } = {};
                     try { cfg = JSON.parse(el.content || "{}"); } catch {}
                     const fields = Array.isArray(cfg.fields) ? cfg.fields : [];
                     const updateForm = (next: typeof cfg) => {
@@ -793,8 +870,70 @@ export function PropertyPanelLadi({ onClose, dragHandleClassName, onRequestAddIm
                       (next[idx] as Record<string, string>)[key] = val;
                       updateForm({ fields: next });
                     };
+                    const syncFromWorkspace = () => {
+                      const id = cfg.formConfigId;
+                      if (id == null) {
+                        onToast?.("Chọn cấu hình form workspace trước.", "info");
+                        return;
+                      }
+                      const wf = workspaceForms.find((x) => x.id === id);
+                      if (!wf) {
+                        onToast?.("Không tìm thấy cấu hình. Hãy làm mới trang hoặc tạo tại Cấu hình Form.", "error");
+                        return;
+                      }
+                      const defs = parseFieldsJson(wf.fieldsJson);
+                      const mapped = defs.map((d: FormFieldDefinition) => ({
+                        id: d.id,
+                        name: d.name,
+                        label: d.label,
+                        placeholder: d.placeholder ?? "",
+                        type: d.type,
+                      }));
+                      updateForm({ fields: mapped, formConfigId: id });
+                      onToast?.("Đã đồng bộ trường từ cấu hình workspace.", "success");
+                    };
                     return (
                       <div className="space-y-2">
+                        {workspaceId != null && (
+                          <div className="px-2 py-2 rounded-lg bg-indigo-50/90 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 space-y-2 mb-1">
+                            <p className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 uppercase tracking-wide">Cấu hình workspace</p>
+                            <label>
+                              <span className="text-[10px] text-slate-500 font-bold block mb-0.5">Gắn bộ trường đã lưu</span>
+                              <select
+                                value={cfg.formConfigId != null ? String(cfg.formConfigId) : ""}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  updateForm({ formConfigId: v ? Number(v) : undefined });
+                                }}
+                                className="w-full px-2 py-1.5 text-[11px] rounded border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900"
+                              >
+                                <option value="">— Chỉnh trực tiếp dưới đây —</option>
+                                {workspaceForms.map((f) => (
+                                  <option key={f.id} value={f.id}>
+                                    {f.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={syncFromWorkspace}
+                                className="text-[10px] font-semibold px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700"
+                              >
+                                Đồng bộ trường
+                              </button>
+                              <a
+                                href="/dashboard/forms"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-indigo-600 hover:underline"
+                              >
+                                Mở Cấu hình Form
+                              </a>
+                            </div>
+                          </div>
+                        )}
                         <label><span className="text-[10px] text-slate-400 font-bold block mb-0.5">Loại form</span>
                           <select value={cfg.formType ?? "contact"} onChange={(e) => updateForm({ formType: e.target.value })}
                             className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white">
@@ -812,6 +951,19 @@ export function PropertyPanelLadi({ onClose, dragHandleClassName, onRequestAddIm
                         <label><span className="text-[10px] text-slate-400 font-bold block mb-0.5">Nút gửi</span>
                           <input type="text" value={cfg.buttonText ?? "Gửi"} onChange={(e) => updateForm({ buttonText: e.target.value })} onBlur={() => pushHistory()}
                             className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white" /></label>
+                        {cfg.formType !== "login" && (
+                          <label>
+                            <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Chuyển hướng sau khi gửi (tùy chọn)</span>
+                            <input
+                              type="url"
+                              value={cfg.redirectUrl ?? ""}
+                              onChange={(e) => updateForm({ redirectUrl: e.target.value || undefined })}
+                              onBlur={() => pushHistory()}
+                              className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white"
+                              placeholder="https://... (cảm ơn / thank-you)"
+                            />
+                          </label>
+                        )}
                         <label><span className="text-[10px] text-slate-400 font-bold block mb-0.5">Kiểu ô nhập</span>
                           <select value={cfg.inputStyle ?? "outlined"} onChange={(e) => updateForm({ inputStyle: e.target.value })}
                             className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white">
@@ -906,6 +1058,28 @@ export function PropertyPanelLadi({ onClose, dragHandleClassName, onRequestAddIm
               {el.type === "product-detail" && (
                 <div className="border-t border-slate-100 pt-3 space-y-3">
                   <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-2">Sản phẩm chi tiết</p>
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Mẫu dữ liệu</p>
+                    <div className="grid grid-cols-1 gap-1 max-h-52 overflow-y-auto pr-0.5">
+                      {PRODUCT_DETAIL_PRESETS.map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            updateElement(el.id, {
+                              content: JSON.stringify(preset.content),
+                              styles: { ...el.styles, ...(preset.styles ?? {}) },
+                            });
+                            pushHistory();
+                          }}
+                          className="text-left px-2.5 py-2 rounded-lg border border-slate-200 bg-white hover:border-indigo-400 hover:bg-indigo-50/50 transition-colors"
+                        >
+                          <span className="block text-[11px] font-semibold text-slate-800">{preset.name}</span>
+                          <span className="block text-[9px] text-slate-500 leading-snug">{preset.description}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   {(() => {
                     const pd = parseProductDetailContent(el.content ?? undefined);
                     const imgs = pd.images;
@@ -967,7 +1141,15 @@ export function PropertyPanelLadi({ onClose, dragHandleClassName, onRequestAddIm
               )}
               {el.type === "collection-list" && (
                 <div className="border-t border-slate-100 pt-3 space-y-3">
-                  <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-2">Danh sách sản phẩm</p>
+                  <div>
+                    <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-1">Danh sách sản phẩm</p>
+                    <div className="rounded-lg border border-indigo-100 bg-gradient-to-br from-indigo-50/90 to-slate-50/80 p-2.5">
+                      <p className="text-[10px] text-slate-700 leading-snug">
+                        Đây là khối <span className="font-semibold text-indigo-900">dữ liệu lưới</span> (ảnh, tên, giá) lưu trong trang — hiển thị giống catalog,{" "}
+                        <span className="font-medium">không phải nút</span> trên bản xuất bản. Sidebar: kéo thả hoặc nhấn để thêm khối; chỉnh từng ô tại đây.
+                      </p>
+                    </div>
+                  </div>
                   {(() => {
                     let cl: { items?: { image?: string; title?: string; price?: string }[]; columns?: number } = {};
                     try { cl = JSON.parse(el.content || "{}"); } catch {}
@@ -992,47 +1174,772 @@ export function PropertyPanelLadi({ onClose, dragHandleClassName, onRequestAddIm
                       updateCl({ items: newItems });
                     };
                     return (
-                      <div className="space-y-2">
-                        <label><span className="text-[10px] text-slate-400 font-bold block mb-0.5">Số cột</span>
-                          <input type="number" min={1} max={6} value={cl.columns ?? 3} onChange={(e) => updateCl({ columns: Number(e.target.value) })} onBlur={() => pushHistory()}
-                            className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white" /></label>
-                        {onRequestAddImage && (
-                          <button type="button" onClick={() => updateCl({ items: [...items, { image: "", title: `Sản phẩm ${items.length + 1}`, price: "0đ" }] })}
-                            className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-indigo-50/50 text-indigo-700 text-[11px] font-semibold">
-                            <Plus className="w-4 h-4" /> Thêm mục
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Mẫu dữ liệu</p>
+                          <p className="text-[9px] text-slate-400 mb-1.5">Chọn để thay toàn bộ lưới + màu nền (có thể sửa lại sau).</p>
+                          <div className="grid grid-cols-1 gap-1 max-h-64 overflow-y-auto pr-0.5">
+                            {COLLECTION_LIST_PRESETS.map((preset) => (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                onClick={() => {
+                                  updateElement(el.id, {
+                                    content: JSON.stringify(preset.content),
+                                    styles: { ...el.styles, ...(preset.styles ?? {}) },
+                                  });
+                                  pushHistory();
+                                }}
+                                className="text-left px-2.5 py-2 rounded-lg border border-slate-200 bg-white hover:border-indigo-400 hover:bg-indigo-50/50 transition-colors"
+                              >
+                                <span className="block text-[11px] font-semibold text-slate-800">{preset.name}</span>
+                                <span className="block text-[9px] text-slate-500 leading-snug">{preset.description}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Bố cục</p>
+                          <div className="grid grid-cols-1 gap-2">
+                            <label>
+                              <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Số cột</span>
+                              <input
+                                type="number"
+                                min={1}
+                                max={6}
+                                value={cl.columns ?? 3}
+                                onChange={(e) => updateCl({ columns: Number(e.target.value) })}
+                                onBlur={() => pushHistory()}
+                                className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white"
+                              />
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                              <label>
+                                <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Màu nền lưới</span>
+                                <input
+                                  type="color"
+                                  value={(el.styles?.backgroundColor as string) ?? "#f8fafc"}
+                                  onChange={(e) => updateElement(el.id, { styles: { ...el.styles, backgroundColor: e.target.value } })}
+                                  onBlur={() => pushHistory()}
+                                  className="w-full h-8 rounded border border-slate-200 cursor-pointer"
+                                />
+                              </label>
+                              <label>
+                                <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Bo góc</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={(el.styles?.borderRadius as number) ?? 12}
+                                  onChange={(e) => updateElement(el.id, { styles: { ...el.styles, borderRadius: Number(e.target.value) } })}
+                                  onBlur={() => pushHistory()}
+                                  className="w-full px-1.5 py-1 text-[11px] rounded border border-slate-200 bg-white"
+                                />
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div>
+                          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Dữ liệu từng ô</p>
+                          <button
+                            type="button"
+                            onClick={() => updateCl({ items: [...items, { image: "", title: `Sản phẩm ${items.length + 1}`, price: "0đ" }] })}
+                            className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg border border-dashed border-slate-300 hover:border-indigo-400 hover:bg-indigo-50/40 text-slate-700 text-[11px] font-medium transition-colors"
+                          >
+                            <Plus className="w-4 h-4 text-indigo-600" /> Thêm sản phẩm vào lưới
                           </button>
-                        )}
-                        <div className="space-y-2 max-h-48 overflow-y-auto">
-                          {items.map((item, idx) => (
+                          <div className="space-y-2 max-h-52 overflow-y-auto mt-2">
+                            {items.length === 0 && (
+                              <p className="text-[10px] text-slate-400 text-center py-3 border border-dashed border-slate-200 rounded-lg">Chưa có ô nào — nhấn nút trên để thêm dòng dữ liệu.</p>
+                            )}
+                            {items.map((item, idx) => (
+                              <div key={idx} className="p-2.5 rounded-lg border border-slate-200 bg-white shadow-sm space-y-1.5">
+                                <p className="text-[9px] font-bold text-slate-400 uppercase">Ô {idx + 1}</p>
+                                <div className="flex items-start gap-1.5">
+                                  <div
+                                    className="w-11 h-11 rounded-md overflow-hidden shrink-0 bg-slate-100 border border-slate-200 cursor-pointer flex items-center justify-center text-[9px] text-slate-400"
+                                    style={{ backgroundImage: item.image ? `url(${item.image})` : undefined, backgroundSize: "cover" }}
+                                    onClick={() => onRequestAddImage?.(el.id, idx)}
+                                    title={onRequestAddImage ? "Chọn ảnh từ Media" : "Thêm URL ảnh ở ô bên dưới nếu không dùng Media"}
+                                    role="presentation"
+                                  >
+                                    {!item.image && "Ảnh"}
+                                  </div>
+                                  <div className="flex-1 min-w-0 space-y-0.5">
+                                    <input
+                                      type="text"
+                                      value={item.title ?? ""}
+                                      onChange={(e) => updateItem(idx, { title: e.target.value })}
+                                      onBlur={() => pushHistory()}
+                                      className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white"
+                                      placeholder="Tên hiển thị"
+                                    />
+                                    <input
+                                      type="text"
+                                      value={item.price ?? ""}
+                                      onChange={(e) => updateItem(idx, { price: e.target.value })}
+                                      onBlur={() => pushHistory()}
+                                      className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white"
+                                      placeholder="Giá (vd: 299.000đ)"
+                                    />
+                                  </div>
+                                  <div className="flex flex-col gap-0.5 shrink-0">
+                                    {onRequestAddImage && (
+                                      <button
+                                        type="button"
+                                        onClick={() => onRequestAddImage(el.id, idx)}
+                                        className="p-1 rounded hover:bg-indigo-100 text-indigo-600"
+                                        title="Thư viện ảnh"
+                                      >
+                                        <Upload className="w-3 h-3" />
+                                      </button>
+                                    )}
+                                    <button type="button" onClick={() => removeItem(idx)} className="p-1 rounded hover:bg-red-100 text-red-500" title="Xóa ô">
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="flex gap-0.5 justify-end">
+                                  <button type="button" disabled={idx === 0} onClick={() => moveItem(idx, -1)} className="px-1.5 py-0.5 text-[9px] rounded bg-slate-100 hover:bg-slate-200 disabled:opacity-40">
+                                    Lên
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={idx >= items.length - 1}
+                                    onClick={() => moveItem(idx, 1)}
+                                    className="px-1.5 py-0.5 text-[9px] rounded bg-slate-100 hover:bg-slate-200 disabled:opacity-40"
+                                  >
+                                    Xuống
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+              {el.type === "blog-list" && (
+                <div className="border-t border-slate-100 pt-3 space-y-3">
+                  <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-2">Danh sách bài viết</p>
+                  <p className="text-[10px] text-slate-600 leading-snug rounded-lg border border-indigo-100 bg-indigo-50/60 px-2.5 py-2">
+                    Khối hiển thị <strong>danh sách bài</strong> (ảnh, tiêu đề, mô tả). Kéo từ sidebar hoặc chọn mẫu bên dưới, rồi chỉnh từng bài ở phần sau.
+                  </p>
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Mẫu dữ liệu</p>
+                    <div className="grid grid-cols-1 gap-1 max-h-52 overflow-y-auto pr-0.5">
+                      {BLOG_LIST_PRESETS.map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            updateElement(el.id, {
+                              content: JSON.stringify({
+                                columns: preset.content.columns ?? 2,
+                                posts: preset.content.posts ?? [],
+                              }),
+                              styles: { ...el.styles, ...(preset.styles ?? {}) },
+                            });
+                            pushHistory();
+                          }}
+                          className="text-left px-2.5 py-2 rounded-lg border border-slate-200 bg-white hover:border-indigo-400 hover:bg-indigo-50/50 transition-colors"
+                        >
+                          <span className="block text-[11px] font-semibold text-slate-800">{preset.name}</span>
+                          <span className="block text-[9px] text-slate-500 leading-snug">{preset.description}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {(() => {
+                    const bl = parseBlogListContent(el.content ?? undefined);
+                    const posts = bl.posts ?? [];
+                    const updateBl = (next: Partial<{ columns?: number; posts?: typeof posts }>) => {
+                      updateElement(el.id, { content: JSON.stringify({ columns: bl.columns ?? 2, posts: bl.posts ?? [], ...next }) });
+                      pushHistory();
+                    };
+                    const updatePost = (idx: number, next: Partial<{ title: string; excerpt: string; date: string; image: string }>) => {
+                      const newPosts = [...posts];
+                      if (idx >= 0 && idx < newPosts.length) {
+                        newPosts[idx] = { ...newPosts[idx], ...next };
+                        updateBl({ posts: newPosts });
+                      }
+                    };
+                    const removePost = (idx: number) => updateBl({ posts: posts.filter((_, i) => i !== idx) });
+                    const movePost = (idx: number, dir: number) => {
+                      const j = idx + dir;
+                      if (j < 0 || j >= posts.length) return;
+                      const newPosts = [...posts];
+                      [newPosts[idx], newPosts[j]] = [newPosts[j], newPosts[idx]];
+                      updateBl({ posts: newPosts });
+                    };
+                    return (
+                      <div className="space-y-2">
+                        <label>
+                          <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Số cột</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={3}
+                            value={bl.columns ?? 2}
+                            onChange={(e) => updateBl({ columns: Number(e.target.value) })}
+                            onBlur={() => pushHistory()}
+                            className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateBl({
+                              posts: [...posts, { title: `Bài ${posts.length + 1}`, excerpt: "", date: "", image: "" }],
+                            })
+                          }
+                          className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-indigo-50/50 text-indigo-700 text-[11px] font-semibold"
+                        >
+                          <Plus className="w-4 h-4" /> Thêm bài
+                        </button>
+                        <div className="space-y-2 max-h-56 overflow-y-auto">
+                          {posts.map((post, idx) => (
                             <div key={idx} className="p-2 rounded border border-slate-200 bg-slate-50/50 space-y-1.5">
-                              <div className="flex items-center gap-1.5">
-                                <div className="w-10 h-10 rounded overflow-hidden shrink-0 bg-slate-200 cursor-pointer" style={{ backgroundImage: item.image ? `url(${item.image})` : undefined, backgroundSize: "cover" }}
-                                  onClick={() => onRequestAddImage?.(el.id, idx)} title="Thay ảnh" />
+                              <div className="flex items-start gap-1.5">
+                                <div
+                                  className="w-12 h-10 rounded overflow-hidden shrink-0 bg-slate-200 cursor-pointer"
+                                  style={{ backgroundImage: post.image ? `url(${post.image})` : undefined, backgroundSize: "cover" }}
+                                  onClick={() => onRequestAddImage?.(el.id, idx)}
+                                  role="presentation"
+                                />
                                 <div className="flex-1 min-w-0 space-y-0.5">
-                                  <input type="text" value={item.title ?? ""} onChange={(e) => updateItem(idx, { title: e.target.value })} onBlur={() => pushHistory()}
-                                    className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white" placeholder="Tên" />
-                                  <input type="text" value={item.price ?? ""} onChange={(e) => updateItem(idx, { price: e.target.value })} onBlur={() => pushHistory()}
-                                    className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white" placeholder="Giá" />
+                                  <input
+                                    type="text"
+                                    value={post.title ?? ""}
+                                    onChange={(e) => updatePost(idx, { title: e.target.value })}
+                                    onBlur={() => pushHistory()}
+                                    className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white font-semibold"
+                                    placeholder="Tiêu đề"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={post.excerpt ?? ""}
+                                    onChange={(e) => updatePost(idx, { excerpt: e.target.value })}
+                                    onBlur={() => pushHistory()}
+                                    className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white"
+                                    placeholder="Mô tả ngắn"
+                                  />
+                                  <input
+                                    type="text"
+                                    value={post.date ?? ""}
+                                    onChange={(e) => updatePost(idx, { date: e.target.value })}
+                                    onBlur={() => pushHistory()}
+                                    className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white"
+                                    placeholder="Ngày"
+                                  />
                                 </div>
                                 <div className="flex flex-col gap-0.5">
-                                  <button type="button" onClick={() => onRequestAddImage?.(el.id, idx)} className="p-1 rounded hover:bg-indigo-100 text-indigo-600" title="Thay ảnh"><Upload className="w-3 h-3" /></button>
-                                  <button type="button" onClick={() => removeItem(idx)} className="p-1 rounded hover:bg-red-100 text-red-500" title="Xóa"><Trash2 className="w-3 h-3" /></button>
+                                  <button type="button" onClick={() => onRequestAddImage?.(el.id, idx)} className="p-1 rounded hover:bg-indigo-100 text-indigo-600" title="Ảnh">
+                                    <Upload className="w-3 h-3" />
+                                  </button>
+                                  <button type="button" onClick={() => removePost(idx)} className="p-1 rounded hover:bg-red-100 text-red-500" title="Xóa">
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
                                 </div>
                               </div>
                               <div className="flex gap-0.5">
-                                <button type="button" disabled={idx === 0} onClick={() => moveItem(idx, -1)} className="px-1.5 py-0.5 text-[9px] rounded bg-slate-200 hover:bg-slate-300 disabled:opacity-40">↑</button>
-                                <button type="button" disabled={idx >= items.length - 1} onClick={() => moveItem(idx, 1)} className="px-1.5 py-0.5 text-[9px] rounded bg-slate-200 hover:bg-slate-300 disabled:opacity-40">↓</button>
+                                <button type="button" disabled={idx === 0} onClick={() => movePost(idx, -1)} className="px-1.5 py-0.5 text-[9px] rounded bg-slate-200 hover:bg-slate-300 disabled:opacity-40">
+                                  ↑
+                                </button>
+                                <button type="button" disabled={idx >= posts.length - 1} onClick={() => movePost(idx, 1)} className="px-1.5 py-0.5 text-[9px] rounded bg-slate-200 hover:bg-slate-300 disabled:opacity-40">
+                                  ↓
+                                </button>
                               </div>
                             </div>
                           ))}
                         </div>
                         <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
-                          <label><span className="text-[10px] text-slate-400 font-bold block mb-0.5">Màu nền</span>
-                            <input type="color" value={(el.styles?.backgroundColor as string) ?? "#f8fafc"} onChange={(e) => updateElement(el.id, { styles: { ...el.styles, backgroundColor: e.target.value } })} onBlur={() => pushHistory()}
-                              className="w-full h-8 rounded border border-slate-200 cursor-pointer" /></label>
-                          <label><span className="text-[10px] text-slate-400 font-bold block mb-0.5">Bo góc</span>
-                            <input type="number" min={0} value={(el.styles?.borderRadius as number) ?? 12} onChange={(e) => updateElement(el.id, { styles: { ...el.styles, borderRadius: Number(e.target.value) } })} onBlur={() => pushHistory()}
-                              className="w-full px-1.5 py-1 text-[11px] rounded border border-slate-200 bg-white" /></label>
+                          <label>
+                            <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Màu nền</span>
+                            <input
+                              type="color"
+                              value={(el.styles?.backgroundColor as string) ?? "#f8fafc"}
+                              onChange={(e) => updateElement(el.id, { styles: { ...el.styles, backgroundColor: e.target.value } })}
+                              onBlur={() => pushHistory()}
+                              className="w-full h-8 rounded border border-slate-200 cursor-pointer"
+                            />
+                          </label>
+                          <label>
+                            <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Cỡ chữ</span>
+                            <input
+                              type="number"
+                              min={10}
+                              max={24}
+                              value={(el.styles?.fontSize as number) ?? 14}
+                              onChange={(e) => updateElement(el.id, { styles: { ...el.styles, fontSize: Number(e.target.value) } })}
+                              onBlur={() => pushHistory()}
+                              className="w-full px-1.5 py-1 text-[11px] rounded border border-slate-200 bg-white"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+              {el.type === "blog-detail" && (
+                <div className="border-t border-slate-100 pt-3 space-y-3">
+                  <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-2">Chi tiết bài viết</p>
+                  <p className="text-[10px] text-slate-600 leading-snug rounded-lg border border-indigo-100 bg-indigo-50/60 px-2.5 py-2">
+                    Khối <strong> một bài đầy đủ</strong> (tiêu đề, tác giả, ngày, nội dung). Chọn mẫu để nạp nhanh, sau đó sửa trực tiếp các ô bên dưới.
+                  </p>
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Mẫu dữ liệu</p>
+                    <div className="grid grid-cols-1 gap-1 max-h-48 overflow-y-auto pr-0.5">
+                      {BLOG_DETAIL_PRESETS.map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            updateElement(el.id, {
+                              content: JSON.stringify(preset.content),
+                              styles: { ...el.styles, ...(preset.styles ?? {}) },
+                            });
+                            pushHistory();
+                          }}
+                          className="text-left px-2.5 py-2 rounded-lg border border-slate-200 bg-white hover:border-indigo-400 hover:bg-indigo-50/50 transition-colors"
+                        >
+                          <span className="block text-[11px] font-semibold text-slate-800">{preset.name}</span>
+                          <span className="block text-[9px] text-slate-500 leading-snug">{preset.description}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {(() => {
+                    const bd = parseBlogDetailContent(el.content ?? undefined);
+                    const updateBd = (next: Partial<typeof bd>) => {
+                      updateElement(el.id, { content: JSON.stringify({ ...bd, ...next }) });
+                      pushHistory();
+                    };
+                    return (
+                      <div className="space-y-2">
+                        <label>
+                          <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Tiêu đề</span>
+                          <input type="text" value={bd.title ?? ""} onChange={(e) => updateBd({ title: e.target.value })} onBlur={() => pushHistory()} className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white" />
+                        </label>
+                        <label>
+                          <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Tác giả</span>
+                          <input type="text" value={bd.author ?? ""} onChange={(e) => updateBd({ author: e.target.value })} onBlur={() => pushHistory()} className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white" />
+                        </label>
+                        <label>
+                          <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Ngày</span>
+                          <input type="text" value={bd.date ?? ""} onChange={(e) => updateBd({ date: e.target.value })} onBlur={() => pushHistory()} className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white" />
+                        </label>
+                        <label>
+                          <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Nội dung (HTML hoặc văn bản)</span>
+                          <textarea value={bd.body ?? ""} onChange={(e) => updateBd({ body: e.target.value })} onBlur={() => pushHistory()} rows={8} className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white resize-y min-h-[120px] font-mono" />
+                        </label>
+                        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                          <label>
+                            <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Màu nền</span>
+                            <input
+                              type="color"
+                              value={(el.styles?.backgroundColor as string) ?? "#ffffff"}
+                              onChange={(e) => updateElement(el.id, { styles: { ...el.styles, backgroundColor: e.target.value } })}
+                              onBlur={() => pushHistory()}
+                              className="w-full h-8 rounded border border-slate-200 cursor-pointer"
+                            />
+                          </label>
+                          <label>
+                            <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Cỡ chữ</span>
+                            <input
+                              type="number"
+                              min={10}
+                              max={28}
+                              value={(el.styles?.fontSize as number) ?? 15}
+                              onChange={(e) => updateElement(el.id, { styles: { ...el.styles, fontSize: Number(e.target.value) } })}
+                              onBlur={() => pushHistory()}
+                              className="w-full px-1.5 py-1 text-[11px] rounded border border-slate-200 bg-white"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+              {el.type === "popup" && (
+                <div className="border-t border-slate-100 pt-3 space-y-3">
+                  <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-2">Popup</p>
+                  {(() => {
+                    const pop = parsePopupContent(el.content ?? undefined);
+                    const updatePop = (next: Partial<typeof pop>) => {
+                      updateElement(el.id, { content: JSON.stringify({ ...pop, ...next }) });
+                      pushHistory();
+                    };
+                    const popupFlat = Number(el.styles?.popupFlat) === 1;
+                    return (
+                      <div className="space-y-2">
+                        <label>
+                          <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Tiêu đề</span>
+                          <input type="text" value={pop.title ?? ""} onChange={(e) => updatePop({ title: e.target.value })} onBlur={() => pushHistory()} className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white" />
+                        </label>
+                        <label>
+                          <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Nội dung</span>
+                          <textarea value={pop.body ?? ""} onChange={(e) => updatePop({ body: e.target.value })} onBlur={() => pushHistory()} rows={6} className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white resize-y min-h-[72px]" />
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer py-1">
+                          <input
+                            type="checkbox"
+                            checked={popupFlat}
+                            onChange={(e) => {
+                              updateElement(el.id, { styles: { ...el.styles, popupFlat: e.target.checked ? 1 : 0 } });
+                              pushHistory();
+                            }}
+                            className="rounded border-slate-300 text-[#1e2d7d]"
+                          />
+                          <span className="text-[11px] text-slate-700">Một khối (không tách thanh tiêu đề)</span>
+                        </label>
+                        {!popupFlat && (
+                          <div className="grid grid-cols-2 gap-2">
+                            <label>
+                              <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Nền thanh tiêu đề</span>
+                              <input
+                                type="color"
+                                value={(el.styles?.headerBackgroundColor as string) ?? "#1e293b"}
+                                onChange={(e) => updateElement(el.id, { styles: { ...el.styles, headerBackgroundColor: e.target.value } })}
+                                onBlur={() => pushHistory()}
+                                className="w-full h-8 rounded border border-slate-200 cursor-pointer"
+                              />
+                            </label>
+                            <label>
+                              <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Chữ tiêu đề</span>
+                              <input
+                                type="color"
+                                value={(el.styles?.headerTextColor as string) ?? "#ffffff"}
+                                onChange={(e) => updateElement(el.id, { styles: { ...el.styles, headerTextColor: e.target.value } })}
+                                onBlur={() => pushHistory()}
+                                className="w-full h-8 rounded border border-slate-200 cursor-pointer"
+                              />
+                            </label>
+                          </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100">
+                          <label>
+                            <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Màu nền khối</span>
+                            <input
+                              type="color"
+                              value={(el.styles?.backgroundColor as string) ?? "#ffffff"}
+                              onChange={(e) => updateElement(el.id, { styles: { ...el.styles, backgroundColor: e.target.value } })}
+                              onBlur={() => pushHistory()}
+                              className="w-full h-8 rounded border border-slate-200 cursor-pointer"
+                            />
+                          </label>
+                          <label>
+                            <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Chữ nội dung</span>
+                            <input
+                              type="color"
+                              value={(el.styles?.bodyTextColor as string) ?? (el.styles?.color as string) ?? "#334155"}
+                              onChange={(e) => updateElement(el.id, { styles: { ...el.styles, bodyTextColor: e.target.value } })}
+                              onBlur={() => pushHistory()}
+                              className="w-full h-8 rounded border border-slate-200 cursor-pointer"
+                            />
+                          </label>
+                          <label>
+                            <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Bo góc</span>
+                            <input
+                              type="number"
+                              min={0}
+                              value={(el.styles?.borderRadius as number) ?? 12}
+                              onChange={(e) => updateElement(el.id, { styles: { ...el.styles, borderRadius: Number(e.target.value) } })}
+                              onBlur={() => pushHistory()}
+                              className="w-full px-1.5 py-1 text-[11px] rounded border border-slate-200 bg-white"
+                            />
+                          </label>
+                          {popupFlat && (
+                            <label>
+                              <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Chữ tiêu đề</span>
+                              <input
+                                type="color"
+                                value={(el.styles?.headerTextColor as string) ?? (el.styles?.color as string) ?? "#0f172a"}
+                                onChange={(e) => updateElement(el.id, { styles: { ...el.styles, headerTextColor: e.target.value } })}
+                                onBlur={() => pushHistory()}
+                                className="w-full h-8 rounded border border-slate-200 cursor-pointer"
+                              />
+                            </label>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const name = window.prompt("Tên mẫu (hiển thị trong Popup của tôi)", pop.title?.trim() || "Popup của tôi");
+                            if (name == null || !String(name).trim()) return;
+                            saveMyPopup({
+                              id: `my-${Date.now()}`,
+                              name: String(name).trim(),
+                              content: el.content ?? "{}",
+                              width: el.width ?? 500,
+                              height: el.height ?? 400,
+                              styles: { ...el.styles },
+                            });
+                            window.dispatchEvent(new CustomEvent("ladipage-my-popups-changed"));
+                            onToast?.("Đã lưu vào mục Popup của tôi", "success");
+                          }}
+                          className="w-full py-2 rounded-lg bg-[#1e2d7d] hover:bg-[#162558] text-white text-[11px] font-semibold transition"
+                        >
+                          Lưu làm mẫu của tôi
+                        </button>
+                        <p className="text-[9px] text-slate-400 leading-snug">Mẫu lưu trong trình duyệt (localStorage). Mở Quản lý Popup → tab Popup của tôi để chèn lại.</p>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+              {el.type === "social-share" && (
+                <div className="border-t border-slate-100 pt-3 space-y-3">
+                  <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-2">Chia sẻ MXH</p>
+                  {(() => {
+                    const sd = parseSocialShareContent(el.content ?? undefined);
+                    const nets = sd.networks ?? ["facebook", "twitter", "linkedin", "link"];
+                    const all = ["facebook", "twitter", "linkedin", "instagram", "zalo", "link"] as const;
+                    const toggle = (id: string) => {
+                      const has = nets.includes(id);
+                      const next = has ? nets.filter((n) => n !== id) : [...nets, id];
+                      updateElement(el.id, { content: JSON.stringify({ networks: next.length ? next : ["facebook"] }) });
+                      pushHistory();
+                    };
+                    return (
+                      <div className="space-y-2">
+                        <p className="text-[10px] text-slate-500">Chọn nút hiển thị khi xuất bản</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {all.map((id) => (
+                            <button
+                              key={id}
+                              type="button"
+                              onClick={() => toggle(id)}
+                              className={`px-2 py-1 rounded text-[10px] font-medium border ${nets.includes(id) ? "bg-indigo-600 text-white border-indigo-600" : "bg-slate-50 text-slate-600 border-slate-200"}`}
+                            >
+                              {id}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+              {el.type === "cart" && (
+                <div className="border-t border-slate-100 pt-3 space-y-3">
+                  <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-2">Giỏ hàng</p>
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Mẫu dữ liệu</p>
+                    <p className="text-[9px] text-slate-400">Chọn để nạp nhanh dòng sản phẩm + nền (vẫn chỉnh tay sau).</p>
+                    <div className="grid grid-cols-1 gap-1 max-h-52 overflow-y-auto pr-0.5">
+                      {CART_PRESETS.map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            updateElement(el.id, {
+                              content: preset.contentJson,
+                              styles: { ...el.styles, ...(preset.styles ?? {}) },
+                            });
+                            pushHistory();
+                          }}
+                          className="text-left px-2.5 py-2 rounded-lg border border-slate-200 bg-white hover:border-indigo-400 hover:bg-indigo-50/50 transition-colors"
+                        >
+                          <span className="block text-[11px] font-semibold text-slate-800">{preset.name}</span>
+                          <span className="block text-[9px] text-slate-500 leading-snug">{preset.description}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {(() => {
+                    const cart = parseCartContent(el.content ?? undefined);
+                    const fmt = (n: number) =>
+                      `${n.toLocaleString("vi-VN", { maximumFractionDigits: 0 })}${cart.currency === "USD" ? " $" : "đ"}`;
+                    const productLine = (p: ProductItem): CartLineItem => ({
+                      productId: p.id,
+                      title: p.name,
+                      price: fmt(p.salePrice != null && p.salePrice > 0 ? Number(p.salePrice) : Number(p.price)),
+                      qty: 1,
+                      image: p.imageUrl ?? "",
+                    });
+                    const updateCart = (next: Partial<typeof cart>) => {
+                      updateElement(el.id, { content: JSON.stringify({ ...cart, ...next }) });
+                      pushHistory();
+                    };
+                    const setSource = (dataSource: "static" | "catalog") => {
+                      if (dataSource === "catalog" && workspaceId && catalogProducts.length) {
+                        const ids = cart.productIds?.length
+                          ? cart.productIds
+                          : catalogProducts.slice(0, 3).map((p) => p.id);
+                        const items = ids.map((id) => {
+                          const p = catalogProducts.find((x) => x.id === id);
+                          return p ? productLine(p) : ({ productId: id, title: `#${id}`, price: "—", qty: 1, image: "" } satisfies CartLineItem);
+                        });
+                        updateCart({ dataSource: "catalog", productIds: ids, items });
+                      } else {
+                        updateCart({ dataSource: "static", productIds: [] });
+                      }
+                    };
+                    const toggleProductId = (pid: number) => {
+                      const cur = new Set(cart.productIds ?? []);
+                      if (cur.has(pid)) cur.delete(pid);
+                      else cur.add(pid);
+                      const ids = [...cur];
+                      const items = ids
+                        .map((id) => catalogProducts.find((x) => x.id === id))
+                        .filter((p): p is ProductItem => !!p)
+                        .map(productLine);
+                      updateCart({ dataSource: "catalog", productIds: ids, items });
+                    };
+                    const items = cart.items ?? [];
+                    const updateItem = (idx: number, patch: Partial<CartLineItem>) => {
+                      const next = [...items];
+                      if (idx >= 0 && idx < next.length) {
+                        next[idx] = { ...next[idx], ...patch };
+                        updateCart({ items: next });
+                      }
+                    };
+                    const addStaticRow = () => updateCart({ items: [...items, { title: `SP ${items.length + 1}`, price: "0đ", qty: 1, image: "" }] });
+                    const removeItem = (idx: number) => updateCart({ items: items.filter((_, i) => i !== idx) });
+                    return (
+                      <div className="space-y-2">
+                        <label>
+                          <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Nguồn dữ liệu</span>
+                          <select
+                            value={cart.dataSource ?? "static"}
+                            onChange={(e) => setSource(e.target.value as "static" | "catalog")}
+                            className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white"
+                          >
+                            <option value="static">Tĩnh (nhập tay)</option>
+                            <option value="catalog" disabled={!workspaceId}>
+                              Theo sản phẩm workspace
+                            </option>
+                          </select>
+                        </label>
+                        {(cart.dataSource ?? "static") === "catalog" && (
+                          <div className="space-y-1 max-h-40 overflow-y-auto rounded border border-slate-200 p-2 bg-slate-50/50">
+                            {!workspaceId && <p className="text-[10px] text-amber-600">Chưa gắn workspace cho trang.</p>}
+                            {workspaceId && catalogProducts.length === 0 && (
+                              <p className="text-[10px] text-slate-500">Chưa có sản phẩm — thêm tại mục Sản phẩm dashboard.</p>
+                            )}
+                            {catalogProducts.map((p) => {
+                              const on = (cart.productIds ?? []).includes(p.id);
+                              return (
+                                <label key={p.id} className="flex items-center gap-2 text-[10px] cursor-pointer">
+                                  <input type="checkbox" checked={on} onChange={() => toggleProductId(p.id)} />
+                                  <span className="truncate flex-1">{p.name}</span>
+                                  <span className="text-slate-400 shrink-0">{fmt(Number(p.salePrice ?? p.price))}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                        {(cart.dataSource ?? "static") === "static" && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={addStaticRow}
+                              className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg border-2 border-dashed border-indigo-200 hover:border-indigo-400 bg-indigo-50/50 text-indigo-700 text-[11px] font-semibold"
+                            >
+                              <Plus className="w-4 h-4" /> Thêm dòng
+                            </button>
+                            <div className="space-y-2 max-h-44 overflow-y-auto">
+                              {items.map((row, idx) => (
+                                <div key={idx} className="p-2 rounded border border-slate-200 bg-white space-y-1">
+                                  <input
+                                    type="text"
+                                    value={row.title}
+                                    onChange={(e) => updateItem(idx, { title: e.target.value })}
+                                    onBlur={() => pushHistory()}
+                                    className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200"
+                                    placeholder="Tên"
+                                  />
+                                  <div className="flex gap-1">
+                                    <input
+                                      type="text"
+                                      value={row.price}
+                                      onChange={(e) => updateItem(idx, { price: e.target.value })}
+                                      onBlur={() => pushHistory()}
+                                      className="flex-1 px-1.5 py-0.5 text-[10px] rounded border border-slate-200"
+                                      placeholder="Giá"
+                                    />
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      value={row.qty ?? 1}
+                                      onChange={(e) => updateItem(idx, { qty: Number(e.target.value) || 1 })}
+                                      onBlur={() => pushHistory()}
+                                      className="w-12 px-1 py-0.5 text-[10px] rounded border border-slate-200"
+                                    />
+                                  </div>
+                                  <button type="button" onClick={() => removeItem(idx)} className="text-[10px] text-red-500 hover:underline">
+                                    Xóa dòng
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                        <label>
+                          <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Khi giỏ trống</span>
+                          <input
+                            type="text"
+                            value={cart.emptyMessage ?? ""}
+                            onChange={(e) => updateCart({ emptyMessage: e.target.value })}
+                            onBlur={() => pushHistory()}
+                            className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white"
+                          />
+                        </label>
+                        <label>
+                          <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Nút thanh toán</span>
+                          <input
+                            type="text"
+                            value={cart.checkoutButtonText ?? ""}
+                            onChange={(e) => updateCart({ checkoutButtonText: e.target.value })}
+                            onBlur={() => pushHistory()}
+                            className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white"
+                          />
+                        </label>
+                        <div className="flex gap-3 text-[10px]">
+                          <label className="flex items-center gap-1.5 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={cart.showThumbnail !== false}
+                              onChange={(e) => updateCart({ showThumbnail: e.target.checked })}
+                            />
+                            Ảnh nhỏ
+                          </label>
+                          <label className="flex items-center gap-1.5 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={cart.showQty !== false}
+                              onChange={(e) => updateCart({ showQty: e.target.checked })}
+                            />
+                            Số lượng
+                          </label>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                          <label>
+                            <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Màu nền</span>
+                            <input
+                              type="color"
+                              value={(el.styles?.backgroundColor as string) ?? "#ffffff"}
+                              onChange={(e) => updateElement(el.id, { styles: { ...el.styles, backgroundColor: e.target.value } })}
+                              onBlur={() => pushHistory()}
+                              className="w-full h-8 rounded border border-slate-200 cursor-pointer"
+                            />
+                          </label>
+                          <label>
+                            <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Bo góc</span>
+                            <input
+                              type="number"
+                              min={0}
+                              value={(el.styles?.borderRadius as number) ?? 12}
+                              onChange={(e) => updateElement(el.id, { styles: { ...el.styles, borderRadius: Number(e.target.value) } })}
+                              onBlur={() => pushHistory()}
+                              className="w-full px-1.5 py-1 text-[11px] rounded border border-slate-200 bg-white"
+                            />
+                          </label>
                         </div>
                       </div>
                     );

@@ -1,5 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+
+/** So khớp `to` có query (vd. ordersTab, tab) với location hiện tại */
+function linkMatchesLocation(href: string, pathname: string, search: string): boolean {
+  const qi = href.indexOf("?");
+  const path = qi >= 0 ? href.slice(0, qi) : href;
+  const wantQs = qi >= 0 ? href.slice(qi + 1) : "";
+  if (pathname !== path) return false;
+  if (!wantQs) return true;
+  const want = new URLSearchParams(wantQs);
+  const have = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  for (const [k, v] of want) {
+    if (have.get(k) !== v) return false;
+  }
+  return true;
+}
 import { useAuthStore } from "@/stores/authStore";
 import { usePlanStore } from "@/stores/planStore";
 import { useLangStore, type LangCode } from "@/stores/langStore";
@@ -26,7 +41,11 @@ import {
   List,
   LayoutGrid,
   ClipboardCheck,
+  ClipboardList,
+  Package,
+  Truck,
   Tag,
+  SlidersHorizontal,
   Database,
   Menu,
   X,
@@ -64,7 +83,7 @@ type SubDef = { key: string; i18nKey: string; href: string; icon: React.ReactNod
 
 const ALL_MAIN_MENU: MenuDef[] = [
   { key: "landing-pages", i18nKey: "menu.landingPages", icon: <FileText className="w-5 h-5" />, href: "/dashboard/pages" },
-  { key: "orders", i18nKey: "menu.orders", icon: <ShoppingBag className="w-5 h-5" />, href: "/dashboard/orders", requiresEcommerce: true },
+  { key: "orders", i18nKey: "menu.orders", icon: <ShoppingBag className="w-5 h-5" />, href: "/dashboard/orders?tab=order&ordersTab=1", requiresEcommerce: true },
   { key: "products", i18nKey: "menu.products", icon: <Box className="w-5 h-5" />, href: "/dashboard/products", requiresEcommerce: true },
   { key: "customers", i18nKey: "menu.customers", icon: <Users className="w-5 h-5" />, href: "/dashboard/customers", requiresEcommerce: true },
   { key: "reports", i18nKey: "menu.reports", icon: <BarChart3 className="w-5 h-5" />, href: "/dashboard/reports" },
@@ -78,15 +97,15 @@ const SUB_MENUS: Record<MainMenuKey, SubDef[]> = {
     { key: "media", i18nKey: "sub.media", href: "/dashboard/media", icon: <ImageIcon className="w-4 h-4" /> },
     { key: "forms", i18nKey: "sub.formConfig", href: "/dashboard/forms", icon: <ClipboardCheck className="w-4 h-4" /> },
     { key: "tags", i18nKey: "sub.tags", href: "/dashboard/tags", icon: <Tag className="w-4 h-4" /> },
-    { key: "domains", i18nKey: "sub.domains", href: "/dashboard/domains", icon: <Globe className="w-4 h-4" /> },
+    { key: "domains", i18nKey: "sub.domains", href: "/dashboard/domains?tab=domain", icon: <Globe className="w-4 h-4" /> },
     { key: "data-leads", i18nKey: "sub.dataLeads", href: "/dashboard/data-leads", icon: <Database className="w-4 h-4" /> },
   ],
   orders: [
-    { key: "all-orders", i18nKey: "sub.allOrders", href: "/dashboard/orders", icon: <List className="w-4 h-4" /> },
-    { key: "pending", i18nKey: "sub.pending", href: "/dashboard/orders?status=pending", icon: <ShoppingBag className="w-4 h-4" /> },
-    { key: "shipping", i18nKey: "sub.shipping", href: "/dashboard/orders?status=shipping", icon: <ShoppingBag className="w-4 h-4" /> },
-    { key: "completed", i18nKey: "sub.completed", href: "/dashboard/orders?status=completed", icon: <ShoppingBag className="w-4 h-4" /> },
-    { key: "cancelled", i18nKey: "sub.cancelled", href: "/dashboard/orders?status=cancelled", icon: <ShoppingBag className="w-4 h-4" /> },
+    { key: "orders-list", i18nKey: "sub.ordersList", href: "/dashboard/orders?tab=order&ordersTab=1", icon: <ClipboardList className="w-4 h-4" /> },
+    { key: "orders-incomplete", i18nKey: "sub.ordersIncomplete", href: "/dashboard/orders?tab=order&ordersTab=2", icon: <Package className="w-4 h-4" /> },
+    { key: "orders-delivery", i18nKey: "sub.ordersDelivery", href: "/dashboard/orders?tab=order&ordersTab=3", icon: <Truck className="w-4 h-4" /> },
+    { key: "orders-tags", i18nKey: "sub.ordersTags", href: "/dashboard/orders?tab=order&ordersTab=4", icon: <Tag className="w-4 h-4" /> },
+    { key: "orders-custom", i18nKey: "sub.ordersCustomFields", href: "/dashboard/orders?tab=order&ordersTab=5", icon: <SlidersHorizontal className="w-4 h-4" /> },
   ],
   products: [
     { key: "all-products", i18nKey: "sub.allProducts", href: "/dashboard/products", icon: <Box className="w-4 h-4" /> },
@@ -145,7 +164,7 @@ function getActiveMenu(pathname: string): MainMenuKey {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
   const { lang, setLang } = useLangStore();
@@ -187,15 +206,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    notificationsApi.list().then((res) => {
-      setNotifications(res.items);
-      setUnreadCount(res.unread);
-    }).catch(() => {});
+    notificationsApi
+      .list()
+      .then((res) => {
+        setNotifications(Array.isArray(res.items) ? res.items : []);
+        setUnreadCount(typeof res.unread === "number" ? res.unread : 0);
+      })
+      .catch(() => {
+        setNotifications([]);
+        setUnreadCount(0);
+      });
   }, []);
 
   const handleMarkAllRead = async () => {
     await notificationsApi.markAllRead();
-    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    setNotifications((prev) => (Array.isArray(prev) ? prev : []).map((n) => ({ ...n, isRead: true })));
     setUnreadCount(0);
     setNotifOpen(false);
   };
@@ -204,7 +229,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const planName = "STARTER";
 
   const activeMenu = getActiveMenu(pathname);
-  const subItems = SUB_MENUS[activeMenu];
+  const subItems = SUB_MENUS[activeMenu] ?? [];
 
   useEffect(() => {
     workspacesApi
@@ -296,11 +321,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               to={item.href}
               className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-semibold transition mb-0.5 ${
                 isActive
-                  ? "bg-violet-100 dark:bg-violet-500/15 text-violet-800 dark:text-violet-300"
+                  ? "bg-[#5e35b1]/12 dark:bg-[#5e35b1]/20 text-[#5e35b1] dark:text-[#c4b5fd]"
                   : "text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
               }`}
             >
-              <span className={isActive ? "text-violet-600 dark:text-violet-400" : "text-slate-400"}>{item.icon}</span>
+              <span className={isActive ? "text-[#5e35b1] dark:text-[#a78bfa]" : "text-slate-400"}>{item.icon}</span>
               {!collapsed && t(item.i18nKey)}
             </Link>
           );
@@ -353,27 +378,47 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </div>
       <nav className="flex-1 p-2 overflow-y-auto">
         {subItems.map((sub) => {
-          const isActive = pathname === sub.href || pathname.startsWith(sub.href + "?");
+          const isActive = linkMatchesLocation(sub.href, pathname, search);
           return (
             <Link
               key={sub.key}
               to={sub.href}
               className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition mb-0.5 ${
                 isActive
-                  ? "text-violet-700 dark:text-violet-300 font-semibold"
+                  ? "text-[#5e35b1] dark:text-[#c4b5fd] font-semibold bg-[#5e35b1]/5 dark:bg-[#5e35b1]/10"
                   : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
               }`}
             >
-              <span className={isActive ? "text-violet-600 dark:text-violet-400" : "text-slate-400"}>{sub.icon}</span>
+              <span className={isActive ? "text-[#5e35b1] dark:text-[#a78bfa]" : "text-slate-400"}>{sub.icon}</span>
               {t(sub.i18nKey)}
             </Link>
           );
         })}
       </nav>
 
-      {/* PagePeak Learning banner */}
-      <div className="p-3 m-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-gradient-to-br from-violet-50 to-white dark:from-violet-500/5 dark:to-slate-900">
-        <p className="text-xs font-bold text-transparent bg-clip-text bg-gradient-to-r from-violet-700 to-indigo-500 uppercase tracking-wide">
+      {activeMenu === "landing-pages" && (
+        <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-800">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Lọc theo Tags</p>
+          <div className="flex gap-2">
+            <Link
+              to="/dashboard/tags"
+              className="flex-1 text-center text-[11px] py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-[#5e35b1]/40 hover:text-[#5e35b1] transition"
+            >
+              Tất cả
+            </Link>
+            <Link
+              to="/dashboard/tags"
+              className="flex-1 text-center text-[11px] py-1.5 rounded-lg bg-[#5e35b1]/10 text-[#5e35b1] font-semibold hover:bg-[#5e35b1]/15 transition"
+            >
+              Quản lý
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* Learning banner */}
+      <div className="p-3 m-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-gradient-to-br from-[#5e35b1]/5 to-white dark:from-[#5e35b1]/10 dark:to-slate-900">
+        <p className="text-xs font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#5e35b1] to-indigo-600 uppercase tracking-wide">
           {t("learning.title")}
         </p>
         <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
@@ -446,8 +491,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Main */}
       <div className="flex-1 min-w-0 flex flex-col">
+        {/* Thanh quảng bá kiểu LadiPage */}
+        <div className="hidden sm:flex items-center justify-center gap-2 bg-[#5e35b1] text-white text-xs sm:text-sm py-2 px-4 text-center shrink-0">
+          <span className="opacity-95">🎉</span>
+          <span className="font-medium">
+            Tạo landing page chuyên nghiệp — kéo thả, xuất HTML, tối ưu chuyển đổi.
+          </span>
+          <button
+            type="button"
+            className="hidden md:inline-flex ml-2 px-3 py-0.5 rounded-full bg-white/15 hover:bg-white/25 text-[11px] font-semibold transition"
+            onClick={() => navigate("/dashboard/settings?tab=billing")}
+          >
+            Nâng cấp gói
+          </button>
+        </div>
         {/* Topbar */}
-        <header className="h-14 bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 lg:px-6">
+        <header className="h-14 bg-white dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 lg:px-6 relative z-30">
           <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
@@ -494,37 +553,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <HelpCircle className="w-5 h-5 text-slate-500 dark:text-slate-400" />
             </button>
 
-            {/* Notification Bell */}
-            <div ref={notifRef} className="relative">
+            {/* Notification Bell — badge neo vào góc icon, z-index trên header */}
+            <div ref={notifRef} className="relative z-50">
               <button
                 type="button"
-                className="relative w-9 h-9 rounded-full flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition"
                 onClick={() => { setNotifOpen((v) => !v); setProfileDropdownOpen(false); }}
                 title={t("topbar.notifications")}
               >
                 <Bell className="w-5 h-5 text-slate-500 dark:text-slate-400" />
-                {unreadCount > 0 && (
-                  <span className="absolute top-1 right-1.5 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center ring-2 ring-white dark:ring-slate-950">
-                    {unreadCount > 9 ? "9+" : unreadCount}
-                  </span>
-                )}
+                <span
+                  className={`absolute -top-0.5 -right-0.5 min-w-[1.125rem] h-[1.125rem] px-0.5 rounded-full text-[10px] font-bold flex items-center justify-center ring-2 ring-white dark:ring-slate-950 ${
+                    unreadCount > 0 ? "bg-red-500 text-white" : "bg-slate-300 dark:bg-slate-600 text-slate-800 dark:text-slate-100"
+                  }`}
+                >
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
               </button>
               {notifOpen && (
-                <div className="absolute right-0 top-11 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-[60] overflow-hidden">
+                <div className="absolute right-0 top-11 w-80 max-w-[calc(100vw-2rem)] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-[100] overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-slate-800">
                     <p className="text-sm font-bold text-slate-900 dark:text-slate-100">{t("topbar.notifications")}</p>
                     <button type="button" className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium" onClick={handleMarkAllRead}>
                       {t("topbar.markRead")}
                     </button>
                   </div>
-                  {notifications.length === 0 ? (
+                  {(notifications ?? []).length === 0 ? (
                     <div className="px-4 py-8 text-center">
                       <Bell className="w-10 h-10 text-slate-300 dark:text-slate-600 mx-auto mb-2" />
                       <p className="text-sm text-slate-500 dark:text-slate-400">{t("topbar.noNotifications")}</p>
                     </div>
                   ) : (
                     <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
-                      {notifications.slice(0, 10).map((n) => (
+                      {(notifications ?? []).slice(0, 10).map((n) => (
                         <div key={n.id} className={`px-4 py-3 text-sm ${n.isRead ? "opacity-60" : ""}`}>
                           <p className="font-semibold text-slate-900 dark:text-slate-100">{n.title}</p>
                           <p className="text-slate-500 dark:text-slate-400 text-xs mt-0.5">{n.message}</p>

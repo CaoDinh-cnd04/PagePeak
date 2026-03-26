@@ -42,7 +42,7 @@ public class GetTemplatesQueryHandler : IRequestHandler<GetTemplatesQuery, IRead
         return await q
             .OrderByDescending(t => t.UsageCount)
             .ThenByDescending(t => t.CreatedAt)
-            .Select(t => new TemplateDto(t.Id, t.Name, t.Category, t.ThumbnailUrl, t.Description, t.DesignType, t.IsFeatured, t.UsageCount, t.CreatedAt))
+            .Select(t => new TemplateDto(t.Id, t.Name, t.Category, t.ThumbnailUrl, t.Description, t.DesignType, t.IsFeatured, t.IsPremium, t.UsageCount, t.CreatedAt))
             .ToListAsync(cancellationToken);
     }
 }

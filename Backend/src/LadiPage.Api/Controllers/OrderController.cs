@@ -24,15 +24,77 @@ public class OrderController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetOrders([FromQuery] long workspaceId, [FromQuery] string? status, CancellationToken ct)
+    public async Task<IActionResult> GetOrders(
+        [FromQuery] long workspaceId,
+        [FromQuery] string? status,
+        [FromQuery] string? q,
+        [FromQuery] bool incomplete = false,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string sort = "created_desc",
+        CancellationToken ct = default)
     {
         if (_currentUser.UserId == null) return Unauthorized();
         if (!await _workspaceAccess.CanAccessWorkspaceAsync(_currentUser.UserId.Value, workspaceId)) return NotFound();
-        var query = _db.Orders.Where(o => o.WorkspaceId == workspaceId);
-        if (!string.IsNullOrWhiteSpace(status)) query = query.Where(o => o.Status == status);
-        var items = await query.OrderByDescending(o => o.CreatedAt)
-            .Select(o => new { o.Id, o.CustomerName, o.Email, o.Phone, o.ProductId, o.Amount, o.Status, o.CreatedAt }).ToListAsync(ct);
-        return Ok(items);
+
+        if (page < 1) page = 1;
+        if (pageSize < 1) pageSize = 20;
+        if (pageSize > 100) pageSize = 100;
+
+        var query = _db.Orders.AsNoTracking().Where(o => o.WorkspaceId == workspaceId);
+        if (incomplete)
+            query = query.Where(o => o.Status == "pending" || o.Status == "shipping");
+        else if (!string.IsNullOrWhiteSpace(status))
+            query = query.Where(o => o.Status == status);
+
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var t = q.Trim();
+            if (long.TryParse(t, out var orderId))
+            {
+                query = query.Where(o =>
+                    o.Id == orderId ||
+                    o.CustomerName.Contains(t) ||
+                    (o.Email != null && o.Email.Contains(t)) ||
+                    (o.Phone != null && o.Phone.Contains(t)));
+            }
+            else
+            {
+                query = query.Where(o =>
+                    o.CustomerName.Contains(t) ||
+                    (o.Email != null && o.Email.Contains(t)) ||
+                    (o.Phone != null && o.Phone.Contains(t)));
+            }
+        }
+
+        var totalCount = await query.CountAsync(ct);
+
+        query = sort switch
+        {
+            "amount_asc" => query.OrderBy(o => o.Amount),
+            "amount_desc" => query.OrderByDescending(o => o.Amount),
+            "created_asc" => query.OrderBy(o => o.CreatedAt),
+            _ => query.OrderByDescending(o => o.CreatedAt),
+        };
+
+        var items = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(o => new
+            {
+                o.Id,
+                o.CustomerName,
+                o.Email,
+                o.Phone,
+                o.ProductId,
+                ProductName = o.Product != null ? o.Product.Name : null,
+                o.Amount,
+                o.Status,
+                o.CreatedAt,
+            })
+            .ToListAsync(ct);
+
+        return Ok(new { items, totalCount });
     }
 
     [HttpPost]
@@ -40,10 +102,21 @@ public class OrderController : ControllerBase
     {
         if (_currentUser.UserId == null) return Unauthorized();
         if (!await _workspaceAccess.CanAccessWorkspaceAsync(_currentUser.UserId.Value, req.WorkspaceId)) return NotFound();
-        var o = new Order { WorkspaceId = req.WorkspaceId, CustomerName = req.CustomerName.Trim(), Email = req.Email, Phone = req.Phone, ProductId = req.ProductId, Amount = req.Amount, Status = "pending", CreatedAt = DateTime.UtcNow };
+        var o = new Order
+        {
+            WorkspaceId = req.WorkspaceId,
+            CustomerName = req.CustomerName.Trim(),
+            Email = req.Email,
+            Phone = req.Phone,
+            ProductId = req.ProductId,
+            Amount = req.Amount,
+            Status = "pending",
+            CreatedAt = DateTime.UtcNow,
+        };
         _db.Orders.Add(o);
         await _db.SaveChangesAsync(ct);
-        return Ok(new { o.Id, o.CustomerName, o.Amount, o.Status, o.CreatedAt });
+        var dto = await ProjectOrderAsync(o.Id, ct);
+        return Ok(dto);
     }
 
     [HttpPut("{id:long}")]
@@ -58,7 +131,8 @@ public class OrderController : ControllerBase
         if (req.Phone != null) o.Phone = req.Phone;
         if (!string.IsNullOrWhiteSpace(req.Status)) o.Status = req.Status;
         await _db.SaveChangesAsync(ct);
-        return Ok(new { o.Id, o.Status });
+        var dto = await ProjectOrderAsync(o.Id, ct);
+        return Ok(dto);
     }
 
     [HttpDelete("{id:long}")]
@@ -72,4 +146,21 @@ public class OrderController : ControllerBase
         await _db.SaveChangesAsync(ct);
         return Ok(new { ok = true });
     }
+
+    private async Task<object?> ProjectOrderAsync(long id, CancellationToken ct) =>
+        await _db.Orders.AsNoTracking()
+            .Where(o => o.Id == id)
+            .Select(o => new
+            {
+                o.Id,
+                o.CustomerName,
+                o.Email,
+                o.Phone,
+                o.ProductId,
+                ProductName = o.Product != null ? o.Product.Name : null,
+                o.Amount,
+                o.Status,
+                o.CreatedAt,
+            })
+            .FirstOrDefaultAsync(ct);
 }

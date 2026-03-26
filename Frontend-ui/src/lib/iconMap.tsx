@@ -2,6 +2,7 @@ import {
   AlignLeft,
   LayoutGrid,
   Image,
+  Images,
   Layers,
   MessageSquare,
   HardDrive,
@@ -38,6 +39,11 @@ import {
   Bookmark,
   Copy,
   Rocket,
+  Sparkles,
+  Plug,
+  Snowflake,
+  Flower2,
+  PartyPopper,
 } from "lucide-react";
 import type { ComponentType } from "react";
 
@@ -48,6 +54,7 @@ const ICON_MAP: Record<string, IconComponent> = {
   "layout-grid": LayoutGrid,
   bookmark: Bookmark,
   image: Image,
+  images: Images,
   layers: Layers,
   "message-square": MessageSquare,
   "hard-drive": HardDrive,
@@ -81,6 +88,11 @@ const ICON_MAP: Record<string, IconComponent> = {
   star: Star,
   "bar-chart-2": BarChart2,
   rocket: Rocket,
+  sparkles: Sparkles,
+  plug: Plug,
+  snowflake: Snowflake,
+  "flower-2": Flower2,
+  "party-popper": PartyPopper,
 };
 
 const FALLBACK = HelpCircle;

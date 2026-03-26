@@ -9,7 +9,10 @@ import { getIconById } from "@/data/iconData";
 import type { EditorElement, EditorSection } from "@/types/editor";
 import { parseProductDetailContent } from "@/lib/productDetailContent";
 import { parseTabsContent, parseCarouselContent } from "@/lib/tabsContent";
+import { parseBlogListContent, parseBlogDetailContent, parsePopupContent } from "@/lib/blogContent";
+import { parseCartContent, getCartDisplayItems } from "@/lib/cartContent";
 import { mergeInlineContent, mergeInlineTextStyle, getInlineTextStyleForFabric, type InlineEditMeta } from "@/lib/inlineEditMerge";
+import { normalizeElementType } from "@/lib/normalizeElementType";
 import { loadGoogleFont, GOOGLE_FONTS } from "@/lib/fontLoader";
 import type { TextFormatToolbarState } from "./ElementActionToolbar";
 
@@ -157,9 +160,8 @@ function loadImageToCanvas(
   url: string,
   w: number,
   h: number,
+  elementId: number,
   commonProps: Record<string, unknown>,
-  gen: number,
-  syncGenRef: { current: number },
   canvasInstance: fabric.Canvas,
   placeholder: fabric.FabricObject,
   tagObj: (o: fabric.FabricObject) => void,
@@ -170,22 +172,37 @@ function loadImageToCanvas(
   const borderC = imageStyles?.borderColor ?? "#e2e8f0";
   const boxShadow = imageStyles?.boxShadow as string | undefined;
 
-  const createFabricImage = (img: HTMLImageElement): fabric.FabricImage => {
-    const nw = Math.max(1, img.naturalWidth || w);
-    const nh = Math.max(1, img.naturalHeight || h);
-    // Scale vừa khít element bounds — không offset, left/top = baseLeft/baseTop
-    const scaleX = w / nw;
-    const scaleY = h / nh;
-    const fImg = new fabric.FabricImage(img, {
+  // Tìm placeholder hoặc bất kỳ object nào của element (Rect placeholder)
+  // Dùng elementId thay object reference — bền vững qua mọi canvas rebuild.
+  const findCurrentRect = (): fabric.FabricObject | null =>
+    canvasInstance.getObjects().find(
+      (o) => (o as ExtFabricObj)._elementId === elementId && o instanceof fabric.Rect,
+    ) ?? null;
+
+  const applyFabricImage = (fImg: fabric.FabricImage) => {
+    const cur = findCurrentRect();
+    if (!cur) return; // element không còn trên canvas (bị xóa hoặc đã được replace bởi load trước)
+    const nw = Math.max(1, fImg.width ?? 1);
+    const nh = Math.max(1, fImg.height ?? 1);
+    const imgLeft = cur.left ?? 0;
+    const imgTop = cur.top ?? 0;
+    fImg.set({
       ...commonProps,
-      scaleX,
-      scaleY,
+      left: imgLeft,
+      top: imgTop,
+      originX: "left",
+      originY: "top",
+      angle: cur.angle ?? 0,
+      scaleX: w / nw,
+      scaleY: h / nh,
       objectCaching: false,
     });
     if (radius > 0) {
+      // absolutePositioned: true → clip dùng toạ độ canvas tuyệt đối.
+      // Phải đặt left/top = vị trí thực của ảnh trên canvas để clip khớp đúng.
       const clip = new fabric.Rect({
-        left: 0,
-        top: 0,
+        left: imgLeft,
+        top: imgTop,
         width: w,
         height: h,
         rx: radius,
@@ -196,97 +213,69 @@ function loadImageToCanvas(
       });
       (fImg as unknown as { clipPath: unknown }).clipPath = clip;
     }
-    if (borderW > 0) {
-      fImg.set({ stroke: borderC, strokeWidth: borderW });
-    }
-    if (boxShadow && boxShadow.trim()) {
+    if (borderW > 0) fImg.set({ stroke: borderC, strokeWidth: borderW });
+    if (boxShadow?.trim()) {
       const parsed = parseBoxShadow(boxShadow);
       if (parsed) fImg.set("shadow", new fabric.Shadow(parsed));
     }
     fImg.setCoords();
-    return fImg;
+    tagObj(fImg);
+    // Giữ lại trạng thái active (selection handles) nếu placeholder đang được chọn
+    const wasActive = canvasInstance.getActiveObject() === cur;
+    canvasInstance.remove(cur);
+    canvasInstance.add(fImg);
+    if (wasActive) canvasInstance.setActiveObject(fImg);
+    canvasInstance.requestRenderAll();
   };
 
-  const htmlImg = new Image();
-  htmlImg.crossOrigin = "anonymous";
-  htmlImg.onload = () => {
-    if (syncGenRef.current !== gen) return;
-    const fImg = createFabricImage(htmlImg);
-    tagObj(fImg);
-    canvasInstance.remove(placeholder);
-    canvasInstance.add(fImg);
-    canvasInstance.renderAll();
+  const showError = () => {
+    const cur = findCurrentRect();
+    if (!cur) return;
+    const errBg = new fabric.Rect({
+      left: 0, top: 0, width: w, height: h,
+      fill: "#fef2f2", stroke: "#fca5a5", strokeWidth: 2,
+      rx: 4, ry: 4, originX: "left", originY: "top",
+    });
+    const errIcon = new fabric.Textbox("🖼️", {
+      left: w / 2, top: h / 2 - 18,
+      fontSize: Math.min(w, h) * 0.15,
+      textAlign: "center", width: w,
+      originX: "center", originY: "center",
+      editable: false, selectable: false,
+    });
+    const errText = new fabric.Textbox("Không tải được ảnh", {
+      left: w / 2, top: h / 2 + 14,
+      fontSize: 9, fontFamily: "Inter, sans-serif",
+      fill: "#ef4444", textAlign: "center", width: w - 16,
+      originX: "center", originY: "center",
+      editable: false, selectable: false,
+    });
+    const errGroup = new fabric.Group([errBg, errIcon, errText], {
+      ...commonProps, left: cur.left, top: cur.top,
+      width: w, height: h, originX: "left", originY: "top",
+      subTargetCheck: false, layoutManager: fabricCompositeGroupLayout,
+      objectCaching: false,
+    });
+    disableGroupBitmapCache(errGroup);
+    tagObj(errGroup);
+    canvasInstance.remove(cur);
+    canvasInstance.add(errGroup);
+    canvasInstance.requestRenderAll();
   };
-  htmlImg.onerror = () => {
-    const proxyUrl = `${API_URL}/api/proxy-image?url=${encodeURIComponent(url)}`;
-    const proxyImg = new Image();
-    proxyImg.crossOrigin = "anonymous";
-    proxyImg.onload = () => {
-      if (syncGenRef.current !== gen) return;
-      const fImg = createFabricImage(proxyImg);
-      tagObj(fImg);
-      canvasInstance.remove(placeholder);
-      canvasInstance.add(fImg);
-      canvasInstance.renderAll();
-    };
-    proxyImg.onerror = () => {
-      if (syncGenRef.current !== gen) return;
-      const errBg = new fabric.Rect({
-        left: 0,
-        top: 0,
-        width: w,
-        height: h,
-        fill: "#fef2f2",
-        stroke: "#fca5a5",
-        strokeWidth: 2,
-        rx: 4,
-        ry: 4,
-        originX: "left",
-        originY: "top",
-      });
-      const errIcon = new fabric.Textbox("❌", {
-        left: w / 2,
-        top: h / 2 - 18,
-        fontSize: Math.min(w, h) * 0.15,
-        textAlign: "center",
-        width: w,
-        originX: "center",
-        originY: "center",
-        editable: false,
-        selectable: false,
-      });
-      const errText = new fabric.Textbox("Không tải được ảnh\nKiểm tra URL trực tiếp (.jpg, .png)", {
-        left: w / 2,
-        top: h / 2 + 14,
-        fontSize: 9,
-        fontFamily: "Inter, sans-serif",
-        fill: "#ef4444",
-        textAlign: "center",
-        width: w - 16,
-        originX: "center",
-        originY: "center",
-        editable: false,
-        selectable: false,
-      });
-      const errGroup = new fabric.Group([errBg, errIcon, errText], {
-        ...commonProps,
-        width: w,
-        height: h,
-        originX: "left",
-        originY: "top",
-        subTargetCheck: false,
-        layoutManager: fabricCompositeGroupLayout,
-        objectCaching: false,
-      });
-      disableGroupBitmapCache(errGroup);
-      tagObj(errGroup);
-      canvasInstance.remove(placeholder);
-      canvasInstance.add(errGroup);
-      canvasInstance.renderAll();
-    };;
-    proxyImg.src = proxyUrl;
-  };
-  htmlImg.src = url;
+
+  const primaryUrl = normalizeAssetUrl(url);
+  const proxyUrl = `${API_URL}/api/proxy-image?url=${encodeURIComponent(primaryUrl)}`;
+
+  // Dùng fabric.FabricImage.fromURL — API chính thức Fabric 7, xử lý crossOrigin tốt hơn HTMLImageElement thô.
+  fabric.FabricImage.fromURL(primaryUrl, { crossOrigin: "anonymous" })
+    .then(applyFabricImage)
+    .catch(() => {
+      fabric.FabricImage.fromURL(proxyUrl, { crossOrigin: "anonymous" })
+        .then(applyFabricImage)
+        .catch(showError);
+    });
+
+  void placeholder; // Tham chiếu placeholder giữ nguyên để không break signature
 }
 
 /**
@@ -384,9 +373,20 @@ function loadCompositeImages(
 }
 
 /** API / store đôi khi trả ImageUrl thay imageUrl */
+function normalizeAssetUrl(raw: string | null | undefined): string {
+  const value = (raw ?? "").trim();
+  if (!value) return "";
+  if (/^(https?:|data:|blob:)/i.test(value)) return value;
+  if (value.startsWith("//")) return `${window.location.protocol}${value}`;
+  const base = API_URL.replace(/\/$/, "");
+  if (value.startsWith("/")) return `${base}${value}`;
+  return `${base}/${value.replace(/^\.?\//, "")}`;
+}
+
+/** API / store đôi khi trả ImageUrl thay imageUrl */
 function resolveElementImageUrl(el: EditorElement): string {
   const e = el as EditorElement & { ImageUrl?: string | null };
-  return (e.imageUrl ?? e.ImageUrl ?? "").trim();
+  return normalizeAssetUrl(e.imageUrl ?? e.ImageUrl ?? "");
 }
 
 function fabricTextboxHeight(tb: fabric.Textbox): number {
@@ -450,12 +450,13 @@ function buildFabricObject(
 
   let obj: fabric.FabricObject | null = null;
 
-  switch (el.type) {
+  const elType = normalizeElementType(el.type);
+  switch (elType) {
     case "text":
     case "headline":
     case "paragraph": {
-      const defSize = el.type === "headline" ? 32 : el.type === "paragraph" ? 14 : fontSize;
-      const defWeight = el.type === "headline" ? 700 : fontWeight;
+      const defSize = elType === "headline" ? 32 : elType === "paragraph" ? 14 : fontSize;
+      const defWeight = elType === "headline" ? 700 : fontWeight;
       const letterSpacing = (el.styles?.letterSpacing as number) ?? 0;
       const lineHeight = (el.styles?.lineHeight as number) ?? 1.5;
       const textTransform = (el.styles?.textTransform as string) ?? "none";
@@ -551,8 +552,7 @@ function buildFabricObject(
         });
         tagObj(placeholder);
 
-        const gen = syncGeneration;
-        loadImageToCanvas(imgSrc, w, h, commonProps, gen, syncGenRef, canvasInstance, placeholder, tagObj, {
+        loadImageToCanvas(imgSrc, w, h, el.id, commonProps, canvasInstance, placeholder, tagObj, {
           borderRadius: imgRadius,
           borderWidth: imgBorderW,
           borderColor: imgBorderC,
@@ -561,8 +561,9 @@ function buildFabricObject(
 
         obj = placeholder;
       } else {
-        // Chưa có URL — hiện placeholder biểu tượng và hướng dẫn
-        const border = new fabric.Rect({
+        // Chưa có URL — khung trống, không icon, không chữ
+        obj = new fabric.Rect({
+          ...commonProps,
           width: w,
           height: h,
           fill: "#f8fafc",
@@ -571,37 +572,6 @@ function buildFabricObject(
           strokeDashArray: [6, 4],
           rx: imgRadius,
           ry: imgRadius,
-          originX: "center",
-          originY: "center",
-        });
-        const iconSize = Math.min(w, h) * 0.3;
-        const iconText = new fabric.Textbox("🖼", {
-          fontSize: iconSize,
-          textAlign: "center",
-          width: w,
-          originX: "center",
-          originY: "center",
-          top: -10,
-          editable: false,
-          selectable: false,
-        });
-        const label = new fabric.Textbox("Chọn ảnh hoặc nhập URL ở panel phải →", {
-          fontSize: 10,
-          fontFamily: "Inter, sans-serif",
-          fill: "#94a3b8",
-          textAlign: "center",
-          width: w - 16,
-          originX: "center",
-          originY: "center",
-          top: iconSize * 0.5 + 4,
-          editable: false,
-          selectable: false,
-        });
-        obj = new fabric.Group([border, iconText, label], {
-          ...commonProps,
-          width: w,
-          height: h,
-          
         });
         tagObj(obj);
       }
@@ -758,29 +728,7 @@ function buildFabricObject(
           parts.push(cellBg);
         });
       } else {
-        const iconText = new fabric.Textbox("🖼", {
-          fontSize: Math.min(w, h) * 0.2,
-          textAlign: "center",
-          width: w,
-          originX: "center",
-          originY: "center",
-          top: -8,
-          editable: false,
-          selectable: false,
-        });
-        const label = new fabric.Textbox("Thêm ảnh", {
-          fontSize: 10,
-          fontFamily: "Inter, sans-serif",
-          fill: "#94a3b8",
-          textAlign: "center",
-          width: w - 16,
-          originX: "center",
-          originY: "center",
-          top: 8,
-          editable: false,
-          selectable: false,
-        });
-        parts.push(iconText, label);
+        // Không hiện icon — khung rỗng để người dùng thêm ảnh nền tự do
       }
 
       if (overlayColor && overlayOpacity > 0) {
@@ -1691,18 +1639,37 @@ function buildFabricObject(
       });
 
       if (items.length === 0) {
-        const iconTxt = new fabric.Textbox("📦", {
-          fontSize: Math.min(w, h) * 0.12, textAlign: "center", width: w,
-          left: -w / 2, top: -20, originX: "left", originY: "top",
-          editable: false, selectable: false,
-        });
-        const labelTxt = new fabric.Textbox("Collection List • Thêm mục ở panel phải", {
-          fontSize: 11, fontFamily: "Inter, sans-serif", fill: "#94a3b8",
+        const gridStroke = "#cbd5e1";
+        const cellW0 = Math.max(24, (w - pad2 * 2 - gap) / 2);
+        const cellH0 = Math.max(40, (h - pad2 * 2 - gap) / 2);
+        const gLeft = -w / 2 + pad2;
+        const gTop = -layoutH / 2 + pad2;
+        const wire: fabric.FabricObject[] = [
+          new fabric.Rect({
+            width: cellW0, height: cellH0, fill: "transparent", stroke: gridStroke, strokeWidth: 1, strokeDashArray: [4, 3],
+            rx: 6, ry: 6, left: gLeft, top: gTop, originX: "left", originY: "top",
+          }),
+          new fabric.Rect({
+            width: cellW0, height: cellH0, fill: "transparent", stroke: gridStroke, strokeWidth: 1, strokeDashArray: [4, 3],
+            rx: 6, ry: 6, left: gLeft + cellW0 + gap, top: gTop, originX: "left", originY: "top",
+          }),
+          new fabric.Rect({
+            width: cellW0, height: cellH0, fill: "transparent", stroke: gridStroke, strokeWidth: 1, strokeDashArray: [4, 3],
+            rx: 6, ry: 6, left: gLeft, top: gTop + cellH0 + gap, originX: "left", originY: "top",
+          }),
+          new fabric.Rect({
+            width: cellW0, height: cellH0, fill: "transparent", stroke: gridStroke, strokeWidth: 1, strokeDashArray: [4, 3],
+            rx: 6, ry: 6, left: gLeft + cellW0 + gap, top: gTop + cellH0 + gap, originX: "left", originY: "top",
+          }),
+        ];
+        parts.push(...wire);
+        const labelTxt = new fabric.Textbox("Lưới sản phẩm — chọn mục Mẫu dữ liệu hoặc thêm ô ở panel phải", {
+          fontSize: 10, fontFamily: "Inter, sans-serif", fill: "#64748b",
           textAlign: "center", width: w - 24,
-          left: -w / 2 + 12, top: 10, originX: "left", originY: "top",
+          left: -w / 2 + 12, top: gTop + cellH0 * 2 + gap * 2 + 6, originX: "left", originY: "top",
           editable: false, selectable: false,
         });
-        parts.push(iconTxt, labelTxt);
+        parts.push(labelTxt);
       }
 
       const groupH = items.length === 0 ? h : layoutH;
@@ -1938,6 +1905,758 @@ function buildFabricObject(
       break;
     }
 
+    case "cart": {
+      const cd = parseCartContent(el.content ?? undefined);
+      const lines = getCartDisplayItems(cd);
+      const bg = (el.styles?.backgroundColor as string) ?? "#ffffff";
+      const radius = (el.styles?.borderRadius as number) ?? 12;
+      const pad = 12;
+      const rowH = 44;
+      const headerH = 28;
+      const btnH = 40;
+      const emptyMsg = cd.emptyMessage?.trim() || "Giỏ hàng trống";
+      const btnText = cd.checkoutButtonText?.trim() || "Thanh toán";
+      const showThumb = cd.showThumbnail !== false;
+      const showQty = cd.showQty !== false;
+      const layoutH = h;
+      const cartBg = new fabric.Rect({
+        width: w,
+        height: layoutH,
+        fill: bg,
+        rx: radius,
+        ry: radius,
+        stroke: "#e2e8f0",
+        strokeWidth: 1,
+        left: -w / 2,
+        top: -layoutH / 2,
+        originX: "left",
+        originY: "top",
+      });
+      const cartParts: fabric.FabricObject[] = [cartBg];
+      const titleLbl = new fabric.Textbox("GIỎ HÀNG", {
+        fontSize: 10,
+        fontWeight: 700,
+        fontFamily: "Inter, sans-serif",
+        fill: "#64748b",
+        width: w - pad * 2,
+        left: -w / 2 + pad,
+        top: -layoutH / 2 + 10,
+        originX: "left",
+        originY: "top",
+        editable: false,
+        selectable: false,
+      });
+      cartParts.push(titleLbl);
+      if (lines.length === 0) {
+        cartParts.push(
+          new fabric.Textbox(emptyMsg, {
+            fontSize: 11,
+            fontFamily: "Inter, sans-serif",
+            fill: "#94a3b8",
+            textAlign: "center",
+            width: w - pad * 2,
+            left: -w / 2 + pad,
+            top: -layoutH / 2 + layoutH / 2 - 30,
+            originX: "left",
+            originY: "top",
+            editable: false,
+            selectable: false,
+          }),
+        );
+      } else {
+        let y = -layoutH / 2 + headerH + 8;
+        lines.slice(0, 5).forEach((it) => {
+          const thumbW = showThumb ? 36 : 0;
+          const gap = 8;
+          if (showThumb) {
+            const ir = new fabric.Rect({
+              width: thumbW,
+              height: thumbW,
+              fill: "#f1f5f9",
+              rx: 6,
+              ry: 6,
+              left: -w / 2 + pad,
+              top: y,
+              originX: "left",
+              originY: "top",
+            });
+            if (it.image?.trim()) (ir as fabric.Rect & { dataSrc?: string }).dataSrc = it.image;
+            cartParts.push(ir);
+          }
+          const tLeft = -w / 2 + pad + (showThumb ? thumbW + gap : 0);
+          const tTit = new fabric.Textbox(it.title || "Sản phẩm", {
+            fontSize: 11,
+            fontWeight: 600,
+            fontFamily: "Inter, sans-serif",
+            fill: "#0f172a",
+            width: w - pad * 2 - thumbW - gap - 72,
+            left: tLeft,
+            top: y + 4,
+            originX: "left",
+            originY: "top",
+            editable: false,
+            selectable: false,
+          });
+          cartParts.push(tTit);
+          const priceLine = `${showQty && (it.qty ?? 1) > 0 ? `×${it.qty ?? 1} ` : ""}${it.price || ""}`;
+          cartParts.push(
+            new fabric.Textbox(priceLine, {
+              fontSize: 11,
+              fontWeight: 700,
+              fontFamily: "Inter, sans-serif",
+              fill: "#dc2626",
+              textAlign: "right",
+              width: 68,
+              left: w / 2 - pad - 68,
+              top: y + 8,
+              originX: "left",
+              originY: "top",
+              editable: false,
+              selectable: false,
+            }),
+          );
+          y += rowH;
+        });
+      }
+      const btnTop = layoutH / 2 - pad - btnH;
+      cartParts.push(
+        new fabric.Rect({
+          width: w - pad * 2,
+          height: btnH - 4,
+          fill: "#1e293b",
+          rx: 8,
+          ry: 8,
+          left: -w / 2 + pad,
+          top: btnTop,
+          originX: "left",
+          originY: "top",
+        }),
+      );
+      cartParts.push(
+        new fabric.Textbox(btnText, {
+          fontSize: 12,
+          fontWeight: 600,
+          fontFamily: "Inter, sans-serif",
+          fill: "#ffffff",
+          textAlign: "center",
+          width: w - pad * 2,
+          left: -w / 2 + pad,
+          top: btnTop + 10,
+          originX: "left",
+          originY: "top",
+          editable: false,
+          selectable: false,
+        }),
+      );
+      obj = new fabric.Group(cartParts, {
+        ...commonProps,
+        left: baseLeft + w / 2,
+        top: baseTop + layoutH / 2,
+        originX: "center",
+        originY: "center",
+        width: w,
+        height: layoutH,
+        subTargetCheck: false,
+        layoutManager: fabricCompositeGroupLayout,
+      });
+      if (lines.some((l) => l.image?.trim())) loadCompositeImages(obj as fabric.Group, syncGeneration, syncGenRef, canvasInstance);
+      tagObj(obj);
+      break;
+    }
+
+    case "blog-list": {
+      const bl = parseBlogListContent(el.content ?? undefined);
+      const posts = (bl.posts ?? []).slice(0, 6);
+      const cols = Math.max(1, Math.min(3, bl.columns ?? 2));
+      const bg = (el.styles?.backgroundColor as string) ?? "#f8fafc";
+      const radius = (el.styles?.borderRadius as number) ?? 12;
+      const gap = 10;
+      const pad2 = 12;
+      const cellW = (w - pad2 * 2 - gap * (cols - 1)) / cols;
+      const fs = (el.styles?.fontSize as number) ?? 14;
+      const rowCount = Math.max(1, Math.ceil(Math.max(posts.length, 1) / cols));
+      const imgH = Math.min(90, cellW * 0.55);
+      const cardInnerW = cellW - 16;
+      type BlMetric = {
+        i: number;
+        row: number;
+        col: number;
+        cardH: number;
+        post: (typeof posts)[0];
+        measTitle: fabric.Textbox;
+        measExcerpt: fabric.Textbox;
+        measDate: fabric.Textbox;
+      };
+      const metrics: BlMetric[] = [];
+      for (let i = 0; i < posts.length; i++) {
+        const post = posts[i];
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        const titSt = getInlineTextStyleForFabric(
+          el,
+          { kind: "blog-list", field: "title", itemIndex: i },
+          { fontSize: Math.min(fs + 1, 16), fontFamily: "Inter, sans-serif", color: "#0f172a", fontWeight: 700, textAlign: "left" },
+        );
+        const exSt = getInlineTextStyleForFabric(
+          el,
+          { kind: "blog-list", field: "excerpt", itemIndex: i },
+          { fontSize: Math.max(fs - 2, 10), fontFamily: "Inter, sans-serif", color: "#64748b", fontWeight: 400, textAlign: "left" },
+        );
+        const dtSt = getInlineTextStyleForFabric(
+          el,
+          { kind: "blog-list", field: "date", itemIndex: i },
+          { fontSize: 9, fontFamily: "Inter, sans-serif", color: "#94a3b8", fontWeight: 400, textAlign: "left" },
+        );
+        const mt = new fabric.Textbox(post.title || "Tiêu đề", {
+          fontSize: titSt.fontSize,
+          fontWeight: titSt.fontWeight as number,
+          fontFamily: titSt.fontFamily,
+          fill: titSt.fill,
+          textAlign: titSt.textAlign as "left" | "center" | "right" | "justify",
+          width: cardInnerW,
+          lineHeight: 1.3,
+          editable: false,
+          selectable: false,
+        });
+        const me = new fabric.Textbox(post.excerpt || "", {
+          fontSize: exSt.fontSize,
+          fontWeight: exSt.fontWeight as number,
+          fontFamily: exSt.fontFamily,
+          fill: exSt.fill,
+          textAlign: exSt.textAlign as "left" | "center" | "right" | "justify",
+          width: cardInnerW,
+          lineHeight: 1.4,
+          editable: false,
+          selectable: false,
+        });
+        const md = new fabric.Textbox(post.date || "", {
+          fontSize: dtSt.fontSize,
+          fontWeight: dtSt.fontWeight as number,
+          fontFamily: dtSt.fontFamily,
+          fill: dtSt.fill,
+          textAlign: dtSt.textAlign as "left" | "center" | "right" | "justify",
+          width: cardInnerW,
+          editable: false,
+          selectable: false,
+        });
+        const hasImg = !!post.image?.trim();
+        const textH = fabricTextboxHeight(mt) + 6 + fabricTextboxHeight(me) + 4 + fabricTextboxHeight(md);
+        const cardH = 8 + (hasImg ? imgH + 8 : 0) + textH + 8;
+        metrics.push({ i, row, col, cardH, post, measTitle: mt, measExcerpt: me, measDate: md });
+      }
+      const rowHeights: number[] = [];
+      for (let r = 0; r < rowCount; r++) {
+        const inRow = metrics.filter((m) => m.row === r);
+        rowHeights[r] = inRow.length ? Math.max(...inRow.map((m) => m.cardH)) : 120;
+      }
+      const layoutH =
+        posts.length === 0
+          ? h
+          : Math.max(100, pad2 * 2 + rowHeights.reduce((a, b) => a + b, 0) + gap * Math.max(0, rowCount - 1));
+      const rowTop: number[] = [];
+      let accY = -layoutH / 2 + pad2;
+      for (let r = 0; r < rowCount; r++) {
+        rowTop[r] = accY;
+        accY += rowHeights[r] + (r < rowCount - 1 ? gap : 0);
+      }
+      const bgRect = new fabric.Rect({
+        width: w,
+        height: layoutH,
+        fill: bg,
+        rx: radius,
+        ry: radius,
+        left: -w / 2,
+        top: -layoutH / 2,
+        originX: "left",
+        originY: "top",
+      });
+      const blParts: fabric.FabricObject[] = [bgRect];
+      if (posts.length === 0) {
+        const gridStroke = "#cbd5e1";
+        const cellW0 = Math.max(24, (w - pad2 * 2 - gap) / 2);
+        const cellH0 = Math.max(36, (h - pad2 * 2 - gap) / 2);
+        const gLeft = -w / 2 + pad2;
+        const gTop = -layoutH / 2 + pad2;
+        const wire: fabric.FabricObject[] = [
+          new fabric.Rect({
+            width: cellW0, height: cellH0, fill: "transparent", stroke: gridStroke, strokeWidth: 1, strokeDashArray: [4, 3],
+            rx: 6, ry: 6, left: gLeft, top: gTop, originX: "left", originY: "top",
+          }),
+          new fabric.Rect({
+            width: cellW0, height: cellH0, fill: "transparent", stroke: gridStroke, strokeWidth: 1, strokeDashArray: [4, 3],
+            rx: 6, ry: 6, left: gLeft + cellW0 + gap, top: gTop, originX: "left", originY: "top",
+          }),
+          new fabric.Rect({
+            width: cellW0, height: cellH0, fill: "transparent", stroke: gridStroke, strokeWidth: 1, strokeDashArray: [4, 3],
+            rx: 6, ry: 6, left: gLeft, top: gTop + cellH0 + gap, originX: "left", originY: "top",
+          }),
+          new fabric.Rect({
+            width: cellW0, height: cellH0, fill: "transparent", stroke: gridStroke, strokeWidth: 1, strokeDashArray: [4, 3],
+            rx: 6, ry: 6, left: gLeft + cellW0 + gap, top: gTop + cellH0 + gap, originX: "left", originY: "top",
+          }),
+        ];
+        blParts.push(...wire);
+        blParts.push(
+          new fabric.Textbox("Danh sách bài — chọn Mẫu dữ liệu hoặc Thêm bài ở panel phải", {
+            fontSize: 10,
+            fontFamily: "Inter, sans-serif",
+            fill: "#64748b",
+            textAlign: "center",
+            width: w - 24,
+            left: -w / 2 + 12,
+            top: gTop + cellH0 * 2 + gap * 2 + 6,
+            originX: "left",
+            originY: "top",
+            editable: false,
+            selectable: false,
+          }),
+        );
+      } else {
+        metrics.forEach((m) => {
+          const { post, col, row, i } = m;
+          const cardLeft = -w / 2 + pad2 + col * (cellW + gap);
+          const cardTop = rowTop[row];
+          const cardBg = new fabric.Rect({
+            width: cellW,
+            height: m.cardH,
+            fill: "#ffffff",
+            rx: 8,
+            ry: 8,
+            stroke: "#e2e8f0",
+            strokeWidth: 1,
+            left: cardLeft,
+            top: cardTop,
+            originX: "left",
+            originY: "top",
+          });
+          blParts.push(cardBg);
+          let y = cardTop + 8;
+          if (post.image?.trim()) {
+            const ir = new fabric.Rect({
+              width: cellW - 16,
+              height: imgH,
+              fill: "#e2e8f0",
+              rx: 6,
+              ry: 6,
+              left: cardLeft + 8,
+              top: y,
+              originX: "left",
+              originY: "top",
+            });
+            (ir as fabric.Rect & { dataSrc?: string }).dataSrc = post.image;
+            blParts.push(ir);
+            y += imgH + 8;
+          }
+          const titSt = getInlineTextStyleForFabric(
+            el,
+            { kind: "blog-list", field: "title", itemIndex: i },
+            { fontSize: Math.min(fs + 1, 16), fontFamily: "Inter, sans-serif", color: "#0f172a", fontWeight: 700, textAlign: "left" },
+          );
+          const exSt = getInlineTextStyleForFabric(
+            el,
+            { kind: "blog-list", field: "excerpt", itemIndex: i },
+            { fontSize: Math.max(fs - 2, 10), fontFamily: "Inter, sans-serif", color: "#64748b", fontWeight: 400, textAlign: "left" },
+          );
+          const dtSt = getInlineTextStyleForFabric(
+            el,
+            { kind: "blog-list", field: "date", itemIndex: i },
+            { fontSize: 9, fontFamily: "Inter, sans-serif", color: "#94a3b8", fontWeight: 400, textAlign: "left" },
+          );
+          const tTit = new fabric.Textbox(post.title || "Tiêu đề", {
+            fontSize: titSt.fontSize,
+            fontWeight: titSt.fontWeight as number,
+            fontFamily: titSt.fontFamily,
+            fill: titSt.fill,
+            textAlign: titSt.textAlign as "left" | "center" | "right" | "justify",
+            width: cardInnerW,
+            lineHeight: 1.3,
+            left: cardLeft + 8,
+            top: y,
+            originX: "left",
+            originY: "top",
+            editable: true,
+            selectable: true,
+            lockMovementX: true,
+            lockMovementY: true,
+          });
+          (tTit as ExtFabricObj)._inlineEdit = { kind: "blog-list", field: "title", itemIndex: i };
+          blParts.push(tTit);
+          y += fabricTextboxHeight(m.measTitle) + 6;
+          const tEx = new fabric.Textbox(post.excerpt || "", {
+            fontSize: exSt.fontSize,
+            fontWeight: exSt.fontWeight as number,
+            fontFamily: exSt.fontFamily,
+            fill: exSt.fill,
+            textAlign: exSt.textAlign as "left" | "center" | "right" | "justify",
+            width: cardInnerW,
+            lineHeight: 1.4,
+            left: cardLeft + 8,
+            top: y,
+            originX: "left",
+            originY: "top",
+            editable: true,
+            selectable: true,
+            lockMovementX: true,
+            lockMovementY: true,
+          });
+          (tEx as ExtFabricObj)._inlineEdit = { kind: "blog-list", field: "excerpt", itemIndex: i };
+          blParts.push(tEx);
+          y += fabricTextboxHeight(m.measExcerpt) + 4;
+          const tDt = new fabric.Textbox(post.date || "", {
+            fontSize: dtSt.fontSize,
+            fontWeight: dtSt.fontWeight as number,
+            fontFamily: dtSt.fontFamily,
+            fill: dtSt.fill,
+            textAlign: dtSt.textAlign as "left" | "center" | "right" | "justify",
+            width: cardInnerW,
+            left: cardLeft + 8,
+            top: y,
+            originX: "left",
+            originY: "top",
+            editable: true,
+            selectable: true,
+            lockMovementX: true,
+            lockMovementY: true,
+          });
+          (tDt as ExtFabricObj)._inlineEdit = { kind: "blog-list", field: "date", itemIndex: i };
+          blParts.push(tDt);
+        });
+      }
+      obj = new fabric.Group(blParts, {
+        ...commonProps,
+        left: baseLeft + w / 2,
+        top: baseTop + layoutH / 2,
+        originX: "center",
+        originY: "center",
+        width: w,
+        height: layoutH,
+        subTargetCheck: true,
+        layoutManager: fabricCompositeGroupLayout,
+      });
+      if (posts.some((p) => p.image?.trim())) loadCompositeImages(obj as fabric.Group, syncGeneration, syncGenRef, canvasInstance);
+      tagObj(obj);
+      break;
+    }
+
+    case "blog-detail": {
+      const bd = parseBlogDetailContent(el.content ?? undefined);
+      const bg = (el.styles?.backgroundColor as string) ?? "#ffffff";
+      const radius = (el.styles?.borderRadius as number) ?? 12;
+      const fs = (el.styles?.fontSize as number) ?? 15;
+      const innerW = w - 32;
+      const titleText = bd.title?.trim() || "Tiêu đề bài viết";
+      const authorText = bd.author?.trim() || "Tác giả";
+      const dateText = bd.date?.trim() || "";
+      const bodyText = bd.body || "Nội dung bài viết…";
+
+      const titleSt = getInlineTextStyleForFabric(
+        el,
+        { kind: "blog-detail", field: "title" },
+        { fontSize: Math.min(fs + 8, 26), fontFamily: "Inter, sans-serif", color: "#0f172a", fontWeight: 800, textAlign: "left" },
+      );
+      const authorSt = getInlineTextStyleForFabric(
+        el,
+        { kind: "blog-detail", field: "author" },
+        { fontSize: 11, fontFamily: "Inter, sans-serif", color: "#64748b", fontWeight: 400, textAlign: "left" },
+      );
+      const dateSt = getInlineTextStyleForFabric(
+        el,
+        { kind: "blog-detail", field: "date" },
+        { fontSize: 11, fontFamily: "Inter, sans-serif", color: "#94a3b8", fontWeight: 400, textAlign: "left" },
+      );
+      const bodySt = getInlineTextStyleForFabric(
+        el,
+        { kind: "blog-detail", field: "body" },
+        { fontSize: fs, fontFamily: "Inter, sans-serif", color: "#334155", fontWeight: 400, textAlign: "left" },
+      );
+
+      const mTit = new fabric.Textbox(titleText, {
+        fontSize: titleSt.fontSize,
+        fontWeight: titleSt.fontWeight as number,
+        fontFamily: titleSt.fontFamily,
+        fill: titleSt.fill,
+        textAlign: titleSt.textAlign as "left" | "center" | "right" | "justify",
+        width: innerW,
+        lineHeight: 1.25,
+        editable: false,
+        selectable: false,
+      });
+      const mAuth = new fabric.Textbox(authorText, {
+        fontSize: authorSt.fontSize,
+        fontWeight: authorSt.fontWeight as number,
+        fontFamily: authorSt.fontFamily,
+        fill: authorSt.fill,
+        textAlign: authorSt.textAlign as "left" | "center" | "right" | "justify",
+        width: innerW,
+        editable: false,
+        selectable: false,
+      });
+      const mDate = new fabric.Textbox(dateText, {
+        fontSize: dateSt.fontSize,
+        fontWeight: dateSt.fontWeight as number,
+        fontFamily: dateSt.fontFamily,
+        fill: dateSt.fill,
+        textAlign: dateSt.textAlign as "left" | "center" | "right" | "justify",
+        width: innerW,
+        editable: false,
+        selectable: false,
+      });
+      const mBody = new fabric.Textbox(bodyText, {
+        fontSize: bodySt.fontSize,
+        fontWeight: bodySt.fontWeight as number,
+        fontFamily: bodySt.fontFamily,
+        fill: bodySt.fill,
+        textAlign: bodySt.textAlign as "left" | "center" | "right" | "justify",
+        width: innerW,
+        lineHeight: 1.55,
+        editable: false,
+        selectable: false,
+      });
+      const padTop = 16;
+      const gTitle = 8;
+      const gMeta = 4;
+      const gBody = 10;
+      const padBot = 16;
+      const contentH =
+        padTop +
+        fabricTextboxHeight(mTit) +
+        gTitle +
+        fabricTextboxHeight(mAuth) +
+        gMeta +
+        fabricTextboxHeight(mDate) +
+        gBody +
+        fabricTextboxHeight(mBody) +
+        padBot;
+      const layoutH = Math.min(h, Math.max(200, contentH));
+
+      const bdBg = new fabric.Rect({
+        width: w,
+        height: layoutH,
+        fill: bg,
+        rx: radius,
+        ry: radius,
+        left: -w / 2,
+        top: -layoutH / 2,
+        originX: "left",
+        originY: "top",
+      });
+      const bdParts: fabric.FabricObject[] = [bdBg];
+      let ty = -layoutH / 2 + padTop;
+      const leftX = -w / 2 + 16;
+
+      const tTitle = new fabric.Textbox(titleText, {
+        fontSize: titleSt.fontSize,
+        fontWeight: titleSt.fontWeight as number,
+        fontFamily: titleSt.fontFamily,
+        fill: titleSt.fill,
+        textAlign: titleSt.textAlign as "left" | "center" | "right" | "justify",
+        width: innerW,
+        lineHeight: 1.25,
+        left: leftX,
+        top: ty,
+        originX: "left",
+        originY: "top",
+        editable: true,
+        selectable: true,
+        lockMovementX: true,
+        lockMovementY: true,
+      });
+      (tTitle as ExtFabricObj)._inlineEdit = { kind: "blog-detail", field: "title" };
+      bdParts.push(tTitle);
+      ty += fabricTextboxHeight(mTit) + gTitle;
+
+      const tAuthor = new fabric.Textbox(authorText, {
+        fontSize: authorSt.fontSize,
+        fontWeight: authorSt.fontWeight as number,
+        fontFamily: authorSt.fontFamily,
+        fill: authorSt.fill,
+        textAlign: authorSt.textAlign as "left" | "center" | "right" | "justify",
+        width: innerW,
+        left: leftX,
+        top: ty,
+        originX: "left",
+        originY: "top",
+        editable: true,
+        selectable: true,
+        lockMovementX: true,
+        lockMovementY: true,
+      });
+      (tAuthor as ExtFabricObj)._inlineEdit = { kind: "blog-detail", field: "author" };
+      bdParts.push(tAuthor);
+      ty += fabricTextboxHeight(mAuth) + gMeta;
+
+      const tDate = new fabric.Textbox(dateText, {
+        fontSize: dateSt.fontSize,
+        fontWeight: dateSt.fontWeight as number,
+        fontFamily: dateSt.fontFamily,
+        fill: dateSt.fill,
+        textAlign: dateSt.textAlign as "left" | "center" | "right" | "justify",
+        width: innerW,
+        left: leftX,
+        top: ty,
+        originX: "left",
+        originY: "top",
+        editable: true,
+        selectable: true,
+        lockMovementX: true,
+        lockMovementY: true,
+      });
+      (tDate as ExtFabricObj)._inlineEdit = { kind: "blog-detail", field: "date" };
+      bdParts.push(tDate);
+      ty += fabricTextboxHeight(mDate) + gBody;
+
+      const tBody = new fabric.Textbox(bodyText, {
+        fontSize: bodySt.fontSize,
+        fontWeight: bodySt.fontWeight as number,
+        fontFamily: bodySt.fontFamily,
+        fill: bodySt.fill,
+        textAlign: bodySt.textAlign as "left" | "center" | "right" | "justify",
+        width: innerW,
+        lineHeight: 1.55,
+        left: leftX,
+        top: ty,
+        originX: "left",
+        originY: "top",
+        editable: true,
+        selectable: true,
+        lockMovementX: true,
+        lockMovementY: true,
+        splitByGrapheme: false,
+      });
+      (tBody as ExtFabricObj)._inlineEdit = { kind: "blog-detail", field: "body" };
+      bdParts.push(tBody);
+
+      obj = new fabric.Group(bdParts, {
+        ...commonProps,
+        left: baseLeft + w / 2,
+        top: baseTop + layoutH / 2,
+        originX: "center",
+        originY: "center",
+        width: w,
+        height: layoutH,
+        subTargetCheck: true,
+        layoutManager: fabricCompositeGroupLayout,
+      });
+      tagObj(obj);
+      break;
+    }
+
+    case "popup": {
+      const pop = parsePopupContent(el.content ?? undefined);
+      const titleText = pop.title?.trim() || "Popup";
+      const bodyText = (pop.body || "Nội dung popup…").slice(0, 800);
+      const bg = (el.styles?.backgroundColor as string) ?? "#ffffff";
+      const radius = (el.styles?.borderRadius as number) ?? 12;
+      const layoutH = h;
+      const headH = 40;
+      const popupFlat = Number(el.styles?.popupFlat) === 1;
+      const headerBg = (el.styles?.headerBackgroundColor as string) ?? "#1e293b";
+      const headerTitleColor = (el.styles?.headerTextColor as string) ?? "#ffffff";
+      const bodyFill = (el.styles?.bodyTextColor as string) ?? (el.styles?.color as string) ?? "#334155";
+
+      const popBg = new fabric.Rect({
+        width: w,
+        height: layoutH,
+        fill: bg,
+        rx: radius,
+        ry: radius,
+        shadow: new fabric.Shadow({ color: "rgba(15,23,42,0.15)", blur: 24, offsetX: 0, offsetY: 8 }),
+        left: -w / 2,
+        top: -layoutH / 2,
+        originX: "left",
+        originY: "top",
+      });
+
+      let popParts: fabric.FabricObject[];
+
+      if (popupFlat) {
+        const titleColorFlat = (el.styles?.headerTextColor as string) ?? (el.styles?.color as string) ?? "#0f172a";
+        const headTxt = new fabric.Textbox(titleText, {
+          fontSize: 14,
+          fontWeight: 700,
+          fontFamily: "Inter, sans-serif",
+          fill: titleColorFlat,
+          width: w - 24,
+          left: -w / 2 + 12,
+          top: -layoutH / 2 + 14,
+          originX: "left",
+          originY: "top",
+          editable: false,
+          selectable: false,
+        });
+        const bodyBox = new fabric.Textbox(bodyText, {
+          fontSize: 12,
+          fontFamily: "Inter, sans-serif",
+          fill: bodyFill,
+          width: w - 28,
+          lineHeight: 1.45,
+          left: -w / 2 + 14,
+          top: -layoutH / 2 + 44,
+          originX: "left",
+          originY: "top",
+          editable: false,
+          selectable: false,
+        });
+        popParts = [popBg, headTxt, bodyBox];
+      } else {
+        const headBar = new fabric.Rect({
+          width: w,
+          height: headH,
+          fill: headerBg,
+          rx: 0,
+          ry: 0,
+          left: -w / 2,
+          top: -layoutH / 2,
+          originX: "left",
+          originY: "top",
+        });
+        if (radius > 0) {
+          headBar.set({ rx: radius, ry: radius });
+        }
+        const headTxt = new fabric.Textbox(titleText, {
+          fontSize: 13,
+          fontWeight: 600,
+          fontFamily: "Inter, sans-serif",
+          fill: headerTitleColor,
+          width: w - 24,
+          left: -w / 2 + 12,
+          top: -layoutH / 2 + (headH - 16) / 2,
+          originX: "left",
+          originY: "top",
+          editable: false,
+          selectable: false,
+        });
+        const bodyBox = new fabric.Textbox(bodyText, {
+          fontSize: 12,
+          fontFamily: "Inter, sans-serif",
+          fill: bodyFill,
+          width: w - 28,
+          lineHeight: 1.45,
+          left: -w / 2 + 14,
+          top: -layoutH / 2 + headH + 12,
+          originX: "left",
+          originY: "top",
+          editable: false,
+          selectable: false,
+        });
+        popParts = [popBg, headBar, headTxt, bodyBox];
+      }
+
+      obj = new fabric.Group(popParts, {
+        ...commonProps,
+        left: baseLeft + w / 2,
+        top: baseTop + layoutH / 2,
+        originX: "center",
+        originY: "center",
+        width: w,
+        height: layoutH,
+        subTargetCheck: false,
+        layoutManager: fabricCompositeGroupLayout,
+      });
+      tagObj(obj);
+      break;
+    }
+
     default: {
       const bg = new fabric.Rect({
         width: w,
@@ -1951,8 +2670,8 @@ function buildFabricObject(
         originX: "center",
         originY: "center",
       });
-      const typeLabel = el.type.replace(/-/g, " ").toUpperCase();
-      const icon = getTypeEmoji(el.type);
+      const typeLabel = elType.replace(/-/g, " ").toUpperCase();
+      const icon = getTypeEmoji(elType);
       const iconText = new fabric.Textbox(icon, {
         fontSize: Math.min(w, h) * 0.15,
         textAlign: "center",
@@ -2007,6 +2726,25 @@ function getTypeEmoji(type: string): string {
     "popup-preset": "💬",
   };
   return map[type] ?? "📌";
+}
+
+/** Thoát chỉnh sửa text trên canvas để useEffect đồng bộ không bị return sớm (isEditing → bỏ qua rebuild). */
+function exitFabricTextEditing(canvas: fabric.Canvas | null) {
+  if (!canvas) return;
+  const o = canvas.getActiveObject();
+  if (!o) return;
+  if (o instanceof fabric.Textbox && o.isEditing) {
+    o.exitEditing();
+    return;
+  }
+  if (o instanceof fabric.Group) {
+    for (const sub of o.getObjects()) {
+      if (sub instanceof fabric.Textbox && sub.isEditing) {
+        sub.exitEditing();
+        return;
+      }
+    }
+  }
 }
 
 export default function FabricCanvas({ onCanvasReady, containerRef, onRequestAddImage, onRequestChangeIcon, onRequestAddFormField, onRequestSaveFormData, onOpenSettings }: FabricCanvasProps) {
@@ -2205,11 +2943,26 @@ export default function FabricCanvas({ onCanvasReady, containerRef, onRequestAdd
       const obj = e.target as ExtFabricObj | undefined;
       if (!obj?._elementId) return;
 
+      // Fabric trả obj.left/obj.top trong không gian design (trước viewport zoom).
+      // canvas.getZoom() đã được gán = effectiveZoom. Với Fabric 7, _getPointer chia cho zoom
+      // nhưng một số build của Fabric trả tọa độ theo viewport → cần chia thêm.
+      // Dùng canvas.restorePointerVpt để chắc chắn lấy đúng design coordinate.
+      const z = canvas.getZoom() || 1;
+      // transformPoint(invertedVpt, point) = design coord; nhưng obj.left LUÔN là design coord trong Fabric 7.
+      // Khi zoom != 1, obj.left đã là design coord (bằng CSS_x / zoom). Không cần chia thêm.
+      const designLeft = obj.left ?? 0;
+      const designTop = obj.top ?? 0;
+      void z; // zoom đã được xử lý bởi Fabric nội bộ
+
       const storeSections = useEditorStore.getState().sections;
       const yOffsets = getSectionYOffsets(storeSections);
+      // Tìm section chứa phần tử này bằng element ID (không dùng _sectionId vì có thể undefined khi load từ API PascalCase)
       let sectionIdx = 0;
       for (let i = 0; i < storeSections.length; i++) {
-        if (obj._sectionId === storeSections[i].id) { sectionIdx = i; break; }
+        if (storeSections[i].elements.some((e) => e.id === obj._elementId)) {
+          sectionIdx = i;
+          break;
+        }
       }
       const sectionY = yOffsets[sectionIdx] ?? 0;
 
@@ -2221,26 +2974,35 @@ export default function FabricCanvas({ onCanvasReady, containerRef, onRequestAdd
         (el.type === "gallery" ||
           el.type === "product-detail" ||
           el.type === "collection-list" ||
+          el.type === "blog-list" ||
+          el.type === "blog-detail" ||
           el.type === "carousel" ||
           el.type === "tabs" ||
           el.type === "shape");
-      const objW = Math.round((obj.width ?? 0) * (obj.scaleX ?? 1));
-      const objH = Math.round((obj.height ?? 0) * (obj.scaleY ?? 1));
-      const left = Math.round((obj.left ?? 0) - (isCenterOrigin ? objW / 2 : 0));
-      const top = Math.round((obj.top ?? 0) - sectionY - SECTION_LABEL_HEIGHT - (isCenterOrigin ? objH / 2 : 0));
 
-      // FabricImage trực tiếp (không Group): scaleX/scaleY thể hiện resize của user
-      // → tính width/height mới từ scale và reset về 1.
-      if (el?.type === "image") {
-        const newW = Math.round((obj.width ?? 0) * (obj.scaleX ?? 1));
-        const newH = Math.round((obj.height ?? 0) * (obj.scaleY ?? 1));
-        obj.set({ scaleX: 1, scaleY: 1, width: newW, height: newH });
-        obj.setCoords();
-        updateElement(obj._elementId, { x: left, y: top, width: newW, height: newH, rotation: Math.round(obj.angle ?? 0) });
+      // FabricImage: width/height nội bộ là kích thước ảnh gốc + scale fit — không gọi obj.set(width/height)
+      // (dễ làm mất bitmap trước khi React rebuild canvas). Nếu tính ra 0px thì giữ kích thước store.
+      if (el && normalizeElementType(el.type) === "image") {
+        let rawW = Math.round((obj.width ?? 0) * (obj.scaleX ?? 1));
+        let rawH = Math.round((obj.height ?? 0) * (obj.scaleY ?? 1));
+        const ew = Math.max(1, el.width ?? 200);
+        const eh = Math.max(1, el.height ?? 200);
+        if (rawW <= 0) rawW = ew;
+        if (rawH <= 0) rawH = eh;
+        const objW = rawW;
+        const objH = rawH;
+        const left = Math.round(designLeft - (isCenterOrigin ? objW / 2 : 0));
+        const top = Math.round(designTop - sectionY - SECTION_LABEL_HEIGHT - (isCenterOrigin ? objH / 2 : 0));
+        updateElement(obj._elementId, { x: left, y: top, width: rawW, height: rawH, rotation: Math.round(obj.angle ?? 0) });
         pushHistory();
         canvas.requestRenderAll();
         return;
       }
+
+      const objW = Math.round((obj.width ?? 0) * (obj.scaleX ?? 1));
+      const objH = Math.round((obj.height ?? 0) * (obj.scaleY ?? 1));
+      const left = Math.round(designLeft - (isCenterOrigin ? objW / 2 : 0));
+      const top = Math.round(designTop - sectionY - SECTION_LABEL_HEIGHT - (isCenterOrigin ? objH / 2 : 0));
 
       let w: number;
       let h: number;
@@ -2417,7 +3179,7 @@ export default function FabricCanvas({ onCanvasReady, containerRef, onRequestAdd
         const fabricObj = buildFabricObject(el, yOff, desktopCanvasWidth, canvas, currentGen, syncGenRef);
         if (fabricObj) {
           canvas.add(fabricObj);
-          const compositeTypes = ["gallery", "product-detail", "collection-list", "shape", "image"];
+          const compositeTypes = ["gallery", "product-detail", "collection-list", "blog-list", "blog-detail", "cart", "shape", "image"];
           const isComposite = compositeTypes.includes(el.type);
           const imageCompositeTypes: string[] = [];
           if (fabricObj instanceof fabric.Group && imageCompositeTypes.includes(el.type)) {
@@ -2604,12 +3366,16 @@ export default function FabricCanvas({ onCanvasReady, containerRef, onRequestAdd
             lineThickness={selEl.el.type === "divider" ? ((selEl.el.styles?.height as number) ?? (selEl.el.height ?? 2)) : undefined}
             lineColor={selEl.el.type === "divider" ? ((selEl.el.styles?.backgroundColor as string) ?? "#d1d5db") : undefined}
             onBringToFront={() => {
-              moveElementLayer(selEl.el.id, "front");
+              exitFabricTextEditing(fabricRef.current);
+              moveElementLayer(selEl.el.id, "forward");
               pushHistory();
+              setSelectionTick((x) => x + 1);
             }}
             onSendToBack={() => {
-              moveElementLayer(selEl.el.id, "back");
+              exitFabricTextEditing(fabricRef.current);
+              moveElementLayer(selEl.el.id, "backward");
               pushHistory();
+              setSelectionTick((x) => x + 1);
             }}
             onToggleLock={() => {
               updateElement(selEl.el.id, { isLocked: !selEl.el.isLocked });

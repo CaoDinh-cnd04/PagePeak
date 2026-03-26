@@ -7,6 +7,8 @@ export type InlineEditMeta =
   | { kind: "product-detail"; field: "title" | "price" | "description" }
   | { kind: "tabs"; field: "label" | "title" | "desc"; tabIndex: number }
   | { kind: "collection-list"; field: "title" | "price"; itemIndex: number }
+  | { kind: "blog-list"; field: "title" | "excerpt" | "date"; itemIndex: number }
+  | { kind: "blog-detail"; field: "title" | "author" | "date" | "body" }
   | {
       kind: "carousel";
       field: "quote" | "name" | "role" | "title" | "desc";
@@ -95,6 +97,25 @@ export function getInlineTextStyleForFabric(
               ? "titleStyle"
               : "descStyle";
     styleObj = row[sk];
+  } else if (meta.kind === "blog-list") {
+    const items = (raw.posts ?? raw.Posts) as unknown[] | undefined;
+    const row =
+      Array.isArray(items) && items[meta.itemIndex] && typeof items[meta.itemIndex] === "object"
+        ? (items[meta.itemIndex] as Record<string, unknown>)
+        : {};
+    const sk =
+      meta.field === "title" ? "titleStyle" : meta.field === "excerpt" ? "excerptStyle" : "dateStyle";
+    styleObj = row[sk];
+  } else if (meta.kind === "blog-detail") {
+    const sk =
+      meta.field === "title"
+        ? "titleStyle"
+        : meta.field === "author"
+          ? "authorStyle"
+          : meta.field === "date"
+            ? "dateStyle"
+            : "bodyStyle";
+    styleObj = raw[sk] ?? raw[sk === "titleStyle" ? "TitleStyle" : sk === "authorStyle" ? "AuthorStyle" : sk === "dateStyle" ? "DateStyle" : "BodyStyle"];
   } else {
     styleObj = undefined;
   }
@@ -179,6 +200,33 @@ export function mergeInlineTextStyle(
     return JSON.stringify({ ...raw, layoutType, items: arr });
   }
 
+  if (meta.kind === "blog-list") {
+    const itemsRaw = raw.posts ?? raw.Posts;
+    const arr = Array.isArray(itemsRaw) ? [...itemsRaw] : [];
+    const i = meta.itemIndex;
+    if (i < 0 || i >= arr.length) return JSON.stringify({ ...raw, posts: arr });
+    const row = { ...(typeof arr[i] === "object" && arr[i] ? (arr[i] as Record<string, unknown>) : {}) };
+    const sk =
+      meta.field === "title" ? "titleStyle" : meta.field === "excerpt" ? "excerptStyle" : "dateStyle";
+    const prev = (row[sk] as Record<string, string | number> | undefined) ?? {};
+    row[sk] = { ...prev, ...patch };
+    arr[i] = row;
+    return JSON.stringify({ ...raw, posts: arr });
+  }
+
+  if (meta.kind === "blog-detail") {
+    const sk =
+      meta.field === "title"
+        ? "titleStyle"
+        : meta.field === "author"
+          ? "authorStyle"
+          : meta.field === "date"
+            ? "dateStyle"
+            : "bodyStyle";
+    const prev = (raw[sk] as Record<string, string | number> | undefined) ?? {};
+    return JSON.stringify({ ...raw, [sk]: { ...prev, ...patch } });
+  }
+
   return null;
 }
 
@@ -247,6 +295,40 @@ export function mergeInlineContent(el: EditorElement, meta: InlineEditMeta | und
     else if (meta.field === "desc") row.desc = text;
     items[i] = row;
     return JSON.stringify({ layoutType: cd.layoutType, items });
+  }
+
+  if (meta.kind === "blog-list") {
+    let raw: Record<string, unknown> = {};
+    try {
+      const p = JSON.parse(el.content || "{}");
+      if (p && typeof p === "object") raw = p as Record<string, unknown>;
+    } catch {
+      /* ignore */
+    }
+    const items = [...((raw.posts ?? raw.Posts) as { title?: string; excerpt?: string; date?: string }[] | undefined) ?? []];
+    const i = meta.itemIndex;
+    if (i < 0 || i >= items.length) return JSON.stringify({ ...raw, posts: items });
+    const row = { ...items[i] };
+    if (meta.field === "title") row.title = text;
+    else if (meta.field === "excerpt") row.excerpt = text;
+    else if (meta.field === "date") row.date = text;
+    items[i] = row;
+    return JSON.stringify({ ...raw, posts: items });
+  }
+
+  if (meta.kind === "blog-detail") {
+    let raw: Record<string, unknown> = {};
+    try {
+      const p = JSON.parse(el.content || "{}");
+      if (p && typeof p === "object") raw = p as Record<string, unknown>;
+    } catch {
+      /* ignore */
+    }
+    if (meta.field === "title") return JSON.stringify({ ...raw, title: text });
+    if (meta.field === "author") return JSON.stringify({ ...raw, author: text });
+    if (meta.field === "date") return JSON.stringify({ ...raw, date: text });
+    if (meta.field === "body") return JSON.stringify({ ...raw, body: text });
+    return null;
   }
 
   return null;

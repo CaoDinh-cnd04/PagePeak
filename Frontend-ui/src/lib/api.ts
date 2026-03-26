@@ -154,6 +154,8 @@ export type TemplateItem = {
   description?: string;
   designType: string;
   isFeatured: boolean;
+  /** Mẫu Pro / trả phí (badge trên thư viện) */
+  isPremium?: boolean;
   usageCount: number;
   createdAt: string;
 };
@@ -351,11 +353,42 @@ export const pagesApi = {
   },
 };
 
+export type TagDto = {
+  id: number;
+  name: string;
+  color: string | null;
+  createdAt: string;
+  updatedAt: string;
+  usageCount: number;
+};
+
 export const tagsApi = {
-  list: (workspaceId: number) => api<{ id: number; name: string; color: string | null; createdAt: string }[]>(`/api/tags?workspaceId=${workspaceId}`),
-  create: (workspaceId: number, name: string, color?: string) => api<{ id: number; name: string; color: string | null }>("/api/tags", { method: "POST", body: JSON.stringify({ workspaceId, name, color }) }),
-  update: (id: number, name?: string, color?: string) => api<{ id: number; name: string; color: string | null }>(`/api/tags/${id}`, { method: "PUT", body: JSON.stringify({ name, color }) }),
+  list: (workspaceId: number, search?: string) => {
+    const sp = new URLSearchParams({ workspaceId: String(workspaceId) });
+    if (search?.trim()) sp.set("search", search.trim());
+    return api<TagDto[]>(`/api/tags?${sp.toString()}`);
+  },
+  create: (workspaceId: number, name: string, color?: string) =>
+    api<TagDto & { usageCount?: number }>("/api/tags", {
+      method: "POST",
+      body: JSON.stringify({ workspaceId, name, color }),
+    }),
+  update: (id: number, name?: string, color?: string) =>
+    api<TagDto & { usageCount?: number }>(`/api/tags/${id}`, { method: "PUT", body: JSON.stringify({ name, color }) }),
   delete: (id: number) => api<{ ok: boolean }>(`/api/tags/${id}`, { method: "DELETE" }),
+  bulkDelete: (ids: number[]) =>
+    api<{ ok: boolean; deleted: number }>("/api/tags/bulk-delete", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    }),
+  /** Gán tag cho trang (thay toàn bộ danh sách). */
+  syncPageTags: (pageId: number, tagIds: number[]) =>
+    api<{ ok: boolean; tagIds: number[] }>(`/api/tags/page/${pageId}`, {
+      method: "PUT",
+      body: JSON.stringify({ tagIds }),
+    }),
+  getPageTags: (pageId: number) =>
+    api<{ id: number; name: string; color: string | null }[]>(`/api/tags/page/${pageId}`),
 };
 
 export const domainsApi = {
@@ -369,28 +402,113 @@ export const formsApi = {
   create: (workspaceId: number, name: string, fieldsJson?: string, webhookUrl?: string, emailNotify?: boolean) => api<{ id: number; name: string }>("/api/forms", { method: "POST", body: JSON.stringify({ workspaceId, name, fieldsJson, webhookUrl, emailNotify: emailNotify ?? false }) }),
   update: (id: number, data: { name?: string; fieldsJson?: string; webhookUrl?: string; emailNotify?: boolean }) => api<{ id: number; name: string }>(`/api/forms/${id}`, { method: "PUT", body: JSON.stringify({ ...data, emailNotify: data.emailNotify ?? false }) }),
   delete: (id: number) => api<{ ok: boolean }>(`/api/forms/${id}`, { method: "DELETE" }),
+  /** Gửi payload thử tới Webhook URL (cần đăng nhập). */
+  testWebhook: (id: number) =>
+    api<{ ok: boolean; statusCode?: number; error?: string }>(`/api/forms/${id}/test-webhook`, { method: "POST" }),
 };
 
 export type NotificationItem = { id: number; title: string; message: string; type: string; isRead: boolean; createdAt: string };
 export const notificationsApi = {
-  list: () => api<{ unread: number; items: NotificationItem[] }>("/api/notifications"),
+  /** Chuẩn hóa: API có thể trả { items, unread } hoặc (cũ) mảng trực tiếp */
+  list: async (): Promise<{ unread: number; items: NotificationItem[] }> => {
+    const raw = await api<unknown>("/api/notifications");
+    if (Array.isArray(raw)) {
+      const items = raw as NotificationItem[];
+      return { items, unread: items.filter((n) => !n.isRead).length };
+    }
+    const obj = raw as { items?: NotificationItem[]; unread?: number };
+    const items = Array.isArray(obj.items) ? obj.items : [];
+    const unread = typeof obj.unread === "number" ? obj.unread : items.filter((n) => !n.isRead).length;
+    return { items, unread };
+  },
   markRead: (id: number) => api<{ ok: boolean }>(`/api/notifications/${id}/read`, { method: "PUT" }),
   markAllRead: () => api<{ ok: boolean }>("/api/notifications/mark-all-read", { method: "PUT" }),
 };
 
-export type ProductItem = { id: number; name: string; price: number; description: string | null; imageUrl: string | null; category: string | null; stock: number; status: string; createdAt: string };
+export type ProductItem = {
+  id: number;
+  name: string;
+  price: number;
+  salePrice: number | null;
+  description: string | null;
+  imageUrl: string | null;
+  category: string | null;
+  stock: number;
+  status: string;
+  createdAt: string;
+};
 export const productsApi = {
   list: (workspaceId: number) => api<ProductItem[]>(`/api/products?workspaceId=${workspaceId}`),
-  create: (data: { workspaceId: number; name: string; price: number; description?: string; imageUrl?: string; category?: string; stock: number }) => api<ProductItem>("/api/products", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: { name?: string; price?: number; description?: string; imageUrl?: string; category?: string; stock?: number; status?: string }) => api<ProductItem>(`/api/products/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  create: (data: {
+    workspaceId: number;
+    name: string;
+    price: number;
+    salePrice?: number | null;
+    description?: string;
+    imageUrl?: string;
+    category?: string;
+    stock: number;
+  }) => api<ProductItem>("/api/products", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: number, data: { name?: string; price?: number; salePrice?: number | null; description?: string; imageUrl?: string; category?: string; stock?: number; status?: string }) =>
+    api<ProductItem>(`/api/products/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: number) => api<{ ok: boolean }>(`/api/products/${id}`, { method: "DELETE" }),
 };
 
-export type OrderItem = { id: number; customerName: string; email: string | null; phone: string | null; productId: number | null; amount: number; status: string; createdAt: string };
+export type OrderItem = {
+  id: number;
+  customerName: string;
+  email: string | null;
+  phone: string | null;
+  productId: number | null;
+  productName?: string | null;
+  amount: number;
+  status: string;
+  createdAt: string;
+};
+export type OrdersListResponse = { items: OrderItem[]; totalCount: number };
+
+export type OrdersListOpts = {
+  status?: string;
+  /** Đơn chưa hoàn tất: pending + shipping (ưu tiên hơn status nếu true) */
+  incomplete?: boolean;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+  sort?: "created_desc" | "created_asc" | "amount_desc" | "amount_asc";
+};
+
+function buildOrdersQuery(workspaceId: number, opts?: string | OrdersListOpts): string {
+  const p = new URLSearchParams();
+  p.set("workspaceId", String(workspaceId));
+  if (opts === undefined) {
+    p.set("page", "1");
+    p.set("pageSize", "20");
+    p.set("sort", "created_desc");
+    return p.toString();
+  }
+  if (typeof opts === "string") {
+    if (opts) p.set("status", opts);
+    p.set("page", "1");
+    p.set("pageSize", "20");
+    p.set("sort", "created_desc");
+    return p.toString();
+  }
+  if (opts.incomplete) p.set("incomplete", "true");
+  else if (opts.status) p.set("status", opts.status);
+  if (opts.q?.trim()) p.set("q", opts.q.trim());
+  p.set("page", String(opts.page ?? 1));
+  p.set("pageSize", String(opts.pageSize ?? 20));
+  p.set("sort", opts.sort ?? "created_desc");
+  return p.toString();
+}
+
 export const ordersApi = {
-  list: (workspaceId: number, status?: string) => api<OrderItem[]>(`/api/orders?workspaceId=${workspaceId}${status ? `&status=${status}` : ""}`),
-  create: (data: { workspaceId: number; customerName: string; email?: string; phone?: string; productId?: number; amount: number }) => api<OrderItem>("/api/orders", { method: "POST", body: JSON.stringify(data) }),
-  update: (id: number, data: { customerName?: string; email?: string; phone?: string; status?: string }) => api<OrderItem>(`/api/orders/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  list: (workspaceId: number, opts?: string | OrdersListOpts) =>
+    api<OrdersListResponse>(`/api/orders?${buildOrdersQuery(workspaceId, opts)}`),
+  create: (data: { workspaceId: number; customerName: string; email?: string; phone?: string; productId?: number; amount: number }) =>
+    api<OrderItem>("/api/orders", { method: "POST", body: JSON.stringify(data) }),
+  update: (id: number, data: { customerName?: string; email?: string; phone?: string; status?: string }) =>
+    api<OrderItem>(`/api/orders/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   delete: (id: number) => api<{ ok: boolean }>(`/api/orders/${id}`, { method: "DELETE" }),
 };
 

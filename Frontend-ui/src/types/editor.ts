@@ -89,6 +89,8 @@ export type ToolItemData = {
   hasSubTabs: boolean;
   subTabs?: string | null;
   presets: ElementPresetData[];
+  /** Chỉ dùng khi elementType === "section": thêm section kèm layout mẫu */
+  sectionTemplate?: "blank" | "hero";
 };
 
 export type ToolCategoryData = {
@@ -97,6 +99,15 @@ export type ToolCategoryData = {
   icon: string;
   order: number;
   items: ToolItemData[];
+  /** Panel phụ đặc biệt (không liệt kê tool con) */
+  sidebarAction?: "media" | "integrations" | "blog" | "popup" | "utilities";
+};
+
+/** Hiệu ứng toàn trang (Tiện ích → Thư viện) — xuất HTML / preview */
+export type UtilityEffectsSettings = {
+  snow?: boolean;
+  cherryBlossom?: boolean;
+  fireworks?: boolean;
 };
 
 export type PageSettings = {
@@ -114,6 +125,10 @@ export type PageSettings = {
   codeBeforeBody?: string;
   useDelayJS?: boolean;
   useLazyload?: boolean;
+  /** Hiệu ứng (tuyết, hoa, pháo hoa) */
+  utilityEffects?: UtilityEffectsSettings;
+  /** Bật/tắt ứng dụng tiện ích (reCAPTCHA, METU, …) — lưu theo id catalog */
+  utilityAppToggles?: Record<string, boolean>;
 };
 
 export type PageContent = {

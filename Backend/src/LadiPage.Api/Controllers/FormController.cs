@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using LadiPage.Api.Models;
 using LadiPage.Domain.Entities;
 using LadiPage.Domain.Interfaces;
@@ -15,12 +16,18 @@ public class FormController : ControllerBase
     private readonly IAppDbContext _db;
     private readonly ICurrentUser _currentUser;
     private readonly IWorkspaceAccessService _workspaceAccess;
+    private readonly IHttpClientFactory _httpFactory;
 
-    public FormController(IAppDbContext db, ICurrentUser currentUser, IWorkspaceAccessService workspaceAccess)
+    public FormController(
+        IAppDbContext db,
+        ICurrentUser currentUser,
+        IWorkspaceAccessService workspaceAccess,
+        IHttpClientFactory httpFactory)
     {
         _db = db;
         _currentUser = currentUser;
         _workspaceAccess = workspaceAccess;
+        _httpFactory = httpFactory;
     }
 
     [HttpGet]
@@ -69,5 +76,38 @@ public class FormController : ControllerBase
         _db.FormConfigs.Remove(form);
         await _db.SaveChangesAsync(ct);
         return Ok(new { ok = true });
+    }
+
+    /// <summary>Gửi payload thử tới Webhook URL (cần đăng nhập, quyền workspace).</summary>
+    [HttpPost("{id:long}/test-webhook")]
+    public async Task<IActionResult> TestWebhook(long id, CancellationToken ct)
+    {
+        if (_currentUser.UserId == null) return Unauthorized();
+        var form = await _db.FormConfigs.AsNoTracking().FirstOrDefaultAsync(f => f.Id == id, ct);
+        if (form == null) return NotFound();
+        if (!await _workspaceAccess.CanAccessWorkspaceAsync(_currentUser.UserId.Value, form.WorkspaceId)) return NotFound();
+        if (string.IsNullOrWhiteSpace(form.WebhookUrl))
+            return BadRequest(new { error = "no_webhook", message = "Chưa cấu hình Webhook URL." });
+
+        try
+        {
+            var client = _httpFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(20);
+            var payload = new
+            {
+                test = true,
+                formId = form.Id,
+                formName = form.Name,
+                workspaceId = form.WorkspaceId,
+                message = "LadiPage — kiểm tra webhook",
+                sentAt = DateTime.UtcNow,
+            };
+            var res = await client.PostAsJsonAsync(form.WebhookUrl.Trim(), payload, ct);
+            return Ok(new { ok = res.IsSuccessStatusCode, statusCode = (int)res.StatusCode });
+        }
+        catch (Exception ex)
+        {
+            return Ok(new { ok = false, error = ex.Message });
+        }
     }
 }

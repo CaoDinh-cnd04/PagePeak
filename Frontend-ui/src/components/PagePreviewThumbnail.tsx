@@ -26,6 +26,9 @@ export function PagePreviewThumbnail({ pageId, className = "" }: Props) {
             metaTitle: content.metaTitle ?? content.name ?? "Preview",
             metaDescription: content.metaDescription ?? "",
             thumbnail: true,
+            pageId: content.pageId,
+            workspaceId: content.workspaceId,
+            apiBaseUrl: import.meta.env.VITE_API_URL,
           });
           setHtml(preview);
         } else {

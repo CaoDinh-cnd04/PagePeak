@@ -28,17 +28,26 @@ Backend/
 └── README.md
 ```
 
-## Database
+## Database (code-first, EF Core)
 
-1. Chạy script SQL tạo database và bảng (từ thư mục gốc repo):
+Schema nguồn sự thật là **`AppDbContext` + thư mục `LadiPage.Infrastructure/Migrations`**. Không dùng script SQL riêng để tạo bảng ban đầu.
+
+1. **Connection string:** `src/LadiPage.Api/appsettings.json` hoặc `appsettings.Local.json` (gitignored) — trỏ tới SQL Server / LocalDB.
+2. **Chạy API:** Ở startup, nếu có quyền tạo DB thì tạo `LadiPageDB` (nếu chưa có), sau đó **`Database.MigrateAsync()`** áp dụng toàn bộ migration.
+3. **Thêm / đổi model:** sửa entity + `AppDbContext`, rồi tạo migration:
    ```bash
-   # Dùng sqlcmd hoặc SQL Server Management Studio chạy file LadiPageDB.sql
+   cd Backend/src/LadiPage.Api
+   dotnet ef migrations add TenMoTaThayDoi --project ../LadiPage.Infrastructure/LadiPage.Infrastructure.csproj
    ```
-2. Sửa connection string trong `src/LadiPage.Api/appsettings.json` hoặc tạo `appsettings.Development.json` (copy từ `appsettings.Development.example.json`) cho môi trường dev.
+   Commit file migration mới; deploy sẽ `Migrate` tự động.
+
+**DB dev trống:** Chỉ cần connection string đúng — lần chạy đầu API sẽ tạo DB và bảng qua migration.
+
+**DB cũ từng tạo bằng SQL tay:** Cần đồng bộ `__EFMigrationsHistory` với schema thực tế (hoặc backup dữ liệu, tạo DB mới chỉ bằng migration). Không còn bước “baseline stamp” trong code.
 
 ### Lỗi "Cannot open database LadiPageDB" / "Login failed"
 
-- **Đảm bảo đã tạo database:** Mở SQL Server Management Studio (hoặc sqlcmd), kết nối tới server, chạy file `LadiPageDB.sql` để tạo database và các bảng.
+- **Đảm bảo SQL Server chạy** và user trong connection string có quyền (hoặc `Trusted_Connection` đúng).
 - **Đúng tên server:** Nếu dùng **LocalDB** (thường có khi cài Visual Studio), đổi connection string thành:
   ```
   Server=(localdb)\MSSQLLocalDB;Database=LadiPageDB;Trusted_Connection=True;TrustServerCertificate=True;MultipleActiveResultSets=true
@@ -46,7 +55,7 @@ Backend/
 - Nếu dùng **SQL Server Express**: thử `Server=.\SQLEXPRESS;Database=LadiPageDB;...` (giữ nguyên phần sau).
 - **Quyền truy cập:** User Windows đăng nhập máy (vd: `LAPTOP-xxx\ASUS`) cần được SQL Server cho phép login và có quyền trên database LadiPageDB. Trong SSMS: Security → Logins → chuột phải user Windows → Enable; Database LadiPageDB → Security → Users → thêm user và gán quyền db_owner (hoặc tối thiểu cần thiết).
 - **Kiểm tra API đang kết nối DB nào:** Mở `http://localhost:5000/api/debug/db` để xem `dataSource` và `database` (tránh nhầm instance nên “không thấy dữ liệu” trong SSMS).
-- **Thử LocalDB:** Nếu máy bạn chỉ có LocalDB, đổi connection string sang `Server=(localdb)\MSSQLLocalDB` và chạy script tạo database trên LocalDB (từ thư mục Backend): `.\create-database-localdb.ps1` (cần có `sqlcmd`, thường đi kèm SSMS). Nếu chưa có LocalDB: `sqllocaldb start MSSQLLocalDB`.
+- **LocalDB:** Đổi connection string `Server=(localdb)\MSSQLLocalDB;Database=LadiPageDB;...` rồi chạy API — migration sẽ tạo bảng. Nếu chưa start: `sqllocaldb start MSSQLLocalDB`.
 
 ## Cài .NET 10 SDK (nếu chưa có)
 

@@ -1,303 +1,323 @@
-import { Suspense, useEffect, useState } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
-import { ordersApi, workspacesApi, type OrderItem } from "@/lib/api";
-import { Button } from "@/components/ui/Button";
-import { ShoppingBag, Plus, Pencil, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { ordersApi, workspacesApi, type OrderItem, type OrdersListOpts } from "@/lib/api";
+import { t as translate, useT } from "@/lib/i18n";
+import { useLangStore } from "@/stores/langStore";
+import { OrdersPageHeader } from "@/components/orders/OrdersPageHeader";
+import { OrdersStatusTabs } from "@/components/orders/OrdersStatusTabs";
+import { OrdersToolbar } from "@/components/orders/OrdersToolbar";
+import { OrdersTable } from "@/components/orders/OrdersTable";
+import { OrdersPagination } from "@/components/orders/OrdersPagination";
+import { OrderFormModal } from "@/components/orders/OrderFormModal";
+import { OrderDetailDrawer } from "@/components/orders/OrderDetailDrawer";
+import { OrdersModuleLayout } from "@/components/orders/OrdersModuleLayout";
+import { OrdersSubNav } from "@/components/orders/OrdersSubNav";
+import { OrdersHeroEmpty } from "@/components/orders/OrdersHeroEmpty";
+import { OrdersDeliveryTab } from "@/components/orders/OrdersDeliveryTab";
+import { OrdersTagsTab } from "@/components/orders/OrdersTagsTab";
+import { OrdersCustomFieldsTab } from "@/components/orders/OrdersCustomFieldsTab";
 
-const STATUS_TABS = [
-  { key: "", label: "Tất cả" },
-  { key: "pending", label: "Chờ xác nhận" },
-  { key: "shipping", label: "Đang giao" },
-  { key: "completed", label: "Hoàn thành" },
-  { key: "cancelled", label: "Đã hủy" },
-];
+const PAGE_SIZE = 20;
 
-const STATUS_OPTIONS = ["pending", "shipping", "completed", "cancelled"];
+function escapeCsv(s: string) {
+  if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
 
-const STATUS_LABELS: Record<string, string> = {
-  pending: "Chờ xác nhận",
-  shipping: "Đang giao",
-  completed: "Hoàn thành",
-  cancelled: "Đã hủy",
-};
+function exportOrdersCsv(rows: OrderItem[]) {
+  const headers = ["code", "customerName", "email", "phone", "productName", "amount", "status", "createdAt"];
+  const lines = [
+    headers.join(","),
+    ...rows.map((o) =>
+      [
+        `DH-${o.id}`,
+        escapeCsv(o.customerName),
+        escapeCsv(o.email ?? ""),
+        escapeCsv(o.phone ?? ""),
+        escapeCsv(o.productName ?? ""),
+        String(o.amount),
+        o.status,
+        o.createdAt,
+      ].join(","),
+    ),
+  ];
+  const bom = "\uFEFF";
+  const blob = new Blob([bom + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `orders-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
-function statusBadge(status: string) {
-  const map: Record<string, string> = {
-    pending: "bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-400",
-    shipping: "bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400",
-    completed: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400",
-    cancelled: "bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400",
-  };
-  return (
-    <span className={`px-2 py-0.5 text-[10px] font-semibold rounded-full ${map[status] ?? "bg-slate-100 text-slate-600"}`}>
-      {STATUS_LABELS[status] ?? status}
-    </span>
-  );
+function parseOrdersTab(searchParams: URLSearchParams): number {
+  const raw = searchParams.get("ordersTab");
+  const n = parseInt(raw ?? "1", 10);
+  if (Number.isNaN(n) || n < 1) return 1;
+  if (n > 5) return 5;
+  return n;
 }
 
 export function DashboardOrdersPage() {
-  return (
-    <Suspense fallback={<div className="flex justify-center py-12"><div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" /></div>}>
-      <OrdersInner />
-    </Suspense>
-  );
-}
-
-function OrdersInner() {
+  const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
   const statusParam = searchParams.get("status") ?? "";
 
+  const ordersTab = useMemo(() => parseOrdersTab(searchParams), [searchParams]);
+
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<number | null>(null);
+  const [workspaceReady, setWorkspaceReady] = useState(false);
   const [orders, setOrders] = useState<OrderItem[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [activeStatus, setActiveStatus] = useState(statusParam);
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  const [sort, setSort] = useState<NonNullable<OrdersListOpts["sort"]>>("created_desc");
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingOrder, setEditingOrder] = useState<OrderItem | null>(null);
+  const [detailOrder, setDetailOrder] = useState<OrderItem | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setSearchParams(
+      (prev) => {
+        const n = new URLSearchParams(prev);
+        n.set("tab", "order");
+        if (!n.get("ordersTab")) n.set("ordersTab", "1");
+        return n;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
 
   useEffect(() => {
     setActiveStatus(statusParam);
   }, [statusParam]);
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingOrder, setEditingOrder] = useState<OrderItem | null>(null);
-  const [formCustomerName, setFormCustomerName] = useState("");
-  const [formEmail, setFormEmail] = useState("");
-  const [formPhone, setFormPhone] = useState("");
-  const [formAmount, setFormAmount] = useState("");
-  const [formStatus, setFormStatus] = useState("pending");
-  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    const tm = setTimeout(() => setDebouncedQ(searchInput.trim()), 350);
+    return () => clearTimeout(tm);
+  }, [searchInput]);
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
         const ws = await workspacesApi.list();
+        if (cancelled) return;
         const def = ws.find((w) => w.isDefault) ?? ws[0];
         if (def) setActiveWorkspaceId(def.id);
       } catch {
-        setError("Không tải được workspaces.");
+        if (!cancelled) setError(translate("orders.workspaceError", useLangStore.getState().lang));
       } finally {
-        setLoading(false);
+        if (!cancelled) setWorkspaceReady(true);
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const loadOrders = async (wsId: number | null, status?: string) => {
-    if (!wsId) return;
+  const loadOrders = useCallback(async () => {
+    if (!activeWorkspaceId) return;
+    if (ordersTab !== 1 && ordersTab !== 2) return;
     setLoading(true);
+    setError("");
     try {
-      setOrders(await ordersApi.list(wsId, status || undefined));
+      const res = await ordersApi.list(activeWorkspaceId, {
+        incomplete: ordersTab === 2 ? true : undefined,
+        status: ordersTab === 2 ? undefined : activeStatus || undefined,
+        q: debouncedQ || undefined,
+        page,
+        pageSize: PAGE_SIZE,
+        sort,
+      });
+      setOrders(res.items);
+      setTotalCount(res.totalCount);
     } catch {
-      setError("Không tải được đơn hàng.");
+      setError(translate("orders.loadError", useLangStore.getState().lang));
     } finally {
       setLoading(false);
     }
-  };
+  }, [activeWorkspaceId, activeStatus, debouncedQ, page, sort, ordersTab]);
 
   useEffect(() => {
-    if (activeWorkspaceId) loadOrders(activeWorkspaceId, activeStatus);
-  }, [activeWorkspaceId, activeStatus]);
+    if (!workspaceReady || !activeWorkspaceId) return;
+    if (ordersTab !== 1 && ordersTab !== 2) return;
+    loadOrders();
+  }, [workspaceReady, activeWorkspaceId, loadOrders, ordersTab]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQ, ordersTab]);
+
+  const setStatusTab = (key: string) => {
+    setPage(1);
+    setActiveStatus(key);
+    setSearchParams((prev) => {
+      const n = new URLSearchParams(prev);
+      n.set("tab", "order");
+      n.set("ordersTab", "1");
+      if (key) n.set("status", key);
+      else n.delete("status");
+      return n;
+    });
+  };
+
+  const selectOrdersTab = (tab: number) => {
+    setPage(1);
+    setDetailOrder(null);
+    setSearchParams((prev) => {
+      const n = new URLSearchParams(prev);
+      n.set("tab", "order");
+      n.set("ordersTab", String(tab));
+      if (tab !== 1) n.delete("status");
+      return n;
+    });
+  };
 
   const openCreate = () => {
     setEditingOrder(null);
-    setFormCustomerName("");
-    setFormEmail("");
-    setFormPhone("");
-    setFormAmount("");
-    setFormStatus("pending");
     setModalOpen(true);
   };
 
   const openEdit = (o: OrderItem) => {
     setEditingOrder(o);
-    setFormCustomerName(o.customerName);
-    setFormEmail(o.email ?? "");
-    setFormPhone(o.phone ?? "");
-    setFormAmount(String(o.amount));
-    setFormStatus(o.status);
     setModalOpen(true);
   };
 
-  const handleSave = async () => {
-    if (!formCustomerName.trim() || !activeWorkspaceId) return;
+  const handleSave = async (payload: {
+    customerName: string;
+    email?: string;
+    phone?: string;
+    amount?: number;
+    productId?: number;
+    status?: string;
+  }) => {
+    if (!activeWorkspaceId) return;
     setSaving(true);
     setError("");
     try {
       if (editingOrder) {
         await ordersApi.update(editingOrder.id, {
-          customerName: formCustomerName.trim(),
-          email: formEmail.trim() || undefined,
-          phone: formPhone.trim() || undefined,
-          status: formStatus,
+          customerName: payload.customerName,
+          email: payload.email,
+          phone: payload.phone,
+          status: payload.status,
         });
       } else {
         await ordersApi.create({
           workspaceId: activeWorkspaceId,
-          customerName: formCustomerName.trim(),
-          email: formEmail.trim() || undefined,
-          phone: formPhone.trim() || undefined,
-          amount: Number(formAmount) || 0,
+          customerName: payload.customerName,
+          email: payload.email,
+          phone: payload.phone,
+          productId: payload.productId,
+          amount: payload.amount ?? 0,
         });
       }
-      await loadOrders(activeWorkspaceId, activeStatus);
+      await loadOrders();
       setModalOpen(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Lưu thất bại.");
+      setError(e instanceof Error ? e.message : translate("common.error", useLangStore.getState().lang));
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: number) => {
-    if (!window.confirm("Bạn có chắc muốn xóa đơn hàng này?")) return;
+    if (!window.confirm(t("orders.deleteConfirm"))) return;
     if (!activeWorkspaceId) return;
     try {
       await ordersApi.delete(id);
-      await loadOrders(activeWorkspaceId, activeStatus);
+      await loadOrders();
+      setDetailOrder((d) => (d?.id === id ? null : d));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Xóa thất bại.");
+      setError(e instanceof Error ? e.message : translate("common.error", useLangStore.getState().lang));
     }
   };
 
-  const setStatusTab = (key: string) => {
-    setActiveStatus(key);
-    setSearchParams(key ? { status: key } : {});
-  };
+  const showListChrome = ordersTab === 1 || ordersTab === 2;
+  const listEmpty = showListChrome && !loading && orders.length === 0;
 
-  return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Đơn hàng</h1>
-        <Button size="sm" onClick={openCreate}>
-          <Plus className="w-4 h-4 mr-2" />
-          Thêm đơn
-        </Button>
-      </div>
+  useEffect(() => {
+    if (ordersTab !== 1 && ordersTab !== 2) setLoading(false);
+  }, [ordersTab]);
 
-      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
-
-      <div className="flex gap-1 p-1 bg-slate-100 dark:bg-slate-800/50 rounded-xl overflow-x-auto">
-        {STATUS_TABS.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => setStatusTab(tab.key)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${
-              activeStatus === tab.key
-                ? "bg-white dark:bg-slate-900 text-primary-600 dark:text-primary-400 shadow-sm"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {loading ? (
-        <div className="flex justify-center py-12">
+  const mainContent = (() => {
+    if (!workspaceReady) {
+      return (
+        <div className="flex justify-center py-20">
           <div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
         </div>
-      ) : orders.length === 0 ? (
-        <div className="text-center py-16">
-          <ShoppingBag className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
-          <p className="text-sm text-slate-500 dark:text-slate-400">Không có đơn hàng nào.</p>
-        </div>
-      ) : (
-        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 dark:border-slate-800 text-left">
-                  <th className="px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Khách hàng</th>
-                  <th className="px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Email</th>
-                  <th className="px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Số tiền</th>
-                  <th className="px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Trạng thái</th>
-                  <th className="px-5 py-3 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase">Ngày tạo</th>
-                  <th className="px-5 py-3" />
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map((o) => (
-                  <tr key={o.id} className="border-b border-slate-50 dark:border-slate-800 last:border-0 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                    <td className="px-5 py-3 font-medium text-slate-900 dark:text-slate-100">{o.customerName}</td>
-                    <td className="px-5 py-3 text-slate-500 dark:text-slate-400">{o.email ?? "—"}</td>
-                    <td className="px-5 py-3 text-slate-700 dark:text-slate-300">{o.amount.toLocaleString()} ₫</td>
-                    <td className="px-5 py-3">{statusBadge(o.status)}</td>
-                    <td className="px-5 py-3 text-slate-400 text-xs">{new Date(o.createdAt).toLocaleDateString("vi-VN")}</td>
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-1 justify-end">
-                        <button type="button" onClick={() => openEdit(o)} className="p-2 rounded-lg text-slate-400 hover:text-primary-600 hover:bg-slate-50 dark:hover:bg-slate-800 transition">
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                        <button type="button" onClick={() => handleDelete(o.id)} className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      );
+    }
+    if (workspaceReady && !activeWorkspaceId) {
+      return <p className="text-sm text-slate-500 dark:text-slate-400 text-center py-12">{t("orders.workspaceError")}</p>;
+    }
 
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setModalOpen(false)}>
-          <div
-            className="bg-white dark:bg-slate-900 rounded-xl p-6 w-full max-w-md shadow-xl border border-slate-200 dark:border-slate-800"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                {editingOrder ? "Sửa đơn hàng" : "Thêm đơn hàng"}
-              </h2>
-              <button type="button" onClick={() => setModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+    if (ordersTab === 3) return <OrdersDeliveryTab />;
+    if (ordersTab === 4) return <OrdersTagsTab workspaceId={activeWorkspaceId} />;
+    if (ordersTab === 5) return <OrdersCustomFieldsTab workspaceId={activeWorkspaceId} />;
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Tên khách hàng</label>
-                <input type="text" value={formCustomerName} onChange={(e) => setFormCustomerName(e.target.value)} placeholder="Nguyễn Văn A" className="w-full px-3.5 py-2.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm" />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Email</label>
-                  <input type="email" value={formEmail} onChange={(e) => setFormEmail(e.target.value)} placeholder="email@..." className="w-full px-3.5 py-2.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Số điện thoại</label>
-                  <input type="tel" value={formPhone} onChange={(e) => setFormPhone(e.target.value)} placeholder="09..." className="w-full px-3.5 py-2.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm" />
-                </div>
-              </div>
-              {!editingOrder && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Số tiền (₫)</label>
-                  <input type="number" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} placeholder="0" className="w-full px-3.5 py-2.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm" />
-                </div>
-              )}
-              {editingOrder && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Trạng thái</label>
-                  <select value={formStatus} onChange={(e) => setFormStatus(e.target.value)} className="w-full px-3.5 py-2.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm">
-                    {STATUS_OPTIONS.map((s) => (
-                      <option key={s} value={s}>{STATUS_LABELS[s] ?? s}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-3 mt-6">
-              <Button variant="outline" size="sm" onClick={() => setModalOpen(false)}>Hủy</Button>
-              <Button size="sm" onClick={handleSave} disabled={saving || !formCustomerName.trim()} loading={saving}>
-                Lưu
-              </Button>
-            </div>
-          </div>
+    if (loading && orders.length === 0) {
+      return (
+        <div className="flex justify-center py-20">
+          <div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
         </div>
-      )}
-    </div>
+      );
+    }
+
+    if (listEmpty) {
+      return <OrdersHeroEmpty onCreate={openCreate} />;
+    }
+
+    return (
+      <>
+        {ordersTab === 1 ? <OrdersStatusTabs active={activeStatus} onChange={setStatusTab} /> : null}
+        {ordersTab === 2 ? <p className="text-sm text-slate-600 dark:text-slate-400">{t("orders.tab2Subtitle")}</p> : null}
+        <OrdersToolbar
+          search={searchInput}
+          onSearchChange={setSearchInput}
+          sort={sort}
+          onSortChange={(v) => {
+            setPage(1);
+            setSort(v);
+          }}
+        />
+        <OrdersTable rows={orders} onEdit={openEdit} onDelete={handleDelete} onRowClick={setDetailOrder} />
+        <OrdersPagination page={page} pageSize={PAGE_SIZE} totalCount={totalCount} onPageChange={setPage} />
+      </>
+    );
+  })();
+
+  return (
+    <OrdersModuleLayout subNav={<OrdersSubNav activeTab={ordersTab} onSelect={selectOrdersTab} />}>
+      {showListChrome ? (
+        <OrdersPageHeader
+          onAdd={openCreate}
+          onExportCsv={orders.length > 0 ? () => exportOrdersCsv(orders) : undefined}
+        />
+      ) : null}
+
+      {error ? <p className="text-sm text-red-600 dark:text-red-400">{error}</p> : null}
+
+      {mainContent}
+
+      <OrderFormModal
+        open={modalOpen}
+        workspaceId={activeWorkspaceId}
+        editing={editingOrder}
+        onClose={() => setModalOpen(false)}
+        onSave={handleSave}
+        saving={saving}
+      />
+
+      <OrderDetailDrawer order={detailOrder} onClose={() => setDetailOrder(null)} />
+    </OrdersModuleLayout>
   );
 }

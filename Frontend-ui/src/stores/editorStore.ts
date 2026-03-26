@@ -7,6 +7,7 @@ import type {
   PageContent,
   PageSettings,
 } from "@/types/editor";
+import { normalizeElementType, normalizeSectionsElementTypes } from "@/lib/normalizeElementType";
 
 type SelectedTarget =
   | { type: "page" }
@@ -166,12 +167,57 @@ const ELEMENT_DEFAULTS: Record<EditorElementType, Partial<EditorElement>> = {
   frame: { width: 400, height: 300, content: "", styles: { border: "1px solid #e2e8f0", borderRadius: 8 } },
   accordion: { width: 500, height: 200, content: "Câu hỏi 1|Trả lời 1\nCâu hỏi 2|Trả lời 2", styles: { fontSize: 14 } },
   table: { width: 600, height: 200, content: "Col1,Col2,Col3\nR1C1,R1C2,R1C3\nR2C1,R2C2,R2C3", styles: { fontSize: 13 } },
-  cart: { width: 400, height: 300, content: "" },
-  "blog-list": { width: 700, height: 400, content: "" },
-  "blog-detail": { width: 600, height: 500, content: "" },
-  popup: { width: 500, height: 400, content: "", styles: { backgroundColor: "#ffffff", borderRadius: 12 } },
+  cart: {
+    width: 400,
+    height: 320,
+    content: JSON.stringify({
+      dataSource: "static",
+      emptyMessage: "Giỏ hàng trống",
+      checkoutButtonText: "Thanh toán",
+      currency: "VND",
+      showThumbnail: true,
+      showQty: true,
+      items: [
+        { title: "Sản phẩm A", price: "299.000đ", qty: 1, image: "" },
+        { title: "Sản phẩm B", price: "150.000đ", qty: 2, image: "" },
+      ],
+    }),
+    styles: { backgroundColor: "#ffffff", borderRadius: 12 },
+  },
+  "blog-list": {
+    width: 700,
+    height: 400,
+    content: JSON.stringify({
+      columns: 2,
+      posts: [
+        { title: "Bài viết mẫu 1", excerpt: "Đoạn giới thiệu ngắn cho bài viết.", date: "01/01/2025", image: "" },
+        { title: "Bài viết mẫu 2", excerpt: "Nội dung blog — chỉnh trong panel bên phải.", date: "15/01/2025", image: "" },
+      ],
+    }),
+    styles: { fontSize: 14 },
+  },
+  "blog-detail": {
+    width: 600,
+    height: 500,
+    content: JSON.stringify({
+      title: "Tiêu đề bài viết",
+      author: "Tác giả",
+      date: "01/01/2025",
+      body: "Nội dung chi tiết bài viết. Bạn có thể thay bằng HTML hoặc văn bản thuần tùy cấu hình.",
+    }),
+    styles: { fontSize: 15 },
+  },
+  popup: {
+    width: 500,
+    height: 400,
+    content: JSON.stringify({
+      title: "Thông báo",
+      body: "Nội dung popup — chỉnh tiêu đề và nội dung ở panel bên phải.",
+    }),
+    styles: { backgroundColor: "#ffffff", borderRadius: 12 },
+  },
   map: { width: 500, height: 300, content: "10.762622,106.660172" },
-  "social-share": { width: 200, height: 40, content: "" },
+  "social-share": { width: 280, height: 48, content: JSON.stringify({ networks: ["facebook", "twitter", "linkedin", "link"] }) },
   rating: { width: 200, height: 40, content: "5", styles: { color: "#f59e0b" } },
   progress: { width: 400, height: 24, content: "75", styles: { backgroundColor: "#e2e8f0" } },
   carousel: {
@@ -235,23 +281,26 @@ export const useEditorStore = create<EditorState & EditorActions>()(
     showGuides: true,
 
     loadFromContent: (content) =>
-      set(() => ({
-        pageId: content.pageId,
-        workspaceId: content.workspaceId,
-        name: content.name,
-        slug: content.slug,
-        status: content.status,
-        metaTitle: content.metaTitle ?? "",
-        metaDescription: content.metaDescription ?? "",
-        pageType: content.pageType ?? "trangdich",
-        mobileFriendly: content.mobileFriendly ?? true,
-        pageSettings: content.pageSettings ?? {},
-        sections: content.sections,
-        selected: { type: "page" },
-        dirty: false,
-        history: [JSON.parse(JSON.stringify(content.sections))],
-        historyIndex: 0,
-      })),
+      set(() => {
+        const sections = normalizeSectionsElementTypes(content.sections);
+        return {
+          pageId: content.pageId,
+          workspaceId: content.workspaceId,
+          name: content.name,
+          slug: content.slug,
+          status: content.status,
+          metaTitle: content.metaTitle ?? "",
+          metaDescription: content.metaDescription ?? "",
+          pageType: content.pageType ?? "trangdich",
+          mobileFriendly: content.mobileFriendly ?? true,
+          pageSettings: content.pageSettings ?? {},
+          sections,
+          selected: { type: "page" },
+          dirty: false,
+          history: [JSON.parse(JSON.stringify(sections))],
+          historyIndex: 0,
+        };
+      }),
 
     setDeviceType: (device) =>
       set((state) => {
@@ -410,7 +459,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         if (!section) return;
         const nextOrder = (section.elements[section.elements.length - 1]?.order ?? 0) + 1;
         const tempId = Date.now();
-        const elType = partial.type ?? "text";
+        const elType = normalizeElementType(partial.type);
         const defaults = ELEMENT_DEFAULTS[elType] ?? {};
         const element: EditorElement = {
           id: tempId,

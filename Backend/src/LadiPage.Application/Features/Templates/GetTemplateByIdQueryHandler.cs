@@ -17,7 +17,7 @@ public class GetTemplateByIdQueryHandler : IRequestHandler<GetTemplateByIdQuery,
     {
         return await _db.Templates.AsNoTracking()
             .Where(t => t.Id == request.Id)
-            .Select(t => new TemplateDetailDto(t.Id, t.Name, t.Category, t.ThumbnailUrl, t.Description, t.DesignType, t.IsFeatured, t.UsageCount, t.JsonContent, t.CreatedAt))
+            .Select(t => new TemplateDetailDto(t.Id, t.Name, t.Category, t.ThumbnailUrl, t.Description, t.DesignType, t.IsFeatured, t.IsPremium, t.UsageCount, t.JsonContent, t.CreatedAt))
             .FirstOrDefaultAsync(cancellationToken);
     }
 }

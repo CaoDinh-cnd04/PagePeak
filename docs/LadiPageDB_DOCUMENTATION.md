@@ -1,6 +1,6 @@
 # Tài liệu cơ sở dữ liệu LadiPageDB
 
-**File nguồn:** `LadiPageDB.sql`  
+**Nguồn schema (code-first):** EF Core `AppDbContext` + `LadiPage.Infrastructure/Migrations`  
 **Hệ quản trị:** SQL Server  
 **Mục đích:** Nền tảng Landing Page Builder, CRM, Thương mại điện tử, Tự động hóa, Phân tích (mô hình tương tự LadiPage).
 
@@ -940,4 +940,4 @@ NguoiDung ──┬── PhienDangNhap
 
 ---
 
-*Tài liệu được tạo từ file `LadiPageDB.sql`. Cập nhật khi schema thay đổi.*
+*Tài liệu mô tả mô hình dữ liệu; schema thực tế do migration EF Core áp dụng. Cập nhật khi đổi entity/migration.*

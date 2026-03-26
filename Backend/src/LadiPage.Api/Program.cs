@@ -4,9 +4,17 @@ using LadiPage.Api.Services;
 using LadiPage.Application;
 using LadiPage.Domain.Interfaces;
 using LadiPage.Infrastructure;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Giữ khóa Data Protection ổn định giữa các lần chạy API → cookie correlation OAuth không bị "Correlation failed" sau khi restart dotnet.
+var dpKeysDir = Path.Combine(builder.Environment.ContentRootPath, "dp-keys");
+Directory.CreateDirectory(dpKeysDir);
+builder.Services.AddDataProtection()
+    .SetApplicationName("LadiPage.Api")
+    .PersistKeysToFileSystem(new DirectoryInfo(dpKeysDir));
 
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
@@ -51,7 +59,7 @@ builder.Services.AddOutputCache(options =>
 
 var app = builder.Build();
 
-// Tao database LadiPageDB va cac bang (tu EF model) neu chua ton tai
+// Tạo DB LadiPageDB (nếu được phép) + áp dụng EF Core migrations (code-first)
 using (var scope = app.Services.CreateScope())
 {
     var config = scope.ServiceProvider.GetRequiredService<IConfiguration>();
@@ -71,311 +79,7 @@ using (var scope = app.Services.CreateScope())
         catch { /* Ignore neu server khong cho tao DB */ }
 
         var db = scope.ServiceProvider.GetRequiredService<LadiPage.Infrastructure.Data.AppDbContext>();
-        await db.Database.EnsureCreatedAsync();
-
-        // Auto-add new columns/tables if they don't exist (idempotent)
-        await db.Database.ExecuteSqlRawAsync(@"
-IF OBJECT_ID(N'MauGiaoDien', N'U') IS NULL
-BEGIN
-  CREATE TABLE [MauGiaoDien] (
-    [MaMau] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    [TenMau] NVARCHAR(200) NOT NULL,
-    [DanhMuc] NVARCHAR(100) NOT NULL,
-    [AnhDaiDien] NVARCHAR(500) NULL,
-    [NoiDungJson] NVARCHAR(MAX) NOT NULL,
-    [MoTa] NVARCHAR(500) NULL,
-    [LoaiThietKe] NVARCHAR(30) NOT NULL DEFAULT 'responsive',
-    [NoiBat] BIT NOT NULL DEFAULT 0,
-    [SoLuotDung] INT NOT NULL DEFAULT 0,
-    [NgayTao] DATETIME2 NOT NULL
-  );
-  CREATE INDEX [IX_MauGiaoDien_DanhMuc] ON [MauGiaoDien]([DanhMuc]);
-END
-
-IF COL_LENGTH('MauGiaoDien','MoTa') IS NULL ALTER TABLE [MauGiaoDien] ADD [MoTa] NVARCHAR(500) NULL;
-IF COL_LENGTH('MauGiaoDien','LoaiThietKe') IS NULL ALTER TABLE [MauGiaoDien] ADD [LoaiThietKe] NVARCHAR(30) NOT NULL DEFAULT 'responsive';
-IF COL_LENGTH('MauGiaoDien','NoiBat') IS NULL ALTER TABLE [MauGiaoDien] ADD [NoiBat] BIT NOT NULL DEFAULT 0;
-IF COL_LENGTH('MauGiaoDien','SoLuotDung') IS NULL ALTER TABLE [MauGiaoDien] ADD [SoLuotDung] INT NOT NULL DEFAULT 0;
-
-IF OBJECT_ID(N'Trang', N'U') IS NULL
-BEGIN
-  CREATE TABLE [Trang] (
-    [MaTrang] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    [MaKhongGian] BIGINT NOT NULL,
-    [TenTrang] NVARCHAR(300) NOT NULL,
-    [DuongDan] NVARCHAR(300) NOT NULL,
-    [TrangThai] NVARCHAR(20) NOT NULL,
-    [NoiDungTrang] NVARCHAR(MAX) NOT NULL,
-    [NoiDungHtml] NVARCHAR(MAX) NULL,
-    [NgayCapNhat] DATETIME2 NOT NULL,
-    CONSTRAINT [FK_Trang_KhongGianLamViec_MaKhongGian] FOREIGN KEY ([MaKhongGian]) REFERENCES [KhongGianLamViec]([MaKhongGian]) ON DELETE CASCADE
-  );
-  CREATE UNIQUE INDEX [IX_Trang_MaKhongGian_DuongDan] ON [Trang]([MaKhongGian],[DuongDan]);
-END
-
--- Rename column if old name exists
-IF COL_LENGTH('Trang','NoiDungJson') IS NOT NULL AND COL_LENGTH('Trang','NoiDungTrang') IS NULL
-  EXEC sp_rename N'[Trang].[NoiDungJson]', N'NoiDungTrang', 'COLUMN';
-
--- Add new Page columns
-IF COL_LENGTH('Trang','LoaiTrang') IS NULL ALTER TABLE [Trang] ADD [LoaiTrang] NVARCHAR(30) NOT NULL DEFAULT 'trangdich';
-IF COL_LENGTH('Trang','MaNguoiTao') IS NULL ALTER TABLE [Trang] ADD [MaNguoiTao] BIGINT NULL;
-IF COL_LENGTH('Trang','MaMauTrang') IS NULL ALTER TABLE [Trang] ADD [MaMauTrang] BIGINT NULL;
-IF COL_LENGTH('Trang','TieuDeMetaTag') IS NULL ALTER TABLE [Trang] ADD [TieuDeMetaTag] NVARCHAR(300) NULL;
-IF COL_LENGTH('Trang','MoTaMetaTag') IS NULL ALTER TABLE [Trang] ADD [MoTaMetaTag] NVARCHAR(500) NULL;
-IF COL_LENGTH('Trang','TuKhoaMetaTag') IS NULL ALTER TABLE [Trang] ADD [TuKhoaMetaTag] NVARCHAR(500) NULL;
-IF COL_LENGTH('Trang','Favicon') IS NULL ALTER TABLE [Trang] ADD [Favicon] NVARCHAR(500) NULL;
-IF COL_LENGTH('Trang','MatKhauTrang') IS NULL ALTER TABLE [Trang] ADD [MatKhauTrang] NVARCHAR(200) NULL;
-IF COL_LENGTH('Trang','DiemSEO') IS NULL ALTER TABLE [Trang] ADD [DiemSEO] TINYINT NULL;
-IF COL_LENGTH('Trang','ThuanThietBiDiDong') IS NULL ALTER TABLE [Trang] ADD [ThuanThietBiDiDong] BIT NOT NULL DEFAULT 1;
-IF COL_LENGTH('Trang','NgayDang') IS NULL ALTER TABLE [Trang] ADD [NgayDang] DATETIME2 NULL;
-IF COL_LENGTH('Trang','NgayHetHan') IS NULL ALTER TABLE [Trang] ADD [NgayHetHan] DATETIME2 NULL;
-IF COL_LENGTH('Trang','NgayTao') IS NULL ALTER TABLE [Trang] ADD [NgayTao] DATETIME2 NOT NULL DEFAULT GETDATE();
-
--- Add email verification columns to NguoiDung
-IF COL_LENGTH('NguoiDung','MaXacThucEmail') IS NULL ALTER TABLE [NguoiDung] ADD [MaXacThucEmail] NVARCHAR(200) NULL;
-IF COL_LENGTH('NguoiDung','NgayGuiXacThucEmail') IS NULL ALTER TABLE [NguoiDung] ADD [NgayGuiXacThucEmail] DATETIME2 NULL;
-
--- Ensure TrangSection table and new columns
-IF OBJECT_ID(N'TrangSection', N'U') IS NULL
-BEGIN
-  CREATE TABLE [TrangSection] (
-    [MaSection] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    [MaTrang] BIGINT NOT NULL,
-    [ThuTu] INT NOT NULL,
-    [TenSection] NVARCHAR(200) NULL,
-    [MauNen] NVARCHAR(50) NULL,
-    [AnhNen] NVARCHAR(500) NULL,
-    [ChieuCao] INT NULL,
-    [HienThi] BIT NOT NULL DEFAULT 1,
-    [DaKhoa] BIT NOT NULL DEFAULT 0,
-    [LopTuyChinh] NVARCHAR(200) NULL,
-    CONSTRAINT [FK_TrangSection_Trang] FOREIGN KEY ([MaTrang]) REFERENCES [Trang]([MaTrang]) ON DELETE CASCADE
-  );
-  CREATE INDEX IX_TrangSection_MaTrang_ThuTu ON [TrangSection]([MaTrang],[ThuTu]);
-END
-IF COL_LENGTH('TrangSection','TenSection') IS NULL ALTER TABLE [TrangSection] ADD [TenSection] NVARCHAR(200) NULL;
-IF COL_LENGTH('TrangSection','AnhNen') IS NULL ALTER TABLE [TrangSection] ADD [AnhNen] NVARCHAR(500) NULL;
-IF COL_LENGTH('TrangSection','DaKhoa') IS NULL ALTER TABLE [TrangSection] ADD [DaKhoa] BIT NOT NULL DEFAULT 0;
-
--- Ensure TrangPhanTu table and new columns
-IF OBJECT_ID(N'TrangPhanTu', N'U') IS NULL
-BEGIN
-  CREATE TABLE [TrangPhanTu] (
-    [MaPhanTu] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    [MaSection] BIGINT NOT NULL,
-    [Loai] NVARCHAR(50) NOT NULL,
-    [ThuTu] INT NOT NULL,
-    [ViTriX] INT NOT NULL,
-    [ViTriY] INT NOT NULL,
-    [ChieuRong] INT NULL,
-    [ChieuCao] INT NULL,
-    [ZIndex] INT NOT NULL DEFAULT 0,
-    [GocXoay] FLOAT NOT NULL DEFAULT 0,
-    [DoMo] FLOAT NOT NULL DEFAULT 1,
-    [DaKhoa] BIT NOT NULL DEFAULT 0,
-    [DaAn] BIT NOT NULL DEFAULT 0,
-    [NoiDung] NVARCHAR(MAX) NULL,
-    [LienKet] NVARCHAR(500) NULL,
-    [Target] NVARCHAR(20) NULL,
-    [DuongDanAnh] NVARCHAR(500) NULL,
-    [DuongDanVideo] NVARCHAR(500) NULL,
-    [KieuDangJson] NVARCHAR(MAX) NOT NULL DEFAULT '{{}}',
-    CONSTRAINT [FK_TrangPhanTu_TrangSection] FOREIGN KEY ([MaSection]) REFERENCES [TrangSection]([MaSection]) ON DELETE CASCADE
-  );
-  CREATE INDEX IX_TrangPhanTu_MaSection_ThuTu ON [TrangPhanTu]([MaSection],[ThuTu]);
-END
-IF COL_LENGTH('TrangPhanTu','GocXoay') IS NULL ALTER TABLE [TrangPhanTu] ADD [GocXoay] FLOAT NOT NULL DEFAULT 0;
-IF COL_LENGTH('TrangPhanTu','DoMo') IS NULL ALTER TABLE [TrangPhanTu] ADD [DoMo] FLOAT NOT NULL DEFAULT 1;
-IF COL_LENGTH('TrangPhanTu','DaKhoa') IS NULL ALTER TABLE [TrangPhanTu] ADD [DaKhoa] BIT NOT NULL DEFAULT 0;
-IF COL_LENGTH('TrangPhanTu','DaAn') IS NULL ALTER TABLE [TrangPhanTu] ADD [DaAn] BIT NOT NULL DEFAULT 0;
-IF COL_LENGTH('TrangPhanTu','DuongDanAnh') IS NULL ALTER TABLE [TrangPhanTu] ADD [DuongDanAnh] NVARCHAR(500) NULL;
-IF COL_LENGTH('TrangPhanTu','DuongDanVideo') IS NULL ALTER TABLE [TrangPhanTu] ADD [DuongDanVideo] NVARCHAR(500) NULL;
-
--- ToolCategory -> CongCuDanhMuc
-IF OBJECT_ID(N'CongCuDanhMuc', N'U') IS NULL
-BEGIN
-  CREATE TABLE [CongCuDanhMuc] (
-    [MaDanhMuc] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    [TenDanhMuc] NVARCHAR(100) NOT NULL,
-    [BieuTuong] NVARCHAR(100) NOT NULL,
-    [ThuTu] INT NOT NULL,
-    [HoatDong] BIT NOT NULL DEFAULT 1
-  );
-END
-
--- ToolItem -> CongCuMuc
-IF OBJECT_ID(N'CongCuMuc', N'U') IS NULL
-BEGIN
-  CREATE TABLE [CongCuMuc] (
-    [MaMuc] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    [MaDanhMuc] BIGINT NOT NULL,
-    [TenMuc] NVARCHAR(100) NOT NULL,
-    [BieuTuong] NVARCHAR(100) NOT NULL,
-    [LoaiPhanTu] NVARCHAR(50) NOT NULL,
-    [ThuTu] INT NOT NULL,
-    [HoatDong] BIT NOT NULL DEFAULT 1,
-    [CoTabCon] BIT NOT NULL DEFAULT 0,
-    [TabConJson] NVARCHAR(500) NULL,
-    CONSTRAINT [FK_CongCuMuc_CongCuDanhMuc] FOREIGN KEY ([MaDanhMuc]) REFERENCES [CongCuDanhMuc]([MaDanhMuc]) ON DELETE CASCADE
-  );
-END
-
--- ElementPreset -> MauPhanTuMacDinh
-IF OBJECT_ID(N'MauPhanTuMacDinh', N'U') IS NULL
-BEGIN
-  CREATE TABLE [MauPhanTuMacDinh] (
-    [MaMau] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    [MaMuc] BIGINT NOT NULL,
-    [TenMau] NVARCHAR(200) NOT NULL,
-    [TenTab] NVARCHAR(50) NULL,
-    [NoiDungMacDinh] NVARCHAR(MAX) NULL,
-    [KieuDangJson] NVARCHAR(MAX) NOT NULL DEFAULT '{{}}',
-    [ChieuRongMacDinh] INT NULL,
-    [ChieuCaoMacDinh] INT NULL,
-    [ThuTu] INT NOT NULL,
-    CONSTRAINT [FK_MauPhanTuMacDinh_CongCuMuc] FOREIGN KEY ([MaMuc]) REFERENCES [CongCuMuc]([MaMuc]) ON DELETE CASCADE
-  );
-END
-
-IF OBJECT_ID(N'TaiNguyen', N'U') IS NULL
-BEGIN
-  CREATE TABLE [TaiNguyen] (
-    [MaTaiNguyen] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    [MaNguoiDung] BIGINT NOT NULL,
-    [MaKhongGian] BIGINT NULL,
-    [TenFile] NVARCHAR(500) NOT NULL,
-    [TenGoc] NVARCHAR(500) NOT NULL,
-    [LoaiNoiDung] NVARCHAR(100) NOT NULL DEFAULT 'image/png',
-    [KichThuoc] BIGINT NOT NULL DEFAULT 0,
-    [ChieuRong] INT NULL,
-    [ChieuCao] INT NULL,
-    [DuongDan] NVARCHAR(1000) NOT NULL,
-    [AnhThuNho] NVARCHAR(1000) NULL,
-    [MoTaAlt] NVARCHAR(500) NULL,
-    [ThuMuc] NVARCHAR(200) NULL,
-    [NgayTao] DATETIME2 NOT NULL,
-    CONSTRAINT [FK_TaiNguyen_NguoiDung] FOREIGN KEY ([MaNguoiDung]) REFERENCES [NguoiDung]([MaNguoiDung]) ON DELETE CASCADE
-  );
-  CREATE INDEX [IX_TaiNguyen_User_Date] ON [TaiNguyen]([MaNguoiDung], [NgayTao] DESC);
-END
-
-IF OBJECT_ID(N'NhanDan', N'U') IS NULL
-BEGIN
-  CREATE TABLE [NhanDan] (
-    [MaNhan] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    [MaKhongGian] BIGINT NOT NULL,
-    [TenNhan] NVARCHAR(100) NOT NULL,
-    [MauSac] NVARCHAR(20) NULL,
-    [NgayTao] DATETIME2 NOT NULL,
-    CONSTRAINT [FK_NhanDan_KhongGian] FOREIGN KEY ([MaKhongGian]) REFERENCES [KhongGianLamViec]([MaKhongGian]) ON DELETE CASCADE
-  );
-END
-
-IF OBJECT_ID(N'TenMien', N'U') IS NULL
-BEGIN
-  CREATE TABLE [TenMien] (
-    [MaTenMien] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    [MaKhongGian] BIGINT NOT NULL,
-    [TenMien] NVARCHAR(255) NOT NULL,
-    [TrangThai] NVARCHAR(20) NOT NULL DEFAULT 'pending',
-    [NgayXacMinh] DATETIME2 NULL,
-    [NgayTao] DATETIME2 NOT NULL,
-    CONSTRAINT [FK_TenMien_KhongGian] FOREIGN KEY ([MaKhongGian]) REFERENCES [KhongGianLamViec]([MaKhongGian]) ON DELETE CASCADE
-  );
-END
-
-IF OBJECT_ID(N'CauHinhForm', N'U') IS NULL
-BEGIN
-  CREATE TABLE [CauHinhForm] (
-    [MaForm] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    [MaKhongGian] BIGINT NOT NULL,
-    [TenForm] NVARCHAR(200) NOT NULL,
-    [TruongDuLieuJson] NVARCHAR(MAX) NOT NULL DEFAULT '[]',
-    [WebhookUrl] NVARCHAR(500) NULL,
-    [ThongBaoEmail] BIT NOT NULL DEFAULT 0,
-    [NgayTao] DATETIME2 NOT NULL,
-    CONSTRAINT [FK_CauHinhForm_KhongGian] FOREIGN KEY ([MaKhongGian]) REFERENCES [KhongGianLamViec]([MaKhongGian]) ON DELETE CASCADE
-  );
-END
-
-IF OBJECT_ID(N'ThongBao', N'U') IS NULL
-BEGIN
-  CREATE TABLE [ThongBao] (
-    [MaThongBao] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    [MaNguoiDung] BIGINT NOT NULL,
-    [TieuDe] NVARCHAR(200) NOT NULL,
-    [NoiDung] NVARCHAR(1000) NOT NULL,
-    [Loai] NVARCHAR(20) NOT NULL DEFAULT 'info',
-    [DaDoc] BIT NOT NULL DEFAULT 0,
-    [NgayTao] DATETIME2 NOT NULL,
-    CONSTRAINT [FK_ThongBao_NguoiDung] FOREIGN KEY ([MaNguoiDung]) REFERENCES [NguoiDung]([MaNguoiDung]) ON DELETE CASCADE
-  );
-END
-IF COL_LENGTH('ThongBao','Loai') IS NULL ALTER TABLE [ThongBao] ADD [Loai] NVARCHAR(20) NOT NULL DEFAULT 'info';
-
-IF OBJECT_ID(N'SanPham', N'U') IS NULL
-BEGIN
-  CREATE TABLE [SanPham] (
-    [MaSanPham] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    [MaKhongGian] BIGINT NOT NULL,
-    [TenSanPham] NVARCHAR(300) NOT NULL,
-    [GiaTien] DECIMAL(12,2) NOT NULL DEFAULT 0,
-    [MoTa] NVARCHAR(MAX) NULL,
-    [AnhSanPham] NVARCHAR(500) NULL,
-    [DanhMuc] NVARCHAR(100) NULL,
-    [TonKho] INT NOT NULL DEFAULT 0,
-    [TrangThai] NVARCHAR(20) NOT NULL DEFAULT 'active',
-    [NgayTao] DATETIME2 NOT NULL,
-    CONSTRAINT [FK_SanPham_KhongGian] FOREIGN KEY ([MaKhongGian]) REFERENCES [KhongGianLamViec]([MaKhongGian]) ON DELETE CASCADE
-  );
-END
-
-IF OBJECT_ID(N'DonHang', N'U') IS NULL
-BEGIN
-  CREATE TABLE [DonHang] (
-    [MaDonHang] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    [MaKhongGian] BIGINT NOT NULL,
-    [TenKhachHang] NVARCHAR(200) NOT NULL,
-    [Email] NVARCHAR(255) NULL,
-    [SoDienThoai] NVARCHAR(20) NULL,
-    [MaSanPham] BIGINT NULL,
-    [TongTien] DECIMAL(12,2) NOT NULL DEFAULT 0,
-    [TrangThai] NVARCHAR(20) NOT NULL DEFAULT 'pending',
-    [NgayTao] DATETIME2 NOT NULL,
-    CONSTRAINT [FK_DonHang_KhongGian] FOREIGN KEY ([MaKhongGian]) REFERENCES [KhongGianLamViec]([MaKhongGian]) ON DELETE CASCADE
-  );
-END
-
-IF OBJECT_ID(N'KhachHang', N'U') IS NULL
-BEGIN
-  CREATE TABLE [KhachHang] (
-    [MaKhachHang] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    [MaKhongGian] BIGINT NOT NULL,
-    [TenKhachHang] NVARCHAR(200) NOT NULL,
-    [Email] NVARCHAR(255) NULL,
-    [SoDienThoai] NVARCHAR(20) NULL,
-    [NhomKhach] NVARCHAR(100) NULL,
-    [NguonKhach] NVARCHAR(100) NULL,
-    [NgayTao] DATETIME2 NOT NULL,
-    CONSTRAINT [FK_KhachHang_KhongGian] FOREIGN KEY ([MaKhongGian]) REFERENCES [KhongGianLamViec]([MaKhongGian]) ON DELETE CASCADE
-  );
-END
-
-IF OBJECT_ID(N'DuLieuLead', N'U') IS NULL
-BEGIN
-  CREATE TABLE [DuLieuLead] (
-    [MaLead] BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    [MaKhongGian] BIGINT NOT NULL,
-    [MaTrang] BIGINT NULL,
-    [MaForm] BIGINT NULL,
-    [DuLieuJson] NVARCHAR(MAX) NOT NULL DEFAULT '{{}}',
-    [DiaChiIP] NVARCHAR(45) NULL,
-    [NgayTao] DATETIME2 NOT NULL,
-    CONSTRAINT [FK_DuLieuLead_KhongGian] FOREIGN KEY ([MaKhongGian]) REFERENCES [KhongGianLamViec]([MaKhongGian]) ON DELETE CASCADE
-  );
-END
-");
+        await db.Database.MigrateAsync();
 
         // Seed editor tools - reseed if missing
         var needsReseed = !await db.ToolCategories.AnyAsync();
@@ -693,11 +397,11 @@ END
             db.Templates.RemoveRange(await db.Templates.ToListAsync());
             await db.SaveChangesAsync();
 
-            var tpl = (string name, string cat, string thumb, string desc, bool featured, int usage) =>
+            var tpl = (string name, string cat, string thumb, string desc, bool featured, int usage, bool premium = false) =>
                 new LadiPage.Domain.Entities.Template
                 {
                     Name = name, Category = cat, ThumbnailUrl = thumb,
-                    Description = desc, IsFeatured = featured, UsageCount = usage,
+                    Description = desc, IsFeatured = featured, IsPremium = premium, UsageCount = usage,
                     JsonContent = $"{{{{\"version\":1,\"blocks\":[{{{{\"type\":\"hero\",\"title\":\"{name}\"}}}}]}}}}",
                     CreatedAt = DateTime.UtcNow
                 };
@@ -709,7 +413,7 @@ END
                 tpl("Mỹ phẩm - Beauty Care", "Thương mại điện tử", "https://images.unsplash.com/photo-1596462502278-27bfdc403348?w=600&h=400&fit=crop", "Landing page sản phẩm mỹ phẩm, skincare", true, 9870),
                 tpl("Sản phẩm công nghệ", "Thương mại điện tử", "https://images.unsplash.com/photo-1468495244123-6c6c332eeece?w=600&h=400&fit=crop", "Giới thiệu smartphone, laptop, phụ kiện", false, 5410),
                 tpl("Đồ gia dụng thông minh", "Thương mại điện tử", "https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?w=600&h=400&fit=crop", "Landing page thiết bị smarthome", false, 3200),
-                tpl("Black Friday Sale", "Thương mại điện tử", "https://images.unsplash.com/photo-1573855619003-97b4799dcd8b?w=600&h=400&fit=crop", "Template giảm giá Black Friday hoành tráng", true, 15600),
+                tpl("Black Friday Sale", "Thương mại điện tử", "https://images.unsplash.com/photo-1573855619003-97b4799dcd8b?w=600&h=400&fit=crop", "Template giảm giá Black Friday hoành tráng", true, 15600, true),
                 tpl("Thực phẩm sạch - Organic", "Thương mại điện tử", "https://images.unsplash.com/photo-1542838132-92c53300491e?w=600&h=400&fit=crop", "Landing page thực phẩm organic, healthy", false, 4150),
                 tpl("Đồ handmade - Craft", "Thương mại điện tử", "https://images.unsplash.com/photo-1513364776144-60967b0f800f?w=600&h=400&fit=crop", "Giao diện bán đồ thủ công mỹ nghệ", false, 2900),
 
@@ -717,30 +421,30 @@ END
                 tpl("Dịch vụ tư vấn tài chính", "Dịch vụ", "https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=600&h=400&fit=crop", "Landing page tư vấn đầu tư, bảo hiểm", true, 7640),
                 tpl("Spa & Massage", "Dịch vụ", "https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=600&h=400&fit=crop", "Giao diện spa thư giãn sang trọng", false, 6120),
                 tpl("Dịch vụ vận chuyển", "Dịch vụ", "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=600&h=400&fit=crop", "Landing page logistics, giao hàng nhanh", false, 3890),
-                tpl("Studio chụp ảnh cưới", "Dịch vụ", "https://images.unsplash.com/photo-1519741497674-611481863552?w=600&h=400&fit=crop", "Giao diện studio ảnh cưới lãng mạn", true, 8900),
+                tpl("Studio chụp ảnh cưới", "Dịch vụ", "https://images.unsplash.com/photo-1519741497674-611481863552?w=600&h=400&fit=crop", "Giao diện studio ảnh cưới lãng mạn", true, 8900, true),
                 tpl("Dịch vụ sửa chữa nhà", "Dịch vụ", "https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=600&h=400&fit=crop", "Landing page dịch vụ sửa nhà, nội thất", false, 2340),
-                tpl("Agency Marketing", "Dịch vụ", "https://images.unsplash.com/photo-1552664730-d307ca884978?w=600&h=400&fit=crop", "Giao diện agency digital marketing", true, 11200),
+                tpl("Agency Marketing", "Dịch vụ", "https://images.unsplash.com/photo-1552664730-d307ca884978?w=600&h=400&fit=crop", "Giao diện agency digital marketing", true, 11200, true),
 
                 // Giáo dục
-                tpl("Khóa học Online", "Giáo dục", "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600&h=400&fit=crop", "Landing page khóa học trực tuyến chuyên nghiệp", true, 14500),
+                tpl("Khóa học Online", "Giáo dục", "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600&h=400&fit=crop", "Landing page khóa học trực tuyến chuyên nghiệp", true, 14500, true),
                 tpl("Trung tâm tiếng Anh", "Giáo dục", "https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=600&h=400&fit=crop", "Landing page trung tâm ngoại ngữ", false, 5670),
                 tpl("Tuyển sinh đại học", "Giáo dục", "https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=600&h=400&fit=crop", "Giao diện tuyển sinh, xét tuyển 2025", false, 4200),
                 tpl("Workshop kỹ năng", "Giáo dục", "https://images.unsplash.com/photo-1524178232363-1fb2b075b655?w=600&h=400&fit=crop", "Landing page workshop, khoá học ngắn hạn", false, 3450),
 
                 // Sự kiện
-                tpl("Webinar đăng ký", "Sự kiện", "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=600&h=400&fit=crop", "Landing page đăng ký webinar chuyên ngành", true, 10200),
+                tpl("Webinar đăng ký", "Sự kiện", "https://images.unsplash.com/photo-1540575467063-178a50c2df87?w=600&h=400&fit=crop", "Landing page đăng ký webinar chuyên ngành", true, 10200, true),
                 tpl("Hội nghị thượng đỉnh", "Sự kiện", "https://images.unsplash.com/photo-1505373877841-8d25f7d46678?w=600&h=400&fit=crop", "Giao diện hội nghị, summit doanh nghiệp", false, 6780),
                 tpl("Music Festival", "Sự kiện", "https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=600&h=400&fit=crop", "Landing page sự kiện âm nhạc sôi động", true, 7890),
                 tpl("Sự kiện ra mắt sản phẩm", "Sự kiện", "https://images.unsplash.com/photo-1492684223066-81342ee5ff30?w=600&h=400&fit=crop", "Giao diện launch event hoành tráng", false, 5430),
 
                 // Bất động sản
-                tpl("Dự án căn hộ cao cấp", "Bất động sản", "https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=600&h=400&fit=crop", "Landing page bất động sản hạng sang", true, 13400),
+                tpl("Dự án căn hộ cao cấp", "Bất động sản", "https://images.unsplash.com/photo-1560518883-ce09059eeffa?w=600&h=400&fit=crop", "Landing page bất động sản hạng sang", true, 13400, true),
                 tpl("Biệt thự nghỉ dưỡng", "Bất động sản", "https://images.unsplash.com/photo-1613490493576-7fde63acd811?w=600&h=400&fit=crop", "Giao diện biệt thự, resort cao cấp", false, 6200),
                 tpl("Chung cư mini", "Bất động sản", "https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=600&h=400&fit=crop", "Landing page dự án chung cư tầm trung", false, 4500),
                 tpl("Đất nền dự án", "Bất động sản", "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=600&h=400&fit=crop", "Giao diện bán đất nền, phân lô", false, 3100),
 
                 // Sức khỏe
-                tpl("Fitness & Gym", "Sức khỏe", "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=600&h=400&fit=crop", "Landing page phòng gym, PT cá nhân", true, 9300),
+                tpl("Fitness & Gym", "Sức khỏe", "https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=600&h=400&fit=crop", "Landing page phòng gym, PT cá nhân", true, 9300, true),
                 tpl("Phòng khám nha khoa", "Sức khỏe", "https://images.unsplash.com/photo-1629909613654-28e377c37b09?w=600&h=400&fit=crop", "Giao diện phòng khám răng hiện đại", false, 4800),
                 tpl("Thực phẩm chức năng", "Sức khỏe", "https://images.unsplash.com/photo-1505576399279-0d309eed513e?w=600&h=400&fit=crop", "Landing page TPCN, vitamin, bổ sung", false, 5600),
                 tpl("Yoga & Thiền", "Sức khỏe", "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=600&h=400&fit=crop", "Giao diện lớp yoga, thiền định online", false, 3700),
@@ -752,14 +456,14 @@ END
                 tpl("Tiệm bánh - Bakery", "Nhà hàng", "https://images.unsplash.com/photo-1486427944544-d2c246c4df14?w=600&h=400&fit=crop", "Giao diện tiệm bánh ngọt đẹp mắt", false, 3500),
 
                 // Công nghệ
-                tpl("SaaS Landing Page", "Công nghệ", "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600&h=400&fit=crop", "Landing page sản phẩm SaaS chuyên nghiệp", true, 16200),
-                tpl("App Mobile Download", "Công nghệ", "https://images.unsplash.com/photo-1551650975-87deedd944c3?w=600&h=400&fit=crop", "Giao diện giới thiệu ứng dụng mobile", true, 11800),
+                tpl("SaaS Landing Page", "Công nghệ", "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=600&h=400&fit=crop", "Landing page sản phẩm SaaS chuyên nghiệp", true, 16200, true),
+                tpl("App Mobile Download", "Công nghệ", "https://images.unsplash.com/photo-1551650975-87deedd944c3?w=600&h=400&fit=crop", "Giao diện giới thiệu ứng dụng mobile", true, 11800, true),
                 tpl("Startup - Pitch", "Công nghệ", "https://images.unsplash.com/photo-1531482615713-2afd69097998?w=600&h=400&fit=crop", "Landing page startup gọi vốn đầu tư", false, 7400),
 
                 // Tiện ích
                 tpl("Coming Soon", "Tiện ích", "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=600&h=400&fit=crop", "Trang sắp ra mắt với đếm ngược", false, 8900),
                 tpl("Thank You Page", "Tiện ích", "https://images.unsplash.com/photo-1530435460869-d13625c69bbf?w=600&h=400&fit=crop", "Trang cảm ơn sau chuyển đổi", false, 7200),
-                tpl("Thu Lead - Ebook", "Tiện ích", "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&h=400&fit=crop", "Landing page tải ebook miễn phí", true, 10500),
+                tpl("Thu Lead - Ebook", "Tiện ích", "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?w=600&h=400&fit=crop", "Landing page tải ebook miễn phí", true, 10500, true),
                 tpl("Đăng ký tư vấn", "Tiện ích", "https://images.unsplash.com/photo-1553877522-43269d4ea984?w=600&h=400&fit=crop", "Landing page form đăng ký tư vấn", false, 6800)
             );
             await db.SaveChangesAsync();

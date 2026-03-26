@@ -1,29 +1,32 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { formsApi, workspacesApi } from "@/lib/api";
-import { ClipboardCheck, Plus, Pencil, Trash2, X } from "lucide-react";
+import { ClipboardCheck, Plus, Pencil, Trash2, Settings2, Webhook } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-
-type FormItem = {
-  id: number;
-  name: string;
-  fieldsJson: string;
-  webhookUrl: string | null;
-  emailNotify: boolean;
-  createdAt: string;
-};
+import { FormConfigEmptyState } from "@/components/forms/FormConfigEmptyState";
+import { FormBuilderModal } from "@/components/forms/FormBuilderModal";
+import type { FormFieldDefinition, WorkspaceFormConfig } from "@/lib/formConfigSchema";
+import { stringifyFields } from "@/lib/formConfigSchema";
 
 export function DashboardFormsPage() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<number | null>(null);
-  const [forms, setForms] = useState<FormItem[]>([]);
+  const [forms, setForms] = useState<WorkspaceFormConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingForm, setEditingForm] = useState<FormItem | null>(null);
-  const [formName, setFormName] = useState("");
-  const [webhookUrl, setWebhookUrl] = useState("");
-  const [emailNotify, setEmailNotify] = useState(false);
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [editingForm, setEditingForm] = useState<WorkspaceFormConfig | null>(null);
   const [saving, setSaving] = useState(false);
+  const [testingWebhookId, setTestingWebhookId] = useState<number | null>(null);
+  const [successMsg, setSuccessMsg] = useState("");
+
+  const reload = useCallback(async (wsId: number | null) => {
+    if (!wsId) {
+      setForms([]);
+      return;
+    }
+    const list = await formsApi.list(wsId);
+    setForms(list as WorkspaceFormConfig[]);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -42,45 +45,53 @@ export function DashboardFormsPage() {
   useEffect(() => {
     if (!activeWorkspaceId) return;
     setLoading(true);
-    formsApi
-      .list(activeWorkspaceId)
-      .then(setForms)
+    setError("");
+    setSuccessMsg("");
+    reload(activeWorkspaceId)
       .catch(() => setError("Không tải được forms."))
       .finally(() => setLoading(false));
-  }, [activeWorkspaceId]);
+  }, [activeWorkspaceId, reload]);
 
   const openCreate = () => {
     setEditingForm(null);
-    setFormName("");
-    setWebhookUrl("");
-    setEmailNotify(false);
-    setModalOpen(true);
+    setBuilderOpen(true);
   };
 
-  const openEdit = (form: FormItem) => {
+  const openEdit = (form: WorkspaceFormConfig) => {
     setEditingForm(form);
-    setFormName(form.name);
-    setWebhookUrl(form.webhookUrl ?? "");
-    setEmailNotify(form.emailNotify);
-    setModalOpen(true);
+    setBuilderOpen(true);
   };
 
-  const handleSave = async () => {
-    if (!formName.trim() || !activeWorkspaceId) return;
+  const handleSave = async (payload: {
+    name: string;
+    fields: FormFieldDefinition[];
+    webhookUrl: string;
+    emailNotify: boolean;
+  }) => {
+    if (!activeWorkspaceId) return;
     setSaving(true);
     setError("");
     try {
+      const fieldsJson = stringifyFields(payload.fields);
       if (editingForm) {
         await formsApi.update(editingForm.id, {
-          name: formName.trim(),
-          webhookUrl: webhookUrl.trim() || undefined,
-          emailNotify,
+          name: payload.name,
+          fieldsJson,
+          webhookUrl: payload.webhookUrl || undefined,
+          emailNotify: payload.emailNotify,
         });
       } else {
-        await formsApi.create(activeWorkspaceId, formName.trim(), undefined, webhookUrl.trim() || undefined, emailNotify);
+        await formsApi.create(
+          activeWorkspaceId,
+          payload.name,
+          fieldsJson,
+          payload.webhookUrl || undefined,
+          payload.emailNotify,
+        );
       }
-      setForms(await formsApi.list(activeWorkspaceId));
-      setModalOpen(false);
+      await reload(activeWorkspaceId);
+      setBuilderOpen(false);
+      setEditingForm(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Lưu thất bại.");
     } finally {
@@ -88,12 +99,30 @@ export function DashboardFormsPage() {
     }
   };
 
+  const handleTestWebhook = async (formId: number) => {
+    setError("");
+    setSuccessMsg("");
+    setTestingWebhookId(formId);
+    try {
+      const r = await formsApi.testWebhook(formId);
+      if (r.ok) {
+        setSuccessMsg(`Đã gửi thử webhook — HTTP ${r.statusCode ?? "?"}.`);
+      } else {
+        setError(r.error ?? "Webhook không phản hồi thành công.");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Gửi thử webhook thất bại.");
+    } finally {
+      setTestingWebhookId(null);
+    }
+  };
+
   const handleDelete = async (id: number) => {
-    if (!window.confirm("Bạn có chắc muốn xóa form này?")) return;
+    if (!window.confirm("Xóa cấu hình form này? Các phần tử Form trên editor đang tham chiếu có thể cần chọn lại.")) return;
     if (!activeWorkspaceId) return;
     try {
       await formsApi.delete(id);
-      setForms(await formsApi.list(activeWorkspaceId));
+      await reload(activeWorkspaceId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Xóa thất bại.");
     }
@@ -102,133 +131,127 @@ export function DashboardFormsPage() {
   const lastCreated = forms.length > 0 ? forms.reduce((a, b) => (a.createdAt > b.createdAt ? a : b)).createdAt : null;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Quản lý Forms</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            {forms.length} form{lastCreated ? ` · Tạo gần nhất: ${new Date(lastCreated).toLocaleDateString("vi-VN")}` : ""}
-          </p>
+    <div className="max-w-6xl mx-auto space-y-8">
+      {!activeWorkspaceId && !loading && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 text-sm text-amber-900 dark:text-amber-200">
+          Chưa có workspace. Tạo workspace trong Cài đặt hoặc liên hệ quản trị để dùng cấu hình form.
         </div>
-        <Button onClick={openCreate} className="inline-flex items-center gap-2">
-          <Plus className="w-4 h-4" />
-          Thêm form
-        </Button>
-      </div>
+      )}
+      {forms.length > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100 tracking-tight">Cấu hình Form</h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+              {forms.length} cấu hình
+              {lastCreated ? ` · Cập nhật gần nhất: ${new Date(lastCreated).toLocaleString("vi-VN")}` : ""}
+            </p>
+          </div>
+          <Button
+            type="button"
+            className="bg-[#2563eb] hover:bg-[#1d4ed8] text-white inline-flex items-center gap-2 shrink-0"
+            onClick={openCreate}
+          >
+            <Plus className="w-4 h-4" />
+            Tạo cấu hình mới
+          </Button>
+        </div>
+      )}
 
-      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="text-sm text-red-600 dark:text-red-400 rounded-lg bg-red-50 dark:bg-red-950/30 px-4 py-2">{error}</p>}
+      {successMsg && (
+        <p className="text-sm text-emerald-700 dark:text-emerald-300 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 px-4 py-2">{successMsg}</p>
+      )}
 
       {loading ? (
-        <div className="flex justify-center py-12">
-          <div className="w-8 h-8 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+        <div className="flex justify-center py-16">
+          <div className="w-8 h-8 border-2 border-[#5e35b1] border-t-transparent rounded-full animate-spin" />
         </div>
       ) : forms.length === 0 ? (
-        <div className="text-center py-16">
-          <ClipboardCheck className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
-          <p className="text-sm text-slate-500 dark:text-slate-400">Chưa có form nào.</p>
-        </div>
+        <FormConfigEmptyState onCreate={openCreate} />
       ) : (
-        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800">
-          {forms.map((form, idx) => (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {forms.map((form) => (
             <div
               key={form.id}
-              className={`flex items-center justify-between px-5 py-4 ${
-                idx !== forms.length - 1 ? "border-b border-slate-100 dark:border-slate-800" : ""
-              }`}
+              className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col gap-3"
             >
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{form.name}</p>
-                <div className="flex items-center gap-3 mt-1">
-                  {form.webhookUrl && (
-                    <span className="text-xs text-slate-400 truncate max-w-[200px]">{form.webhookUrl}</span>
-                  )}
-                  {form.emailNotify && (
-                    <span className="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-400">
-                      Email notify
-                    </span>
-                  )}
-                  <span className="text-xs text-slate-400">{new Date(form.createdAt).toLocaleDateString("vi-VN")}</span>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-[#5e35b1]/10 flex items-center justify-center shrink-0">
+                    <ClipboardCheck className="w-5 h-5 text-[#5e35b1]" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-900 dark:text-slate-100 truncate">{form.name}</p>
+                    <p className="text-xs text-slate-500 mt-1">ID: {form.id}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => openEdit(form)}
+                    className="p-2 rounded-lg text-slate-500 hover:text-[#2563eb] hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                    title="Chỉnh sửa"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(form.id)}
+                    className="p-2 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition"
+                    title="Xóa"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-1 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => openEdit(form)}
-                  className="p-2 rounded-lg text-slate-400 hover:text-primary-600 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
-                >
-                  <Pencil className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(form.id)}
-                  className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                  <Settings2 className="w-3 h-3" />
+                  Trường: JSON
+                </span>
+                {form.webhookUrl && (
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 truncate max-w-full">
+                    <Webhook className="w-3 h-3 shrink-0" />
+                    Webhook
+                  </span>
+                )}
+                {form.emailNotify && (
+                  <span className="px-2 py-1 rounded-md bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-400">
+                    Email notify
+                  </span>
+                )}
               </div>
+              {form.webhookUrl && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full text-[13px] inline-flex items-center justify-center gap-2 border-emerald-200 text-emerald-800 dark:border-emerald-800 dark:text-emerald-300"
+                  disabled={testingWebhookId === form.id}
+                  onClick={() => handleTestWebhook(form.id)}
+                >
+                  <Webhook className="w-4 h-4 shrink-0" />
+                  {testingWebhookId === form.id ? "Đang gửi thử…" : "Gửi thử webhook"}
+                </Button>
+              )}
+              <Button type="button" variant="outline" className="w-full mt-1" onClick={() => openEdit(form)}>
+                Chỉnh sửa cấu hình
+              </Button>
             </div>
           ))}
         </div>
       )}
 
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div
-            className="bg-white dark:bg-slate-900 rounded-xl p-6 w-full max-w-md shadow-xl border border-slate-200 dark:border-slate-800"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100">
-                {editingForm ? "Sửa form" : "Thêm form"}
-              </h2>
-              <button type="button" onClick={() => setModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Tên form</label>
-                <input
-                  type="text"
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  placeholder="Form liên hệ"
-                  className="w-full px-3.5 py-2.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Webhook URL</label>
-                <input
-                  type="url"
-                  value={webhookUrl}
-                  onChange={(e) => setWebhookUrl(e.target.value)}
-                  placeholder="https://hooks.example.com/..."
-                  className="w-full px-3.5 py-2.5 border border-slate-300 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
-                />
-              </div>
-              <label className="flex items-center gap-3 cursor-pointer">
-                <div
-                  className={`relative w-10 h-6 rounded-full transition ${emailNotify ? "bg-primary-600" : "bg-slate-300 dark:bg-slate-700"}`}
-                  onClick={() => setEmailNotify(!emailNotify)}
-                >
-                  <div
-                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                      emailNotify ? "translate-x-4" : ""
-                    }`}
-                  />
-                </div>
-                <span className="text-sm text-slate-700 dark:text-slate-300">Gửi email thông báo</span>
-              </label>
-            </div>
-
-            <div className="flex justify-end gap-3 mt-6">
-              <Button variant="secondary" onClick={() => setModalOpen(false)}>Hủy</Button>
-              <Button onClick={handleSave} disabled={saving || !formName.trim()} loading={saving}>{saving ? "Đang lưu…" : "Lưu"}</Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <FormBuilderModal
+        open={builderOpen}
+        onClose={() => {
+          setBuilderOpen(false);
+          setEditingForm(null);
+        }}
+        editing={editingForm}
+        workspaceId={activeWorkspaceId}
+        onSave={handleSave}
+        saving={saving}
+      />
     </div>
   );
 }

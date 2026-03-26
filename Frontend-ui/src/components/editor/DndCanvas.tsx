@@ -316,6 +316,7 @@ export function DraggableToolItem({
   onSelect,
   onAddElement,
   onAddSection,
+  onAddSectionTemplate,
   forceAddWithPreset,
 }: {
   item: ToolItemData;
@@ -323,11 +324,14 @@ export function DraggableToolItem({
   onSelect?: (id: number) => void;
   onAddElement: (elType: EditorElementType, preset?: ElementPresetData) => void;
   onAddSection: () => void;
+  onAddSectionTemplate?: (template: "blank" | "hero") => void;
   forceAddWithPreset?: ElementPresetData;
 }) {
   const preset = forceAddWithPreset ?? item.presets[0];
+  const isSectionTool = item.elementType === "section";
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `tool-${item.id}`,
+    disabled: isSectionTool,
     data: {
       type: "tool-item",
       item,
@@ -345,8 +349,12 @@ export function DraggableToolItem({
     }
     onSelect?.(item.id);
     if (item.presets.length === 0) {
-      if (item.elementType === "section") onAddSection();
-      else onAddElement(item.elementType as EditorElementType);
+      if (item.elementType === "section") {
+        const tpl = item.sectionTemplate ?? "blank";
+        if (tpl === "hero" && onAddSectionTemplate) onAddSectionTemplate("hero");
+        else if (onAddSectionTemplate && tpl === "blank") onAddSectionTemplate("blank");
+        else onAddSection();
+      } else onAddElement(item.elementType as EditorElementType);
     }
   };
 
@@ -357,10 +365,20 @@ export function DraggableToolItem({
       ref={setNodeRef}
       {...attributes}
       {...listeners}
-      className={`flex items-center gap-2 px-2 py-2 rounded text-[12px] transition cursor-grab active:cursor-grabbing touch-none select-none ${
-        isDragging ? "opacity-50" : isActive ? "bg-slate-100 text-[#1e2d7d] font-medium" : "text-slate-600 hover:bg-slate-50"
-      }`}
-      title="Giữ chuột và kéo vào trang để thả; hoặc nhấn để thêm / chọn mẫu"
+      className={`flex items-center gap-2 px-2 py-2 rounded text-[12px] transition touch-none select-none ${
+        isSectionTool ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"
+      } ${isDragging ? "opacity-50" : isActive ? "bg-slate-100 text-[#1e2d7d] font-medium" : "text-slate-600 hover:bg-slate-50"}`}
+      title={
+        isSectionTool
+          ? "Nhấn để thêm section (khối Section không kéo thả vào canvas)"
+          : item.elementType === "collection-list" ||
+              item.elementType === "product-detail" ||
+              item.elementType === "cart" ||
+              item.elementType === "blog-list" ||
+              item.elementType === "blog-detail"
+            ? "Khối dữ liệu (sản phẩm / giỏ / blog): kéo vào canvas hoặc nhấn để thêm — chọn mẫu & chỉnh ở panel phải."
+            : "Giữ chuột và kéo vào trang để thả; hoặc nhấn để thêm / chọn mẫu"
+      }
     >
       <span className="shrink-0 p-0.5 rounded pointer-events-none" aria-hidden>
         <svg className="w-3.5 h-3.5 text-slate-400" viewBox="0 0 24 24" fill="currentColor">
@@ -377,7 +395,9 @@ export function DraggableToolItem({
         ) : (
           getLucideIcon(item.icon, "w-4 h-4 shrink-0")
         )}
-        <span className="truncate flex-1">{item.name}</span>
+        <span className="flex-1 min-w-0 text-left line-clamp-2 break-words text-[11px] leading-snug" title={item.name}>
+          {item.name}
+        </span>
       </button>
     </div>
   );
