@@ -5,6 +5,7 @@
  * on the outer container, so editor and preview always match perfectly.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useEditorStore } from "@/stores/editorStore";
 import type { EditorElement, EditorSection } from "@/types/editor";
 import { getIconById } from "@/data/iconData";
@@ -631,10 +632,19 @@ function InnerElementRenderer({ el }: { el: EditorElement }) {
       let hc: { code?: string; iframeSrc?: string; subType?: string } = {};
       try { hc = JSON.parse(el.content || "{}"); } catch {}
       if (hc.subType === "iframe" && hc.iframeSrc?.trim()) {
-        return <iframe src={hc.iframeSrc.trim()} style={{ ...fill, border: "none" }} title="Embedded" />;
+        return <iframe src={hc.iframeSrc.trim()} style={{ ...fill, border: "none" }} title="Embedded" sandbox="allow-scripts allow-same-origin" />;
       }
-      const code = (hc.code || el.content || "").trim();
-      const doc = code ? `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:0">${code}</body></html>` : `<div style='padding:16px;color:#64748b;font-size:12px'>Chưa có mã HTML</div>`;
+      const code = (hc.code || "").trim();
+      if (!code) {
+        // Empty placeholder – prompt user to double-click
+        return (
+          <div style={{ ...fill, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, background: "#f8fafc", border: "1.5px dashed #94a3b8", borderRadius: 8, overflow: "hidden" }}>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            <span style={{ fontSize: 11, color: "#64748b", textAlign: "center" }}>Double-click để nhập mã HTML</span>
+          </div>
+        );
+      }
+      const doc = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:0">${code}</body></html>`;
       return <iframe srcDoc={doc} style={{ ...fill, border: "none" }} title="Custom HTML" sandbox="allow-scripts allow-same-origin" />;
     }
 
@@ -960,6 +970,7 @@ function DomSection({
   onSectionClick,
   onStartEdit,
   onCommitEdit,
+  onOpenHtmlEditor,
 }: {
   section: EditorSection;
   selectedId: number | null;
@@ -972,6 +983,7 @@ function DomSection({
   onSectionClick: (id: number) => void;
   onStartEdit: (id: number) => void;
   onCommitEdit: (id: number, text: string) => void;
+  onOpenHtmlEditor: (id: number) => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const sectionH = section.height ?? 600;
@@ -1038,6 +1050,7 @@ function DomSection({
             onResizeStart={onResizeStart}
             onStartEdit={onStartEdit}
             onCommitEdit={onCommitEdit}
+            onOpenHtmlEditor={onOpenHtmlEditor}
           />
         ))}
     </div>
@@ -1054,6 +1067,7 @@ function ElementWrapper({
   onResizeStart,
   onStartEdit,
   onCommitEdit,
+  onOpenHtmlEditor,
 }: {
   el: EditorElement;
   isSelected: boolean;
@@ -1062,6 +1076,7 @@ function ElementWrapper({
   onResizeStart: (e: React.PointerEvent, el: EditorElement, dir: ResizeDirection) => void;
   onStartEdit: (id: number) => void;
   onCommitEdit: (id: number, text: string) => void;
+  onOpenHtmlEditor?: (id: number) => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const editRef = useRef<HTMLDivElement>(null);
@@ -1102,6 +1117,8 @@ function ElementWrapper({
     if (el.isLocked) return;
     if (TEXT_TYPES.has(el.type)) {
       onStartEdit(el.id);
+    } else if (el.type === "html-code" || el.type === "html") {
+      onOpenHtmlEditor?.(el.id);
     }
   };
 
@@ -1177,6 +1194,144 @@ function ElementWrapper({
 
 // ─── main canvas ────────────────────────────────────────────────────────────
 
+// ─── HTML code editor modal ──────────────────────────────────────────────────
+
+function HtmlCodeEditorModal({
+  elementId,
+  initialContent,
+  onSave,
+  onClose,
+}: {
+  elementId: number;
+  initialContent: string;
+  onSave: (id: number, content: string) => void;
+  onClose: () => void;
+}) {
+  let initHc: { subType?: string; code?: string; iframeSrc?: string } = {};
+  try { initHc = JSON.parse(initialContent || "{}"); } catch {}
+
+  const [subType, setSubType] = useState(initHc.subType ?? "html-js");
+  const [code, setCode] = useState(initHc.code ?? "");
+  const [iframeSrc, setIframeSrc] = useState(initHc.iframeSrc ?? "");
+  const [preview, setPreview] = useState(false);
+
+  const handleSave = () => {
+    const newContent = JSON.stringify({ subType, code, iframeSrc });
+    onSave(elementId, newContent);
+    onClose();
+  };
+
+  const previewDoc = code
+    ? `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:8px;font-family:sans-serif}</style></head><body>${code}</body></html>`
+    : "";
+
+  const modal = (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-xl shadow-2xl flex flex-col"
+        style={{ width: "min(90vw, 860px)", height: "min(90vh, 640px)" }}
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0">
+          <div className="flex items-center gap-3">
+            <h3 className="font-bold text-slate-800 text-sm">Chỉnh sửa mã HTML / CSS / JS</h3>
+            <div className="flex items-center gap-1 bg-slate-100 rounded p-0.5">
+              <select
+                value={subType}
+                onChange={(e) => setSubType(e.target.value)}
+                className="text-[11px] border-none bg-transparent px-2 py-0.5 text-slate-700 font-medium"
+              >
+                <option value="html-js">HTML / JS</option>
+                <option value="iframe">IFRAME URL</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {subType === "html-js" && code && (
+              <button
+                type="button"
+                onClick={() => setPreview((v) => !v)}
+                className={`px-3 py-1.5 rounded text-[12px] font-medium border ${preview ? "bg-indigo-50 border-indigo-300 text-indigo-700" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}
+              >
+                {preview ? "◀ Mã nguồn" : "Xem trước ▶"}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleSave}
+              className="px-4 py-1.5 rounded-lg bg-[#1e2d7d] hover:bg-[#162558] text-white text-[12px] font-semibold"
+            >
+              Lưu
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded hover:bg-slate-100 text-slate-500"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-hidden flex flex-col min-h-0 p-3 gap-2">
+          {subType === "iframe" ? (
+            <div className="flex flex-col gap-2">
+              <label className="text-[11px] font-semibold text-slate-500">URL nhúng (embed URL)</label>
+              <input
+                type="url"
+                value={iframeSrc}
+                onChange={(e) => setIframeSrc(e.target.value)}
+                placeholder="https://www.google.com/maps/embed?..."
+                className="w-full px-3 py-2 text-[12px] border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400"
+              />
+              {iframeSrc && (
+                <iframe
+                  src={iframeSrc}
+                  className="w-full flex-1 border border-slate-200 rounded-lg"
+                  style={{ minHeight: 300 }}
+                  title="Preview"
+                  sandbox="allow-scripts allow-same-origin"
+                />
+              )}
+            </div>
+          ) : preview && previewDoc ? (
+            <iframe
+              srcDoc={previewDoc}
+              className="w-full flex-1 border border-slate-200 rounded-lg bg-white"
+              title="HTML Preview"
+              sandbox="allow-scripts allow-same-origin"
+            />
+          ) : (
+            <>
+              <label className="text-[11px] font-semibold text-slate-500">
+                Nhập HTML, CSS, JavaScript tùy chỉnh
+              </label>
+              <textarea
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                className="flex-1 w-full px-3 py-2 text-[12px] font-mono rounded-lg border border-slate-200 bg-[#1e1e2e] text-[#a6e3a1] resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                placeholder={"<div style=\"color:red\">Xin chào!</div>\n<script>console.log('Hello')</script>"}
+                spellCheck={false}
+                autoFocus
+              />
+              <p className="text-[10px] text-slate-400">Hỗ trợ HTML, inline CSS, và JavaScript. Khi xuất HTML sẽ nhúng nguyên đoạn code này vào trang.</p>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  return createPortal(modal, document.body);
+}
+
 interface DragState {
   elementId: number;
   sectionId: number;
@@ -1229,6 +1384,7 @@ export default function DomCanvas({
   const snapToGrid = useEditorStore((s) => s.snapToGrid);
   const gridSize = useEditorStore((s) => s.gridSize) || 8;
   const [editingElementId, setEditingElementId] = useState<number | null>(null);
+  const [htmlEditorElementId, setHtmlEditorElementId] = useState<number | null>(null);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const canvasWidth = desktopCanvasWidth || 960;
@@ -1448,6 +1604,7 @@ export default function DomCanvas({
               }}
               onStartEdit={handleStartEdit}
               onCommitEdit={handleCommitEdit}
+              onOpenHtmlEditor={(id) => setHtmlEditorElementId(id)}
             />
           ))}
       </div>
@@ -1496,12 +1653,29 @@ export default function DomCanvas({
             onToggleLock={() => { updateElement(selEl.el.id, { isLocked: !selEl.el.isLocked }); pushHistory(); }}
             onToggleHide={() => { updateElement(selEl.el.id, { isHidden: !selEl.el.isHidden }); pushHistory(); }}
             onOpenSettings={() => onOpenSettings?.()}
-            onEditHtmlCode={selEl.el.type === "html-code" ? () => onOpenSettings?.() : undefined}
+            onEditHtmlCode={selEl.el.type === "html-code" ? () => setHtmlEditorElementId(selEl.el.id) : undefined}
             showMoreMenu={showMoreMenu}
             onToggleMore={() => setShowMoreMenu((v) => !v)}
           />
         </div>
       )}
+
+      {/* HTML Code Editor Modal */}
+      {htmlEditorElementId !== null && (() => {
+        const htmlEl = sections.flatMap(s => s.elements).find(e => e.id === htmlEditorElementId);
+        if (!htmlEl) return null;
+        return (
+          <HtmlCodeEditorModal
+            elementId={htmlEditorElementId}
+            initialContent={htmlEl.content || ""}
+            onSave={(id, content) => {
+              updateElement(id, { content });
+              pushHistory();
+            }}
+            onClose={() => setHtmlEditorElementId(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

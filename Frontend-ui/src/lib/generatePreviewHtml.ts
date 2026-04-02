@@ -1186,7 +1186,7 @@ export function generatePreviewHtml(
 <head>
   <meta charset="UTF-8" />
   <base href="${escHtml(assetBaseUrl)}" />
-  <meta name="viewport" content="${forPreview ? `width=${designBase}, initial-scale=1` : "width=device-width, initial-scale=1.0"}" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" />
   <title>${escHtml(title)}</title>
   ${desc ? `<meta name="description" content="${escHtml(desc)}" />` : ""}
   ${keywords ? `<meta name="keywords" content="${escHtml(keywords)}" />` : ""}
@@ -1199,7 +1199,7 @@ export function generatePreviewHtml(
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { min-height: 100vh; }
     body { font-family: Inter, system-ui, -apple-system, sans-serif; background: #e8ecf1; }
-    .page-container { ${forPreview ? `width:${designBase}px` : `max-width:${layoutMaxWidth}px;width:100%`}; margin: 0 auto; background: #fff; min-height: 100vh; box-shadow: 0 0 40px rgba(0,0,0,0.08); }
+    .page-container { width:${designBase}px; margin: 0 auto; background: #fff; min-height: 100vh; box-shadow: 0 0 40px rgba(0,0,0,0.08); transform-origin: 0 0; }
     .tt-popup { position:absolute; color:#fff; padding:6px 10px; border-radius:6px; font-size:12px; white-space:nowrap; pointer-events:none; z-index:9999; opacity:0; transition:opacity .2s; }
     @keyframes fadeIn{from{opacity:0}to{opacity:1}}
     @keyframes fadeInUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
@@ -1243,15 +1243,6 @@ export function generatePreviewHtml(
     .page-container button:not(:disabled):active, .page-container input[type="submit"]:active, .page-container input[type="button"]:active { opacity: 0.9; transform: scale(0.99); }
     @media (max-width: 768px) {
       .page-container { box-shadow: none; }
-      .lp-element:not([data-lp-collection-list]) { font-size: 0.9em !important; }
-      /* Tránh height:auto làm vỡ ảnh cover trong khối sản phẩm / lưới */
-      .lp-element:not([data-lp-grid]):not([data-lp-gallery]):not([data-lp-product-detail]):not([data-lp-collection-list]):not([data-lp-tabs]) img,
-      .lp-element:not([data-lp-grid]):not([data-lp-gallery]):not([data-lp-product-detail]):not([data-lp-collection-list]):not([data-lp-tabs]) video { max-width: 100% !important; height: auto !important; object-fit: contain; }
-      .lp-element[data-lp-grid] { grid-template-columns: repeat(2, 1fr) !important; gap: 6px !important; }
-    }
-    @media (max-width: 480px) {
-      .lp-element:not([data-lp-collection-list]) { font-size: 0.85em !important; }
-      .lp-element[data-lp-grid] { grid-template-columns: 1fr !important; gap: 4px !important; }
     }
     body.lp-popup-open { overflow: hidden; }
     .lp-popup-overlay.lp-popup-visible { display: flex !important; }
@@ -1421,7 +1412,7 @@ export function generatePreviewHtml(
   });
   ${utilityFxInline}
   </script>
-  ${forPreview ? `<script>
+  <script>
   (function(){
     var d=${designBase};
     function doScale(){
@@ -1437,7 +1428,7 @@ export function generatePreviewHtml(
     window.addEventListener('resize',doScale);
     window.addEventListener('load',doScale);
   })();
-  </script>` : ""}
+  </script>
   ${codeBeforeBody ? codeBeforeBody.trim() : ""}
 </body>
 </html>`;
