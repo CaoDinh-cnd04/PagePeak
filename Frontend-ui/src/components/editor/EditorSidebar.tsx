@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { X } from "lucide-react";
-import { getLucideIcon } from "@/lib/iconMap";
+import { getLucideIcon } from "@/lib/editor/iconMap";
 import ImagePickerPanel from "./ImagePickerPanel";
 import VideoPickerPanel from "./VideoPickerPanel";
 import IconPickerPanel from "./IconPickerPanel";

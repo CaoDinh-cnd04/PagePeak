@@ -44,6 +44,7 @@ builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<ICurrentUser, CurrentUserService>();
+builder.Services.AddScoped<OnePayCallbackProcessor>();
 
 builder.Services.AddCorsPolicy(builder.Configuration);
 builder.Services.AddJwtAuthentication(builder.Configuration);
@@ -78,6 +79,7 @@ using (var scope = app.Services.CreateScope())
         }
         catch { /* Ignore neu server khong cho tao DB */ }
 
+        // Code-first: áp dụng mọi migration trong LadiPage.Infrastructure/Migrations (đồng bộ schema với entity + ProductConfiguration).
         var db = scope.ServiceProvider.GetRequiredService<LadiPage.Infrastructure.Data.AppDbContext>();
         await db.Database.MigrateAsync();
 

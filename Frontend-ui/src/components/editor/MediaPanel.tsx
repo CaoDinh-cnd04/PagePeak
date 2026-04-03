@@ -4,7 +4,7 @@ import {
   Search, Grid3X3, List, Film, FileImage,
   CloudUpload, Copy, Check, ZoomIn,
 } from "lucide-react";
-import { mediaApi, type MediaItem } from "@/lib/api";
+import { mediaApi, type MediaItem } from "@/lib/shared/api";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
 

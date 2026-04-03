@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
-import { useEditorStore } from "@/stores/editorStore";
-import { startUtilityFxAnimation } from "@/lib/utilityFxAnimation";
+import { useEditorStore } from "@/stores/editor/editorStore";
+import { startUtilityFxAnimation } from "@/lib/editor/utilityFxAnimation";
 
 /**
  * Lớp xem trước hiệu ứng tiện ích trên vùng canvas (pointer-events: none, z-index dưới thanh công cụ).

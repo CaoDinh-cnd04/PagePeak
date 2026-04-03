@@ -4,7 +4,7 @@ import {
   X, GripVertical, Maximize2,
   Share2, Code, FileCode, Zap, Sparkles, Image as ImageIcon, ExternalLink,
 } from "lucide-react";
-import { useEditorStore } from "@/stores/editorStore";
+import { useEditorStore } from "@/stores/editor/editorStore";
 import FontPicker from "./FontPicker";
 import type { PageSettings } from "@/types/editor";
 

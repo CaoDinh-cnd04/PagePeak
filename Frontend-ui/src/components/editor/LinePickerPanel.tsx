@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { LINE_PRESETS, type LinePreset } from "@/data/lineData";
+import { LINE_PRESETS, type LinePreset } from "@/lib/editor/data/lineData";
 
 function LinePreview({ preset }: { preset: LinePreset }) {
   const isDouble = preset.style === "double";

@@ -1,26 +1,27 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { HomePage } from "@/pages/Home";
-import { LoginPage } from "@/pages/Login";
-import { RegisterPage } from "@/pages/Register";
-import { AuthCallbackPage } from "@/pages/AuthCallback";
-import { AuthExternalRegisterPage } from "@/pages/AuthExternalRegister";
-import { VerifyEmailPage } from "@/pages/VerifyEmail";
-import { DashboardLayout } from "@/pages/DashboardLayout";
-import { DashboardPage } from "@/pages/Dashboard";
-import DashboardPages from "@/pages/DashboardPages";
-import { DashboardSettingsPage } from "@/pages/DashboardSettings";
-import { DashboardTemplatesPage } from "@/pages/DashboardTemplates";
-import { DashboardEditorPage } from "@/pages/DashboardEditor";
-import { DashboardOrdersPage } from "@/pages/DashboardOrders";
-import DashboardMedia from "@/pages/DashboardMedia";
-import { DashboardProductsPage } from "@/pages/DashboardProducts";
-import { DashboardCustomersPage } from "@/pages/DashboardCustomers";
-import { DashboardFormsPage } from "@/pages/DashboardForms";
-import { DashboardTagsPage } from "@/pages/DashboardTags";
-import { DashboardDomainsPage } from "@/pages/DashboardDomains";
-import { DashboardDataLeadsPage } from "@/pages/DashboardDataLeads";
-import { DashboardReportsPage } from "@/pages/DashboardReports";
-import { DashboardIntegrationsPage } from "@/pages/DashboardIntegrations";
+import { HomePage } from "@/pages/public/Home";
+import { LoginPage } from "@/pages/auth/Login";
+import { RegisterPage } from "@/pages/auth/Register";
+import { AuthCallbackPage } from "@/pages/auth/AuthCallback";
+import { AuthExternalRegisterPage } from "@/pages/auth/AuthExternalRegister";
+import { VerifyEmailPage } from "@/pages/auth/VerifyEmail";
+import { DashboardLayout } from "@/pages/dashboard/DashboardLayout";
+import { DashboardPage } from "@/pages/dashboard/Dashboard";
+import DashboardPages from "@/pages/dashboard/DashboardPages";
+import { DashboardSettingsPage } from "@/pages/dashboard/DashboardSettings";
+import { DashboardTemplatesPage } from "@/pages/dashboard/DashboardTemplates";
+import { DashboardEditorPage } from "@/pages/dashboard/DashboardEditor";
+import { DashboardOrdersPage } from "@/pages/dashboard/DashboardOrders";
+import DashboardMedia from "@/pages/dashboard/DashboardMedia";
+import { DashboardProductsPage } from "@/pages/dashboard/DashboardProducts";
+import { DashboardCustomersPage } from "@/pages/dashboard/DashboardCustomers";
+import { DashboardFormsPage } from "@/pages/dashboard/DashboardForms";
+import { DashboardTagsPage } from "@/pages/dashboard/DashboardTags";
+import { DashboardDomainsPage } from "@/pages/dashboard/DashboardDomains";
+import { DashboardDataLeadsPage } from "@/pages/dashboard/DashboardDataLeads";
+import { DashboardReportsPage } from "@/pages/dashboard/DashboardReports";
+import { DashboardIntegrationsPage } from "@/pages/dashboard/DashboardIntegrations";
+import { DashboardPricingPage } from "@/pages/dashboard/DashboardPricingPage";
 
 export function App() {
   return (
@@ -48,6 +49,7 @@ export function App() {
           <Route path="domains" element={<DashboardDomainsPage />} />
           <Route path="data-leads" element={<DashboardDataLeadsPage />} />
           <Route path="integrations" element={<DashboardIntegrationsPage />} />
+          <Route path="plans" element={<DashboardPricingPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

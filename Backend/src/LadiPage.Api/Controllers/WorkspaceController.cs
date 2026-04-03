@@ -1,8 +1,10 @@
 using LadiPage.Api.Models;
 using LadiPage.Application.Features.Workspaces;
+using LadiPage.Domain.Interfaces;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace LadiPage.Api.Controllers;
 
@@ -12,8 +14,21 @@ namespace LadiPage.Api.Controllers;
 public class WorkspaceController : ControllerBase
 {
     private readonly IMediator _mediator;
+    private readonly IAppDbContext _db;
+    private readonly ICurrentUser _currentUser;
+    private readonly IWorkspaceAccessService _workspaceAccess;
 
-    public WorkspaceController(IMediator mediator) => _mediator = mediator;
+    public WorkspaceController(
+        IMediator mediator,
+        IAppDbContext db,
+        ICurrentUser currentUser,
+        IWorkspaceAccessService workspaceAccess)
+    {
+        _mediator = mediator;
+        _db = db;
+        _currentUser = currentUser;
+        _workspaceAccess = workspaceAccess;
+    }
 
     [HttpGet]
     public async Task<IActionResult> GetAll(CancellationToken ct)
@@ -27,6 +42,123 @@ public class WorkspaceController : ControllerBase
     {
         var w = await _mediator.Send(new GetWorkspaceByIdQuery(id), ct);
         return w == null ? NotFound() : Ok(w);
+    }
+
+    [HttpGet("{id:long}/general-settings")]
+    public async Task<IActionResult> GetGeneralSettings(long id, CancellationToken ct)
+    {
+        if (_currentUser.UserId == null) return Unauthorized();
+        var uid = _currentUser.UserId.Value;
+        if (!await _workspaceAccess.CanAccessWorkspaceAsync(uid, id, ct)) return NotFound();
+
+        var ws = await _db.Workspaces.AsNoTracking().FirstOrDefaultAsync(w => w.Id == id, ct);
+        if (ws == null) return NotFound();
+
+        var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == uid, ct);
+        if (user == null) return Unauthorized();
+
+        return Ok(new
+        {
+            accountName = user.FullName,
+            storeName = ws.Name,
+            storeAddress = ws.StoreAddress,
+            storePhone = ws.StorePhone,
+            postalCode = ws.PostalCode,
+            country = ws.Country,
+            province = ws.Province,
+            district = ws.District,
+            ward = ws.Ward,
+            timezone = ws.Timezone,
+            currency = ws.StoreCurrency
+        });
+    }
+
+    [HttpPut("{id:long}/general-settings")]
+    public async Task<IActionResult> PutGeneralSettings(long id, [FromBody] WorkspaceGeneralBody? body, CancellationToken ct)
+    {
+        if (_currentUser.UserId == null) return Unauthorized();
+        if (body == null) return BadRequest(new { error = "body_required" });
+        var uid = _currentUser.UserId.Value;
+        if (!await _workspaceAccess.CanAccessWorkspaceAsync(uid, id, ct)) return NotFound();
+
+        var ws = await _db.Workspaces.FirstOrDefaultAsync(w => w.Id == id, ct);
+        if (ws == null) return NotFound();
+
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == uid, ct);
+        if (user == null) return Unauthorized();
+
+        var accountName = body.AccountName.Trim();
+        if (accountName.Length > 200) return BadRequest(new { error = "account_name_too_long" });
+        user.FullName = accountName;
+        user.UpdatedAt = DateTime.UtcNow;
+
+        var storeName = body.StoreName.Trim();
+        if (storeName.Length < 1 || storeName.Length > 200) return BadRequest(new { error = "invalid_store_name" });
+        ws.Name = storeName;
+
+        static string? EmptyToNull(string t, int max, out bool tooLong)
+        {
+            tooLong = t.Length > max;
+            if (tooLong) return null;
+            return t.Length == 0 ? null : t;
+        }
+
+        string t;
+        bool bad;
+
+        t = body.StoreAddress.Trim();
+        ws.StoreAddress = EmptyToNull(t, 500, out bad);
+        if (bad) return BadRequest(new { error = "field_too_long", field = "storeAddress" });
+
+        t = body.StorePhone.Trim();
+        ws.StorePhone = EmptyToNull(t, 30, out bad);
+        if (bad) return BadRequest(new { error = "field_too_long", field = "storePhone" });
+
+        t = body.PostalCode.Trim();
+        ws.PostalCode = EmptyToNull(t, 20, out bad);
+        if (bad) return BadRequest(new { error = "field_too_long", field = "postalCode" });
+
+        t = body.Country.Trim();
+        ws.Country = EmptyToNull(t, 100, out bad);
+        if (bad) return BadRequest(new { error = "field_too_long", field = "country" });
+
+        t = body.Province.Trim();
+        ws.Province = EmptyToNull(t, 100, out bad);
+        if (bad) return BadRequest(new { error = "field_too_long", field = "province" });
+
+        t = body.District.Trim();
+        ws.District = EmptyToNull(t, 100, out bad);
+        if (bad) return BadRequest(new { error = "field_too_long", field = "district" });
+
+        t = body.Ward.Trim();
+        ws.Ward = EmptyToNull(t, 100, out bad);
+        if (bad) return BadRequest(new { error = "field_too_long", field = "ward" });
+
+        t = body.Timezone.Trim();
+        ws.Timezone = EmptyToNull(t, 100, out bad);
+        if (bad) return BadRequest(new { error = "field_too_long", field = "timezone" });
+
+        t = body.Currency.Trim();
+        ws.StoreCurrency = EmptyToNull(t, 10, out bad);
+        if (bad) return BadRequest(new { error = "field_too_long", field = "currency" });
+
+        ws.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(new
+        {
+            accountName = user.FullName,
+            storeName = ws.Name,
+            storeAddress = ws.StoreAddress,
+            storePhone = ws.StorePhone,
+            postalCode = ws.PostalCode,
+            country = ws.Country,
+            province = ws.Province,
+            district = ws.District,
+            ward = ws.Ward,
+            timezone = ws.Timezone,
+            currency = ws.StoreCurrency
+        });
     }
 
     [HttpPost]

@@ -24,6 +24,9 @@ public static class DependencyInjection
         services.AddSingleton<IEmailService, EmailService>();
         services.AddScoped<IWorkspaceAccessService, WorkspaceAccessService>();
 
+        services.Configure<OnePayOptions>(configuration.GetSection(OnePayOptions.SectionName));
+        services.AddSingleton<IOnePayPaymentService, OnePayPaymentService>();
+
         return services;
     }
 }

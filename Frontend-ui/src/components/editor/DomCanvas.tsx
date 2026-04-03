@@ -6,15 +6,271 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useEditorStore } from "@/stores/editorStore";
+import { useEditorStore } from "@/stores/editor/editorStore";
 import type { EditorElement, EditorSection } from "@/types/editor";
-import { getIconById } from "@/data/iconData";
+import { getIconById } from "@/lib/editor/data/iconData";
 import { ElementActionToolbar } from "./ElementActionToolbar";
-import { GOOGLE_FONTS } from "@/lib/fontLoader";
-import { parseProductDetailContent } from "@/lib/productDetailContent";
-import { parseTabsContent, parseCarouselContent } from "@/lib/tabsContent";
+import { GOOGLE_FONTS } from "@/lib/editor/fontLoader";
+import { parseProductDetailContent } from "@/lib/editor/productDetailContent";
+import { mergeCarouselStyle, parseTabsContent, parseCarouselContent } from "@/lib/editor/tabsContent";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
+
+/** Tránh `</script>` trong mã HTML người dùng làm vỡ parse khi nhúng vào iframe srcDoc. */
+function sanitizeUserHtmlForEmbed(s: string): string {
+  return s.replace(/<\/script/gi, "<\\/script");
+}
+
+/** Ngưỡng bắt snap (px không gian thiết kế) — giống Canva/Figma */
+const SMART_GUIDE_THRESHOLD = 6;
+
+/** Giới hạn mềm Y (px) để phần tử có thể đè lên ranh giới section mà không bị clamp cứng trong section */
+const SECTION_Y_OVERFLOW_PX = 4000;
+
+type GuideRect = { x: number; y: number; w: number; h: number };
+
+export type SmartGuidesOverlayState = {
+  vLines: { x: number; y1: number; y2: number; dashed: boolean }[];
+  hLines: { y: number; x1: number; x2: number; dashed: boolean }[];
+  gapLabels: { x: number; y: number; text: string }[];
+  sizeLabel: { x: number; y: number; text: string } | null;
+};
+
+function snapToNearest(raw: number, candidates: number[], threshold: number): { value: number; snapped: boolean } {
+  let best = raw;
+  let bestDist = threshold + 1;
+  for (const c of candidates) {
+    const d = Math.abs(c - raw);
+    if (d < bestDist) {
+      bestDist = d;
+      best = c;
+    }
+  }
+  return { value: best, snapped: bestDist <= threshold };
+}
+
+function buildXSnapCandidates(canvasW: number, w: number, others: GuideRect[]): number[] {
+  const xs: number[] = [0, canvasW / 2 - w / 2, canvasW - w];
+  for (const o of others) {
+    xs.push(o.x, o.x + o.w - w, o.x + o.w / 2 - w / 2, o.x + o.w, o.x - w);
+  }
+  return xs;
+}
+
+function buildYSnapCandidates(sectionH: number, h: number, others: GuideRect[]): number[] {
+  const ys: number[] = [0, sectionH / 2 - h / 2, sectionH - h];
+  for (const o of others) {
+    ys.push(o.y, o.y + o.h - h, o.y + o.h / 2 - h / 2, o.y + o.h, o.y - h);
+  }
+  return ys;
+}
+
+function clampNum(v: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, v));
+}
+
+const EPS = 0.75;
+
+function buildAlignmentLines(drag: GuideRect, others: GuideRect[], canvasW: number, sectionH: number): { vLines: SmartGuidesOverlayState["vLines"]; hLines: SmartGuidesOverlayState["hLines"] } {
+  const vLines: SmartGuidesOverlayState["vLines"] = [];
+  const hLines: SmartGuidesOverlayState["hLines"] = [];
+
+  const tryV = (x: number, y1: number, y2: number, dashed: boolean) => {
+    vLines.push({ x, y1, y2, dashed });
+  };
+  const tryH = (y: number, x1: number, x2: number, dashed: boolean) => {
+    hLines.push({ y, x1, x2, dashed });
+  };
+
+  for (const x of [0, canvasW / 2, canvasW]) {
+    if (
+      Math.abs(drag.x - x) < EPS ||
+      Math.abs(drag.x + drag.w - x) < EPS ||
+      Math.abs(drag.x + drag.w / 2 - x) < EPS
+    ) {
+      tryV(x, 0, sectionH, true);
+    }
+  }
+  for (const y of [0, sectionH / 2, sectionH]) {
+    if (
+      Math.abs(drag.y - y) < EPS ||
+      Math.abs(drag.y + drag.h - y) < EPS ||
+      Math.abs(drag.y + drag.h / 2 - y) < EPS
+    ) {
+      tryH(y, 0, canvasW, true);
+    }
+  }
+
+  const dvx = [drag.x, drag.x + drag.w, drag.x + drag.w / 2];
+  const dhy = [drag.y, drag.y + drag.h, drag.y + drag.h / 2];
+
+  for (const o of others) {
+    const ovx = [o.x, o.x + o.w, o.x + o.w / 2];
+    const ohy = [o.y, o.y + o.h, o.y + o.h / 2];
+    for (const a of dvx) {
+      for (const b of ovx) {
+        if (Math.abs(a - b) < EPS) {
+          const x = (a + b) / 2;
+          tryV(x, Math.min(drag.y, o.y) - 8, Math.max(drag.y + drag.h, o.y + o.h) + 8, false);
+        }
+      }
+    }
+    for (const a of dhy) {
+      for (const b of ohy) {
+        if (Math.abs(a - b) < EPS) {
+          const y = (a + b) / 2;
+          tryH(y, Math.min(drag.x, o.x) - 8, Math.max(drag.x + drag.w, o.x + o.w) + 8, false);
+        }
+      }
+    }
+  }
+
+  return { vLines, hLines };
+}
+
+function buildGapLabels(drag: GuideRect, others: GuideRect[]): { x: number; y: number; text: string }[] {
+  const labels: { x: number; y: number; text: string }[] = [];
+  type R = GuideRect & { isDrag?: boolean };
+  const all: R[] = others.map((o) => ({ ...o } as R)).concat([{ ...drag, isDrag: true }]);
+
+  const byX = [...all].sort((a, b) => a.x - b.x);
+  for (let i = 0; i < byX.length - 1; i++) {
+    const A = byX[i];
+    const B = byX[i + 1];
+    const gap = B.x - (A.x + A.w);
+    if (gap < 2 || gap > 900) continue;
+    const yOverlap = Math.min(A.y + A.h, B.y + B.h) - Math.max(A.y, B.y);
+    if (yOverlap < 6) continue;
+    if (!A.isDrag && !B.isDrag) continue;
+    const midX = A.x + A.w + gap / 2;
+    const midY = Math.max(A.y, B.y) + yOverlap / 2;
+    labels.push({ x: midX, y: midY - 16, text: String(Math.round(gap)) });
+  }
+
+  const byY = [...all].sort((a, b) => a.y - b.y);
+  for (let i = 0; i < byY.length - 1; i++) {
+    const A = byY[i];
+    const B = byY[i + 1];
+    const gap = B.y - (A.y + A.h);
+    if (gap < 2 || gap > 900) continue;
+    const xOverlap = Math.min(A.x + A.w, B.x + B.w) - Math.max(A.x, B.x);
+    if (xOverlap < 6) continue;
+    if (!A.isDrag && !B.isDrag) continue;
+    const midY = A.y + A.h + gap / 2;
+    const midX = Math.max(A.x, B.x) + xOverlap / 2;
+    labels.push({ x: midX + 18, y: midY, text: String(Math.round(gap)) });
+  }
+
+  return labels;
+}
+
+function dedupeV(lines: SmartGuidesOverlayState["vLines"]): SmartGuidesOverlayState["vLines"] {
+  const map = new Map<string, SmartGuidesOverlayState["vLines"][0]>();
+  for (const L of lines) {
+    const key = `${Math.round(L.x * 10)}-${L.dashed}`;
+    const prev = map.get(key);
+    if (!prev || L.y2 - L.y1 > prev.y2 - prev.y1) map.set(key, L);
+  }
+  return [...map.values()];
+}
+
+function dedupeH(lines: SmartGuidesOverlayState["hLines"]): SmartGuidesOverlayState["hLines"] {
+  const map = new Map<string, SmartGuidesOverlayState["hLines"][0]>();
+  for (const L of lines) {
+    const key = `${Math.round(L.y * 10)}-${L.dashed}`;
+    const prev = map.get(key);
+    if (!prev || L.x2 - L.x1 > prev.x2 - prev.x1) map.set(key, L);
+  }
+  return [...map.values()];
+}
+
+function SmartGuidesOverlay({ guides }: { guides: SmartGuidesOverlayState }) {
+  const { vLines, hLines, gapLabels, sizeLabel } = guides;
+  const stroke = "#e879f9";
+  const strokeDashed = "#f472b6";
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        pointerEvents: "none",
+        zIndex: 10050,
+        overflow: "visible",
+      }}
+    >
+      <svg width="100%" height="100%" style={{ overflow: "visible" }} aria-hidden>
+        {dedupeV(vLines).map((L, i) => (
+          <line
+            key={`v-${i}`}
+            x1={L.x}
+            y1={L.y1}
+            x2={L.x}
+            y2={L.y2}
+            stroke={L.dashed ? strokeDashed : stroke}
+            strokeWidth={L.dashed ? 1 : 1.5}
+            strokeDasharray={L.dashed ? "5 4" : undefined}
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
+        {dedupeH(hLines).map((L, i) => (
+          <line
+            key={`h-${i}`}
+            x1={L.x1}
+            y1={L.y}
+            x2={L.x2}
+            y2={L.y}
+            stroke={L.dashed ? strokeDashed : stroke}
+            strokeWidth={L.dashed ? 1 : 1.5}
+            strokeDasharray={L.dashed ? "5 4" : undefined}
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
+      </svg>
+      {gapLabels.map((g, i) => (
+        <div
+          key={`g-${i}`}
+          style={{
+            position: "absolute",
+            left: g.x,
+            top: g.y,
+            transform: "translate(-50%, -50%)",
+            background: "#db2777",
+            color: "#fff",
+            fontSize: 10,
+            fontWeight: 700,
+            padding: "2px 7px",
+            borderRadius: 999,
+            fontFamily: "ui-sans-serif, system-ui, sans-serif",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {g.text}
+        </div>
+      ))}
+      {sizeLabel && (
+        <div
+          style={{
+            position: "absolute",
+            left: sizeLabel.x,
+            top: sizeLabel.y,
+            transform: "translate(-50%, 0)",
+            background: "rgba(15, 23, 42, 0.88)",
+            color: "#f8fafc",
+            fontSize: 10,
+            fontWeight: 600,
+            padding: "3px 8px",
+            borderRadius: 4,
+            fontFamily: "ui-monospace, monospace",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
+          }}
+        >
+          {sizeLabel.text}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export interface DomCanvasHandle {
   getContainerElement: () => HTMLDivElement | null;
@@ -316,7 +572,8 @@ function HtmlCodeElement({ el }: { el: EditorElement }) {
     return <iframe src={hc.iframeSrc.trim()} style={style} title="Embedded" />;
   }
   const code = (hc.code || "").trim();
-  const doc = code || "<div style='padding:16px;color:#64748b;font-size:12px'>Chưa có mã HTML</div>";
+  const docRaw = code || "<div style='padding:16px;color:#64748b;font-size:12px'>Chưa có mã HTML</div>";
+  const doc = sanitizeUserHtmlForEmbed(docRaw);
   return (
     <iframe
       srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:0">${doc}</body></html>`}
@@ -419,8 +676,16 @@ function ElementRenderer({ el, onMouseDown, isSelected }: { el: EditorElement; o
   );
 }
 
-function InnerElementRenderer({ el }: { el: EditorElement }) {
+function InnerElementRenderer({
+  el,
+  onSelectCarouselTextField,
+}: {
+  el: EditorElement;
+  onSelectCarouselTextField?: (field: "quote" | "name" | "role" | "title" | "desc") => void;
+}) {
   const s = el.styles ?? {};
+  const updateElementFromStore = useEditorStore((st) => st.updateElement);
+  const pushHistoryFromStore = useEditorStore((st) => st.pushHistory);
 
   // Shared container style (position:relative fill)
   const fill: React.CSSProperties = { position: "absolute", inset: 0, boxSizing: "border-box" };
@@ -732,10 +997,19 @@ function InnerElementRenderer({ el }: { el: EditorElement }) {
     }
 
     case "carousel": {
-      const { layoutType: lt, items: carouselItems } = parseCarouselContent(el.content ?? undefined);
+      const cd = parseCarouselContent(el.content ?? undefined);
+      const { layoutType: lt, items: carouselItems } = cd;
+      const st = mergeCarouselStyle(cd.carouselStyle);
       const bg = (s.backgroundColor as string) || "#f8fafc";
       const layoutType = lt === "media" ? "media" : "testimonial";
       const item = carouselItems[0];
+      const commitCarouselText = (field: "quote" | "name" | "role" | "title" | "desc", value: string) => {
+        if (!item) return;
+        const next = [...carouselItems];
+        next[0] = { ...next[0], [field]: value };
+        updateElementFromStore(el.id, { content: JSON.stringify({ layoutType: cd.layoutType, items: next, carouselStyle: cd.carouselStyle }) });
+        pushHistoryFromStore();
+      };
       return (
         <div style={{ ...fill, background: bg, borderRadius: 12, padding: 16, boxSizing: "border-box", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", overflow: "hidden", opacity: el.opacity ?? 1 }}>
           {!item ? (
@@ -743,14 +1017,15 @@ function InnerElementRenderer({ el }: { el: EditorElement }) {
           ) : layoutType === "testimonial" ? (
             <>
               {item.avatar?.trim() && <div style={{ width: 60, height: 60, borderRadius: "50%", overflow: "hidden", background: "#e2e8f0", marginBottom: 8 }}><img src={resolveAsset(item.avatar)} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>}
-              <div style={{ fontStyle: "italic", fontSize: 12, color: "#374151", textAlign: "center", marginBottom: 8, lineHeight: 1.5 }}>"{(item.quote || "Trích dẫn...").slice(0, 120)}"</div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{item.name || "Tên"}</div>
-              {item.role && <div style={{ fontSize: 11, color: "#6b7280" }}>{item.role}</div>}
+              <div contentEditable suppressContentEditableWarning onFocus={() => onSelectCarouselTextField?.("quote")} onPointerDown={(e) => e.stopPropagation()} onBlur={(e) => commitCarouselText("quote", (e.currentTarget.textContent || "").replace(/^\"|\"$/g, ""))} style={{ fontStyle: "italic", fontSize: st.quoteFontSize, color: st.quoteColor, textAlign: st.quoteAlign, marginBottom: 8, lineHeight: 1.5, outline: "none", cursor: "text", fontFamily: st.fontFamily ? `${st.fontFamily}, sans-serif` : undefined }}>"{(item.quote || "Trích dẫn...").slice(0, 120)}"</div>
+              <div contentEditable suppressContentEditableWarning onFocus={() => onSelectCarouselTextField?.("name")} onPointerDown={(e) => e.stopPropagation()} onBlur={(e) => commitCarouselText("name", e.currentTarget.textContent || "")} style={{ fontSize: st.nameFontSize, fontWeight: 700, color: st.nameColor, textAlign: st.nameAlign, outline: "none", cursor: "text", fontFamily: st.fontFamily ? `${st.fontFamily}, sans-serif` : undefined }}>{item.name || "Tên"}</div>
+              {item.role && <div contentEditable suppressContentEditableWarning onFocus={() => onSelectCarouselTextField?.("role")} onPointerDown={(e) => e.stopPropagation()} onBlur={(e) => commitCarouselText("role", e.currentTarget.textContent || "")} style={{ fontSize: st.roleFontSize, color: st.roleColor, textAlign: st.roleAlign, outline: "none", cursor: "text", fontFamily: st.fontFamily ? `${st.fontFamily}, sans-serif` : undefined }}>{item.role}</div>}
             </>
           ) : (
             <>
               {item.image?.trim() && <div style={{ width: "100%", flex: 1, minHeight: 0, borderRadius: 8, overflow: "hidden", background: "#e2e8f0", marginBottom: 8 }}><img src={resolveAsset(item.image)} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>}
-              {(item.title || item.name) && <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", textAlign: "center" }}>{item.title || item.name}</div>}
+              {(item.title || item.name) && <div contentEditable suppressContentEditableWarning onFocus={() => onSelectCarouselTextField?.("title")} onPointerDown={(e) => e.stopPropagation()} onBlur={(e) => commitCarouselText("title", e.currentTarget.textContent || "")} style={{ fontSize: st.titleFontSize, fontWeight: 600, color: st.titleColor, textAlign: st.titleAlign, outline: "none", cursor: "text", fontFamily: st.fontFamily ? `${st.fontFamily}, sans-serif` : undefined }}>{item.title || item.name}</div>}
+              {item.desc?.trim() && <div contentEditable suppressContentEditableWarning onFocus={() => onSelectCarouselTextField?.("desc")} onPointerDown={(e) => e.stopPropagation()} onBlur={(e) => commitCarouselText("desc", e.currentTarget.textContent || "")} style={{ fontSize: st.descFontSize, color: st.descColor, textAlign: st.descAlign, marginTop: 4, lineHeight: 1.45, outline: "none", cursor: "text", fontFamily: st.fontFamily ? `${st.fontFamily}, sans-serif` : undefined }}>{item.desc}</div>}
             </>
           )}
           {carouselItems.length > 1 && (
@@ -971,6 +1246,8 @@ function DomSection({
   onStartEdit,
   onCommitEdit,
   onOpenHtmlEditor,
+  onSelectCarouselTextField,
+  sectionGuides = null,
 }: {
   section: EditorSection;
   selectedId: number | null;
@@ -984,6 +1261,8 @@ function DomSection({
   onStartEdit: (id: number) => void;
   onCommitEdit: (id: number, text: string) => void;
   onOpenHtmlEditor: (id: number) => void;
+  onSelectCarouselTextField: (elementId: number, field: "quote" | "name" | "role" | "title" | "desc") => void;
+  sectionGuides?: SmartGuidesOverlayState | null;
 }) {
   const [hovered, setHovered] = useState(false);
   const sectionH = section.height ?? 600;
@@ -1051,8 +1330,10 @@ function DomSection({
             onStartEdit={onStartEdit}
             onCommitEdit={onCommitEdit}
             onOpenHtmlEditor={onOpenHtmlEditor}
+            onSelectCarouselTextField={onSelectCarouselTextField}
           />
         ))}
+      {sectionGuides && <SmartGuidesOverlay guides={sectionGuides} />}
     </div>
   );
 }
@@ -1068,6 +1349,7 @@ function ElementWrapper({
   onStartEdit,
   onCommitEdit,
   onOpenHtmlEditor,
+  onSelectCarouselTextField,
 }: {
   el: EditorElement;
   isSelected: boolean;
@@ -1077,6 +1359,7 @@ function ElementWrapper({
   onStartEdit: (id: number) => void;
   onCommitEdit: (id: number, text: string) => void;
   onOpenHtmlEditor?: (id: number) => void;
+  onSelectCarouselTextField?: (elementId: number, field: "quote" | "name" | "role" | "title" | "desc") => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const editRef = useRef<HTMLDivElement>(null);
@@ -1172,7 +1455,10 @@ function ElementWrapper({
           dangerouslySetInnerHTML={{ __html: el.content || "" }}
         />
       ) : (
-        <InnerElementRenderer el={el} />
+        <InnerElementRenderer
+          el={el}
+          onSelectCarouselTextField={(field) => onSelectCarouselTextField?.(el.id, field)}
+        />
       )}
       {isSelected && !el.isLocked && !isEditing && (
         <>
@@ -1222,7 +1508,7 @@ function HtmlCodeEditorModal({
   };
 
   const previewDoc = code
-    ? `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:8px;font-family:sans-serif}</style></head><body>${code}</body></html>`
+    ? `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;padding:8px;font-family:sans-serif}</style></head><body>${sanitizeUserHtmlForEmbed(code)}</body></html>`
     : "";
 
   const modal = (
@@ -1332,13 +1618,59 @@ function HtmlCodeEditorModal({
   return createPortal(modal, document.body);
 }
 
+function visibleSectionsOrdered(sections: EditorSection[]) {
+  return sections.filter((s) => s.visible !== false);
+}
+
+/** Y offset từ đầu canvas của section (chỉ tính section đang hiển thị) */
+function sectionTopOffset(sections: EditorSection[], sectionId: number): number {
+  let y = 0;
+  for (const s of visibleSectionsOrdered(sections)) {
+    if (s.id === sectionId) return y;
+    y += s.height ?? 600;
+  }
+  return 0;
+}
+
+/**
+ * Tọa độ Y tuyệt đối (top element) trên canvas → section + y cục bộ.
+ * Chọn section theo **tâm dọc** của element để có thể đặt đè lên ranh giới (y âm / tràn dưới).
+ * Không clamp localY vào [0, sectionH − h].
+ */
+function sectionAndLocalFromAbsoluteTop(
+  sections: EditorSection[],
+  absTopY: number,
+  elH: number,
+): { section: EditorSection; localY: number } {
+  const vis = visibleSectionsOrdered(sections);
+  if (vis.length === 0) {
+    const s = sections[0];
+    return { section: s, localY: absTopY };
+  }
+  const centerAbsY = absTopY + elH / 2;
+  let yOff = 0;
+  for (const s of vis) {
+    const sh = s.height ?? 600;
+    if (centerAbsY < yOff + sh) {
+      return { section: s, localY: absTopY - yOff };
+    }
+    yOff += sh;
+  }
+  const last = vis[vis.length - 1];
+  const lastSh = last.height ?? 600;
+  const lastStart = yOff - lastSh;
+  return { section: last, localY: absTopY - lastStart };
+}
+
 interface DragState {
   elementId: number;
-  sectionId: number;
   startMouseX: number;
   startMouseY: number;
   startElX: number;
-  startElY: number;
+  /** Y tuyệt đối trên toàn canvas (cộng dồn chiều cao các section phía trên) */
+  startAbsY: number;
+  startW: number;
+  startH: number;
   zoom: number;
 }
 
@@ -1373,6 +1705,7 @@ export default function DomCanvas({
     selectSection,
     selectPage,
     updateElement,
+    moveElementToSection,
     duplicateElement,
     removeElement,
     pushHistory,
@@ -1383,9 +1716,12 @@ export default function DomCanvas({
   const resizeRef = useRef<ResizeState | null>(null);
   const snapToGrid = useEditorStore((s) => s.snapToGrid);
   const gridSize = useEditorStore((s) => s.gridSize) || 8;
+  const showGuides = useEditorStore((s) => s.showGuides);
+  const [smartGuides, setSmartGuides] = useState<{ sectionId: number; data: SmartGuidesOverlayState } | null>(null);
   const [editingElementId, setEditingElementId] = useState<number | null>(null);
   const [htmlEditorElementId, setHtmlEditorElementId] = useState<number | null>(null);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [activeCarouselText, setActiveCarouselText] = useState<{ elementId: number; field: "quote" | "name" | "role" | "title" | "desc" } | null>(null);
 
   const canvasWidth = desktopCanvasWidth || 960;
   const effectiveZoom = deviceType === "mobile" ? zoom * (420 / canvasWidth) : zoom;
@@ -1398,6 +1734,7 @@ export default function DomCanvas({
     if (!selectedElementId) return null;
     let sectionY = 0;
     for (const s of sections) {
+      if (s.visible === false) continue;
       const el = s.elements.find((e) => e.id === selectedElementId);
       if (el) return { el, section: s, sectionY };
       sectionY += s.height ?? 600;
@@ -1423,6 +1760,31 @@ export default function DomCanvas({
   const textFormat = useMemo(() => {
     if (!selEl) return null;
     const { el } = selEl;
+    if (el.type === "carousel") {
+      const cd = parseCarouselContent(el.content ?? undefined);
+      const st = mergeCarouselStyle(cd.carouselStyle);
+      const field = activeCarouselText?.elementId === el.id ? activeCarouselText.field : (cd.layoutType === "media" ? "title" : "quote");
+      const map = {
+        quote: { fs: st.quoteFontSize, c: st.quoteColor, a: st.quoteAlign, fsKey: "quoteFontSize", cKey: "quoteColor", aKey: "quoteAlign" },
+        name: { fs: st.nameFontSize, c: st.nameColor, a: st.nameAlign, fsKey: "nameFontSize", cKey: "nameColor", aKey: "nameAlign" },
+        role: { fs: st.roleFontSize, c: st.roleColor, a: st.roleAlign, fsKey: "roleFontSize", cKey: "roleColor", aKey: "roleAlign" },
+        title: { fs: st.titleFontSize, c: st.titleColor, a: st.titleAlign, fsKey: "titleFontSize", cKey: "titleColor", aKey: "titleAlign" },
+        desc: { fs: st.descFontSize, c: st.descColor, a: st.descAlign, fsKey: "descFontSize", cKey: "descColor", aKey: "descAlign" },
+      }[field];
+      return {
+        fontSize: Number(map.fs || 14),
+        fontFamily: st.fontFamily || "Inter",
+        color: map.c || "#1e293b",
+        fontWeight: 600,
+        textAlign: (map.a || "center") as "left" | "center" | "right" | "justify",
+        onFontSizeChange: (n: number) => updateElement(el.id, { content: JSON.stringify({ layoutType: cd.layoutType, items: cd.items, carouselStyle: { ...cd.carouselStyle, [map.fsKey]: n } }) }),
+        onFontFamilyChange: (font: string) =>
+          updateElement(el.id, { content: JSON.stringify({ layoutType: cd.layoutType, items: cd.items, carouselStyle: { ...cd.carouselStyle, fontFamily: font } }) }),
+        onColorChange: (hex: string) => updateElement(el.id, { content: JSON.stringify({ layoutType: cd.layoutType, items: cd.items, carouselStyle: { ...cd.carouselStyle, [map.cKey]: hex } }) }),
+        onBoldToggle: () => {},
+        onAlignChange: (align: "left" | "center" | "right") => updateElement(el.id, { content: JSON.stringify({ layoutType: cd.layoutType, items: cd.items, carouselStyle: { ...cd.carouselStyle, [map.aKey]: align } }) }),
+      };
+    }
     if (!TEXT_TYPES.has(el.type)) return null;
     const s = el.styles ?? {};
     const fw = Number(s.fontWeight || 400);
@@ -1440,7 +1802,7 @@ export default function DomCanvas({
       onBoldToggle: () => updateElement(el.id, { styles: { ...s, fontWeight: fw >= 600 ? 400 : 700 } }),
       onAlignChange: (align: "left" | "center" | "right") => updateElement(el.id, { styles: { ...s, textAlign: align } }),
     };
-  }, [selEl, updateElement]);
+  }, [selEl, updateElement, activeCarouselText]);
 
   // expose handle for export
   useEffect(() => {
@@ -1465,13 +1827,16 @@ export default function DomCanvas({
   const handleDragStart = useCallback((e: React.PointerEvent, el: EditorElement, section: EditorSection) => {
     if (el.isLocked) return;
     e.currentTarget.setPointerCapture(e.pointerId);
+    const st = useEditorStore.getState().sections;
+    const off = sectionTopOffset(st, section.id);
     dragRef.current = {
       elementId: el.id,
-      sectionId: section.id,
       startMouseX: e.clientX,
       startMouseY: e.clientY,
       startElX: el.x,
-      startElY: el.y,
+      startAbsY: off + el.y,
+      startW: el.width ?? 100,
+      startH: el.height ?? 40,
       zoom: effectiveZoom,
     };
   }, [effectiveZoom]);
@@ -1494,14 +1859,60 @@ export default function DomCanvas({
   }, [effectiveZoom]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    // drag
+    const store = useEditorStore.getState();
+    const stSections = store.sections;
+
+    // drag (tọa độ Y tuyệt đối trên toàn canvas → có thể chuyển sang section khác)
     if (dragRef.current) {
       const d = dragRef.current;
       const dx = (e.clientX - d.startMouseX) / d.zoom;
       const dy = (e.clientY - d.startMouseY) / d.zoom;
-      const newX = snap(d.startElX + dx);
-      const newY = snap(d.startElY + dy);
-      updateElement(d.elementId, { x: newX, y: newY });
+      const w = d.startW;
+      const h = d.startH;
+      let rawX = d.startElX + dx;
+      const rawAbsY = d.startAbsY + dy;
+
+      const { section: targetSec, localY: rawLocalY } = sectionAndLocalFromAbsoluteTop(stSections, rawAbsY, h);
+      const sectionH = Math.max(1, targetSec.height ?? 600);
+      const othersRects: GuideRect[] = (targetSec.elements ?? [])
+        .filter((el) => !el.isHidden && el.id !== d.elementId)
+        .map((el) => ({ x: el.x, y: el.y, w: el.width ?? 100, h: el.height ?? 40 }));
+
+      const xCand = buildXSnapCandidates(canvasWidth, w, othersRects);
+      const yCand = buildYSnapCandidates(sectionH, h, othersRects);
+      const sx = snapToNearest(rawX, xCand, SMART_GUIDE_THRESHOLD);
+      const sy = snapToNearest(rawLocalY, yCand, SMART_GUIDE_THRESHOLD);
+      let nx = sx.value;
+      let ny = sy.value;
+      if (!sx.snapped && snapToGrid) nx = snap(rawX);
+      if (!sy.snapped && snapToGrid) ny = snap(rawLocalY);
+      nx = clampNum(nx, 0, Math.max(0, canvasWidth - w));
+      ny = clampNum(ny, -SECTION_Y_OVERFLOW_PX, sectionH + SECTION_Y_OVERFLOW_PX - h);
+
+      const curSec = stSections.find((s) => s.elements.some((e) => e.id === d.elementId));
+      if (!curSec) return;
+      if (curSec.id === targetSec.id) {
+        updateElement(d.elementId, { x: nx, y: ny });
+      } else {
+        moveElementToSection(d.elementId, targetSec.id, nx, ny);
+      }
+
+      if (showGuides) {
+        const dragRect: GuideRect = { x: nx, y: ny, w, h };
+        const { vLines, hLines } = buildAlignmentLines(dragRect, othersRects, canvasWidth, sectionH);
+        const gapLabels = buildGapLabels(dragRect, othersRects);
+        setSmartGuides({
+          sectionId: targetSec.id,
+          data: {
+            vLines,
+            hLines,
+            gapLabels,
+            sizeLabel: { x: nx + w / 2, y: ny + h + 8, text: `${Math.round(w)} × ${Math.round(h)}` },
+          },
+        });
+      } else {
+        setSmartGuides(null);
+      }
       return;
     }
     // resize
@@ -1509,7 +1920,10 @@ export default function DomCanvas({
       const r = resizeRef.current;
       const dx = (e.clientX - r.startMouseX) / r.zoom;
       const dy = (e.clientY - r.startMouseY) / r.zoom;
-      let x = r.startX, y = r.startY, w = r.startW, h = r.startH;
+      let x = r.startX;
+      let y = r.startY;
+      let w = r.startW;
+      let h = r.startH;
 
       if (r.dir.includes("e")) w = Math.max(20, snap(r.startW + dx));
       if (r.dir.includes("s")) h = Math.max(10, snap(r.startH + dy));
@@ -1523,15 +1937,79 @@ export default function DomCanvas({
         y = r.startY + dh;
         h = Math.max(10, r.startH - dh);
       }
+
+      const sec = stSections.find((s) => s.elements.some((el) => el.id === r.elementId));
+      const sectionH = Math.max(1, sec?.height ?? 600);
+      const othersRects: GuideRect[] = (sec?.elements ?? [])
+        .filter((el) => !el.isHidden && el.id !== r.elementId)
+        .map((el) => ({ x: el.x, y: el.y, w: el.width ?? 100, h: el.height ?? 40 }));
+
+      const vEdgeTargets = [0, canvasWidth, ...othersRects.flatMap((o) => [o.x, o.x + o.w])];
+      const hEdgeTargets = [0, sectionH, ...othersRects.flatMap((o) => [o.y, o.y + o.h])];
+
+      if (showGuides) {
+        if (r.dir.includes("e")) {
+          const sr = snapToNearest(x + w, vEdgeTargets, SMART_GUIDE_THRESHOLD);
+          if (sr.snapped) w = Math.max(20, sr.value - x);
+        }
+        if (r.dir.includes("w")) {
+          const sl = snapToNearest(x, vEdgeTargets, SMART_GUIDE_THRESHOLD);
+          if (sl.snapped) {
+            const nw = Math.max(20, w + (x - sl.value));
+            x = sl.value;
+            w = nw;
+          }
+        }
+        if (r.dir.includes("s")) {
+          const sb = snapToNearest(y + h, hEdgeTargets, SMART_GUIDE_THRESHOLD);
+          if (sb.snapped) h = Math.max(10, sb.value - y);
+        }
+        if (r.dir.includes("n")) {
+          const st = snapToNearest(y, hEdgeTargets, SMART_GUIDE_THRESHOLD);
+          if (st.snapped) {
+            const nh = Math.max(10, h + (y - st.value));
+            y = st.value;
+            h = nh;
+          }
+        }
+      }
+
+      x = clampNum(x, 0, canvasWidth - 20);
+      const maxBottom = sectionH + SECTION_Y_OVERFLOW_PX;
+      y = clampNum(y, -SECTION_Y_OVERFLOW_PX, maxBottom - 10);
+      w = clampNum(w, 20, canvasWidth - x);
+      h = clampNum(h, 10, maxBottom - y);
+
       updateElement(r.elementId, { x, y, width: w, height: h });
+
+      if (showGuides && sec) {
+        const dragRect: GuideRect = { x, y, w, h };
+        const { vLines, hLines } = buildAlignmentLines(dragRect, othersRects, canvasWidth, sectionH);
+        const gapLabels = buildGapLabels(dragRect, othersRects);
+        setSmartGuides({
+          sectionId: sec.id,
+          data: {
+            vLines,
+            hLines,
+            gapLabels,
+            sizeLabel: { x: x + w / 2, y: y + h + 8, text: `${Math.round(w)} × ${Math.round(h)}` },
+          },
+        });
+      } else {
+        setSmartGuides(null);
+      }
       return;
     }
-  }, [snap, updateElement]);
+  }, [snap, updateElement, moveElementToSection, canvasWidth, snapToGrid, showGuides]);
 
   const handlePointerUp = useCallback(() => {
+    if (dragRef.current !== null || resizeRef.current !== null) {
+      pushHistory();
+    }
     dragRef.current = null;
     resizeRef.current = null;
-  }, []);
+    setSmartGuides(null);
+  }, [pushHistory]);
 
   const handleStartEdit = useCallback((id: number) => {
     setEditingElementId(id);
@@ -1605,6 +2083,8 @@ export default function DomCanvas({
               onStartEdit={handleStartEdit}
               onCommitEdit={handleCommitEdit}
               onOpenHtmlEditor={(id) => setHtmlEditorElementId(id)}
+              onSelectCarouselTextField={(elementId, field) => setActiveCarouselText({ elementId, field })}
+              sectionGuides={smartGuides?.sectionId === section.id ? smartGuides.data : null}
             />
           ))}
       </div>
@@ -1627,7 +2107,7 @@ export default function DomCanvas({
             elementType={selEl.el.type}
             isLocked={selEl.el.isLocked}
             isHidden={selEl.el.isHidden}
-            textFormat={editingElementId === selEl.el.id ? textFormat : null}
+            textFormat={selEl.el.type === "carousel" ? textFormat : editingElementId === selEl.el.id ? textFormat : null}
             fontOptions={GOOGLE_FONTS.slice(0, 48)}
             onDuplicate={() => { duplicateElement(selEl.el.id); pushHistory(); }}
             onDelete={() => { removeElement(selEl.el.id); pushHistory(); }}

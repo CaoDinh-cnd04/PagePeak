@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Upload, Search, CloudUpload } from "lucide-react";
-import { mediaApi, type MediaItem } from "@/lib/api";
+import { mediaApi, type MediaItem } from "@/lib/shared/api";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
 

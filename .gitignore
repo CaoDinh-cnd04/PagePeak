@@ -43,6 +43,7 @@ Thumbs.db
 
 # Logs & temp
 logs/
+Backend/temp-build-out/
 *.log
 npm-debug.log*
 tmp/

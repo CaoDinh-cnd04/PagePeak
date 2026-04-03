@@ -3,11 +3,20 @@ namespace LadiPage.Api.Models;
 public record RegisterRequest(string Email, string Password, string FullName, string? Phone, string? RecaptchaToken);
 public record RecaptchaResponse(bool Success);
 public record LoginRequest(string Email, string Password);
-public record RefreshTokenRequest(string RefreshToken);
+public record RefreshTokenRequest(
+    [property: System.Text.Json.Serialization.JsonPropertyName("refreshToken")] string? RefreshToken);
 public record RevokeTokenRequest(string RefreshToken);
 public record ExternalRegisterRequest(string Token, string? Phone, string? WorkspaceName);
 public record UpdateProfileRequest(string? FullName, string? Phone, string? AvatarUrl);
 public record UpgradePlanRequest([property: System.Text.Json.Serialization.JsonPropertyName("planId")] int PlanId);
+/// <param name="RedirectBaseUrl">Origin trình duyệt (vd. ngrok) để ghép vpc_ReturnURL khi không dùng CallbackBaseUrl API.</param>
+public record OnePayCheckoutRequest(
+    [property: System.Text.Json.Serialization.JsonPropertyName("planId")] int PlanId,
+    [property: System.Text.Json.Serialization.JsonPropertyName("redirectBaseUrl")] string? RedirectBaseUrl = null);
+
+/// <summary>Chuỗi query đầy đủ OnePay trả về (sau ?) khi redirect về frontend — xác nhận server.</summary>
+public record OnePayConfirmRequest(
+    [property: System.Text.Json.Serialization.JsonPropertyName("rawQuery")] string RawQuery);
 public record ChangePasswordRequest(
     [property: System.Text.Json.Serialization.JsonPropertyName("currentPassword")] string CurrentPassword,
     [property: System.Text.Json.Serialization.JsonPropertyName("newPassword")] string NewPassword);

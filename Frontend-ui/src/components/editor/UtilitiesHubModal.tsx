@@ -1,15 +1,15 @@
 import { useMemo, useState } from "react";
 import { X, Check } from "lucide-react";
-import { Button } from "@/components/ui/Button";
-import { useEditorStore } from "@/stores/editorStore";
-import { getLucideIcon } from "@/lib/iconMap";
+import { Button } from "@/components/shared/ui/Button";
+import { useEditorStore } from "@/stores/editor/editorStore";
+import { getLucideIcon } from "@/lib/editor/iconMap";
 import {
   UTILITY_HUB_CATEGORIES,
   UTILITY_EFFECT_ENTRIES,
   UTILITY_WIDGET_ENTRIES,
   UTILITY_INTEGRATION_ENTRIES,
   type UtilityHubCategory,
-} from "@/lib/utilitiesCatalog";
+} from "@/lib/editor/utilitiesCatalog";
 import type { EditorElementType, UtilityEffectsSettings } from "@/types/editor";
 
 type ToastType = "success" | "error" | "info";

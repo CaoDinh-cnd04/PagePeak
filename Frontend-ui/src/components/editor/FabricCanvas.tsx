@@ -2,18 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
 import * as fabric from "fabric";
-import { useEditorStore } from "@/stores/editorStore";
+import { useEditorStore } from "@/stores/editor/editorStore";
 import { setupSnapGuides } from "./SnapGuides";
 import { ElementActionToolbar } from "./ElementActionToolbar";
-import { getIconById } from "@/data/iconData";
+import { getIconById } from "@/lib/editor/data/iconData";
 import type { EditorElement, EditorSection } from "@/types/editor";
-import { parseProductDetailContent } from "@/lib/productDetailContent";
-import { parseTabsContent, parseCarouselContent } from "@/lib/tabsContent";
-import { parseBlogListContent, parseBlogDetailContent, parsePopupContent } from "@/lib/blogContent";
-import { parseCartContent, getCartDisplayItems } from "@/lib/cartContent";
-import { mergeInlineContent, mergeInlineTextStyle, getInlineTextStyleForFabric, type InlineEditMeta } from "@/lib/inlineEditMerge";
-import { normalizeElementType } from "@/lib/normalizeElementType";
-import { loadGoogleFont, GOOGLE_FONTS } from "@/lib/fontLoader";
+import { parseProductDetailContent } from "@/lib/editor/productDetailContent";
+import { parseTabsContent, parseCarouselContent } from "@/lib/editor/tabsContent";
+import { parseBlogListContent, parseBlogDetailContent, parsePopupContent } from "@/lib/editor/blogContent";
+import { parseCartContent, getCartDisplayItems } from "@/lib/editor/cartContent";
+import { mergeInlineContent, mergeInlineTextStyle, getInlineTextStyleForFabric, type InlineEditMeta } from "@/lib/editor/inlineEditMerge";
+import { normalizeElementType } from "@/lib/editor/normalizeElementType";
+import { loadGoogleFont, GOOGLE_FONTS } from "@/lib/editor/fontLoader";
 import type { TextFormatToolbarState } from "./ElementActionToolbar";
 
 const SECTION_LABEL_HEIGHT = 0;

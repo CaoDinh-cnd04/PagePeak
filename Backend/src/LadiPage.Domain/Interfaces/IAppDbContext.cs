@@ -28,6 +28,7 @@ public interface IAppDbContext
     DbSet<Order> Orders { get; }
     DbSet<Customer> Customers { get; }
     DbSet<Lead> Leads { get; }
+    DbSet<MomoPaymentOrder> MomoPaymentOrders { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { LayoutGrid, FileText, Plus, GripVertical } from "lucide-react";
 import type { EditorElementType, EditorSection, ElementPresetData, ToolItemData } from "@/types/editor";
-import { parseBlogDetailContent, parseBlogListContent } from "@/lib/blogContent";
+import { parseBlogDetailContent, parseBlogListContent } from "@/lib/editor/blogContent";
 import {
   BLOG_TEMPLATE_CATEGORY_LABELS,
   type BlogTemplateCategoryId,
@@ -12,7 +12,7 @@ import {
   blogListPresetByEntryId,
   toElementPresetFromBlogDetail,
   toElementPresetFromBlogList,
-} from "@/lib/blogTemplateCatalog";
+} from "@/lib/editor/blogTemplateCatalog";
 
 const TOOL_BLOG_LIST: ToolItemData = {
   id: 601,
@@ -215,7 +215,7 @@ function BlogTemplateCard({
   order,
   onInsert,
 }: {
-  entry: import("@/lib/blogTemplateCatalog").BlogCanvasTemplateEntry;
+  entry: import("@/lib/editor/blogTemplateCatalog").BlogCanvasTemplateEntry;
   order: number;
   onInsert: () => void;
 }) {

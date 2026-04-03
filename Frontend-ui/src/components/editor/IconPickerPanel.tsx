@@ -6,7 +6,7 @@ import {
   searchIcons,
   type IconCategory,
   type IconItem,
-} from "@/data/iconData";
+} from "@/lib/editor/data/iconData";
 
 export default function IconPickerPanel({
   onSelect,

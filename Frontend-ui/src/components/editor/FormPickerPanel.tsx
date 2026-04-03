@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FORM_PRESETS, FORM_TABS, type FormPreset } from "@/data/formData";
+import { FORM_PRESETS, FORM_TABS, type FormPreset } from "@/lib/editor/data/formData";
 
 function FormPresetPreview({ preset }: { preset: FormPreset }) {
   const style = preset.inputStyle ?? "outlined";

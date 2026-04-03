@@ -10,7 +10,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import type { EditorSection, EditorElementType, ToolItemData, ElementPresetData } from "@/types/editor";
-import { getLucideIcon } from "@/lib/iconMap";
+import { getLucideIcon } from "@/lib/editor/iconMap";
 
 export type PresetPreviewVariant = "compact" | "card";
 

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { ChevronDown, Search, Check } from "lucide-react";
-import { GOOGLE_FONTS, loadGoogleFont } from "@/lib/fontLoader";
+import { GOOGLE_FONTS, loadGoogleFont } from "@/lib/editor/fontLoader";
 
 interface FontPickerProps {
   value: string;

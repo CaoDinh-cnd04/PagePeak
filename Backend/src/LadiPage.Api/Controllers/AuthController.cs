@@ -235,9 +235,12 @@ public class AuthController : ControllerBase
 
     [HttpPost("refresh")]
     [AllowAnonymous]
-    public async Task<IActionResult> Refresh([FromBody] RefreshTokenRequest req, CancellationToken ct)
+    public async Task<IActionResult> Refresh([FromBody] RefreshTokenRequest? req, CancellationToken ct)
     {
-        var result = await _mediator.Send(new RefreshTokenCommand(req.RefreshToken), ct);
+        var rt = req?.RefreshToken?.Trim();
+        if (string.IsNullOrEmpty(rt))
+            return BadRequest(new { error = "refresh_token_required" });
+        var result = await _mediator.Send(new RefreshTokenCommand(rt), ct);
         return result == null ? Unauthorized() : Ok(result);
     }
 

@@ -263,6 +263,9 @@ public class AuthService : IAuthService
 
     public async Task<AuthTokenResult?> RefreshTokenAsync(string refreshToken, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(refreshToken))
+            return null;
+
         var session = await _db.Sessions
             .Include(s => s.User)
             .FirstOrDefaultAsync(s => s.RefreshToken == refreshToken && s.ExpiresAt > _dateTime.UtcNow, cancellationToken);
@@ -276,12 +279,17 @@ public class AuthService : IAuthService
         var expiresAt = _jwt.GetRefreshTokenExpiresAt();
         var newAccessToken = _jwt.GenerateAccessToken(user);
 
+        var ip = session.IpAddress;
+        var ua = session.UserAgent;
+
         _db.Sessions.Remove(session);
         _db.Sessions.Add(new Session
         {
             UserId = user.Id,
             Token = newAccessToken,
             RefreshToken = newRefreshToken,
+            IpAddress = ip,
+            UserAgent = ua,
             ExpiresAt = expiresAt,
             CreatedAt = _dateTime.UtcNow
         });

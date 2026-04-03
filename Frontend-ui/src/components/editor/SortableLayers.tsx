@@ -14,7 +14,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Layers, ChevronRight, ChevronDown, Plus } from "lucide-react";
-import { useEditorStore } from "@/stores/editorStore";
+import { useEditorStore } from "@/stores/editor/editorStore";
 import type { EditorSection } from "@/types/editor";
 
 function SortableSectionItem({

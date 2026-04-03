@@ -15,13 +15,13 @@ function linkMatchesLocation(href: string, pathname: string, search: string): bo
   }
   return true;
 }
-import { useAuthStore } from "@/stores/authStore";
-import { usePlanStore } from "@/stores/planStore";
-import { useLangStore, type LangCode } from "@/stores/langStore";
-import { useT } from "@/lib/i18n";
-import { workspacesApi, notificationsApi, type NotificationItem } from "@/lib/api";
-import { Button } from "@/components/ui/Button";
-import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { useAuthStore } from "@/stores/shared/authStore";
+import { usePlanStore } from "@/stores/shared/planStore";
+import { useLangStore, type LangCode } from "@/stores/shared/langStore";
+import { useT } from "@/lib/shared/i18n";
+import { workspacesApi, notificationsApi, type NotificationItem } from "@/lib/shared/api";
+import { Button } from "@/components/shared/ui/Button";
+import { ThemeToggle } from "@/components/shared/ui/ThemeToggle";
 import {
   FileText,
   Globe,
@@ -59,6 +59,7 @@ import {
   Check,
   HelpCircle,
   Image as ImageIcon,
+  Star,
 } from "lucide-react";
 
 type Workspace = {
@@ -84,7 +85,7 @@ type SubDef = { key: string; i18nKey: string; href: string; icon: React.ReactNod
 const ALL_MAIN_MENU: MenuDef[] = [
   { key: "landing-pages", i18nKey: "menu.landingPages", icon: <FileText className="w-5 h-5" />, href: "/dashboard/pages" },
   { key: "orders", i18nKey: "menu.orders", icon: <ShoppingBag className="w-5 h-5" />, href: "/dashboard/orders?tab=order&ordersTab=1", requiresEcommerce: true },
-  { key: "products", i18nKey: "menu.products", icon: <Box className="w-5 h-5" />, href: "/dashboard/products", requiresEcommerce: true },
+  { key: "products", i18nKey: "menu.products", icon: <Box className="w-5 h-5" />, href: "/dashboard/products?tab=1", requiresEcommerce: true },
   { key: "customers", i18nKey: "menu.customers", icon: <Users className="w-5 h-5" />, href: "/dashboard/customers", requiresEcommerce: true },
   { key: "reports", i18nKey: "menu.reports", icon: <BarChart3 className="w-5 h-5" />, href: "/dashboard/reports" },
   { key: "settings", i18nKey: "menu.settings", icon: <Settings className="w-5 h-5" />, href: "/dashboard/settings" },
@@ -108,9 +109,12 @@ const SUB_MENUS: Record<MainMenuKey, SubDef[]> = {
     { key: "orders-custom", i18nKey: "sub.ordersCustomFields", href: "/dashboard/orders?tab=order&ordersTab=5", icon: <SlidersHorizontal className="w-4 h-4" /> },
   ],
   products: [
-    { key: "all-products", i18nKey: "sub.allProducts", href: "/dashboard/products", icon: <Box className="w-4 h-4" /> },
-    { key: "categories", i18nKey: "sub.categories", href: "/dashboard/products?tab=categories", icon: <LayoutGrid className="w-4 h-4" /> },
-    { key: "inventory", i18nKey: "sub.inventory", href: "/dashboard/products?tab=inventory", icon: <Database className="w-4 h-4" /> },
+    { key: "all-products", i18nKey: "sub.allProducts", href: "/dashboard/products?tab=1", icon: <Box className="w-4 h-4" /> },
+    { key: "categories", i18nKey: "sub.categories", href: "/dashboard/products?tab=2", icon: <LayoutGrid className="w-4 h-4" /> },
+    { key: "product-tags", i18nKey: "sub.tags", href: "/dashboard/products?tab=3", icon: <Tag className="w-4 h-4" /> },
+    { key: "warehouse", i18nKey: "products.sideNav.warehouse", href: "/dashboard/products?tab=4", icon: <Package className="w-4 h-4" /> },
+    { key: "product-reviews", i18nKey: "products.sideNav.reviews", href: "/dashboard/products?tab=5", icon: <Star className="w-4 h-4" /> },
+    { key: "product-custom", i18nKey: "products.sideNav.customFields", href: "/dashboard/products?tab=6", icon: <SlidersHorizontal className="w-4 h-4" /> },
   ],
   customers: [
     { key: "all-customers", i18nKey: "sub.allCustomers", href: "/dashboard/customers", icon: <Users className="w-4 h-4" /> },
@@ -500,7 +504,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <button
             type="button"
             className="hidden md:inline-flex ml-2 px-3 py-0.5 rounded-full bg-white/15 hover:bg-white/25 text-[11px] font-semibold transition"
-            onClick={() => navigate("/dashboard/settings?tab=billing")}
+            onClick={() => navigate("/dashboard/plans")}
           >
             Nâng cấp gói
           </button>
@@ -538,7 +542,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Button
               variant="outline"
               className="hidden sm:inline-flex border-indigo-600 text-indigo-600 hover:bg-indigo-50 dark:border-indigo-400 dark:text-indigo-300 text-xs"
-              onClick={() => navigate("/dashboard/settings?tab=billing")}
+              onClick={() => navigate("/dashboard/plans")}
             >
               {t("topbar.upgrade")}
             </Button>

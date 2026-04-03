@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { ThemeToggle } from "@/components/shared/ui/ThemeToggle";
 
 export function PublicHeader() {
   return (

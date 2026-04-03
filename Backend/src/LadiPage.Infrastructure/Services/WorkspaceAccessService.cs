@@ -14,9 +14,19 @@ public class WorkspaceAccessService : IWorkspaceAccessService
 
     public async Task<bool> CanAccessWorkspaceAsync(long userId, long workspaceId, CancellationToken cancellationToken = default)
     {
-        return await _db.Workspaces
+        if (workspaceId <= 0) return false;
+
+        var ownerId = await _db.Workspaces
             .AsNoTracking()
-            .AnyAsync(w => w.Id == workspaceId &&
-                (w.OwnerId == userId || _db.WorkspaceMembers.Any(m => m.WorkspaceId == w.Id && m.UserId == userId)), cancellationToken);
+            .Where(w => w.Id == workspaceId)
+            .Select(w => (long?)w.OwnerId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (ownerId == null) return false;
+        if (ownerId.Value == userId) return true;
+
+        return await _db.WorkspaceMembers
+            .AsNoTracking()
+            .AnyAsync(m => m.WorkspaceId == workspaceId && m.UserId == userId, cancellationToken);
     }
 }

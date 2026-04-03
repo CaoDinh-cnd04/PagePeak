@@ -1,6 +1,6 @@
 import { DraggableToolItem } from "@/components/editor/DndCanvas";
-import { POPUP_BLANK_TOOL_ITEM } from "@/lib/popupTemplateCatalog";
-import { getLucideIcon } from "@/lib/iconMap";
+import { POPUP_BLANK_TOOL_ITEM } from "@/lib/editor/popupTemplateCatalog";
+import { getLucideIcon } from "@/lib/editor/iconMap";
 import type { EditorElementType, ElementPresetData } from "@/types/editor";
 
 type PopupSidebarPanelProps = {

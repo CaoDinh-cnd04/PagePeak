@@ -9,24 +9,24 @@ import {
   AlignHorizontalSpaceAround, AlignHorizontalSpaceBetween,
   Type, Upload, Plus, Crosshair, Code2,
 } from "lucide-react";
-import { useEditorStore } from "@/stores/editorStore";
+import { useEditorStore } from "@/stores/editor/editorStore";
 import { type EditorElement } from "@/types/editor";
 import FontPicker from "./FontPicker";
-import { mediaApi } from "@/lib/api";
-import { parseProductDetailContent } from "@/lib/productDetailContent";
-import { parseTabsContent, type TabsItem } from "@/lib/tabsContent";
-import { parseBlogListContent, parseBlogDetailContent, parsePopupContent, parseSocialShareContent } from "@/lib/blogContent";
-import { parseCartContent, type CartLineItem } from "@/lib/cartContent";
-import { productsApi, formsApi, type ProductItem } from "@/lib/api";
-import { parseFieldsJson, type FormFieldDefinition } from "@/lib/formConfigSchema";
+import { mediaApi } from "@/lib/shared/api";
+import { parseProductDetailContent } from "@/lib/editor/productDetailContent";
+import { mergeCarouselStyle, parseCarouselContent, parseTabsContent, type TabsItem } from "@/lib/editor/tabsContent";
+import { parseBlogListContent, parseBlogDetailContent, parsePopupContent, parseSocialShareContent } from "@/lib/editor/blogContent";
+import { parseCartContent, type CartLineItem } from "@/lib/editor/cartContent";
+import { productsApi, formsApi, type ProductItem } from "@/lib/shared/api";
+import { parseFieldsJson, type FormFieldDefinition } from "@/lib/dashboard/forms/formConfigSchema";
 import {
   COLLECTION_LIST_PRESETS,
   PRODUCT_DETAIL_PRESETS,
   CART_PRESETS,
   BLOG_LIST_PRESETS,
   BLOG_DETAIL_PRESETS,
-} from "@/lib/editorDataPresets";
-import { saveMyPopup } from "@/lib/popupTemplateCatalog";
+} from "@/lib/editor/editorDataPresets";
+import { saveMyPopup } from "@/lib/editor/popupTemplateCatalog";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
 
@@ -2059,6 +2059,74 @@ export function PropertyPanelLadi({ onClose, dragHandleClassName, onRequestAddIm
                               className="w-full px-1.5 py-1 text-[11px] rounded border border-slate-200 bg-white"
                             />
                           </label>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+              {el.type === "carousel" && (
+                <div className="border-t border-slate-100 pt-3 space-y-3">
+                  {(() => {
+                    const cd = parseCarouselContent(el.content ?? undefined);
+                    const st = mergeCarouselStyle(cd.carouselStyle);
+                    const items = [...cd.items];
+                    const isMedia = cd.layoutType === "media";
+                    const updateCarousel = (nextItems: typeof items, nextStyle = cd.carouselStyle) => {
+                      updateElement(el.id, { content: JSON.stringify({ layoutType: cd.layoutType, items: nextItems, carouselStyle: nextStyle }) });
+                    };
+                    const updateItem = (idx: number, patch: Record<string, string>) => {
+                      const next = [...items];
+                      next[idx] = { ...next[idx], ...patch };
+                      updateCarousel(next);
+                    };
+                    return (
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Carousel</p>
+                        <div className="grid grid-cols-2 gap-2">
+                          <label>
+                            <span className="text-[9px] text-slate-400 block mb-0.5">Font chữ</span>
+                            <FontPicker value={st.fontFamily ?? "Inter"} onChange={(f) => { updateCarousel(items, { ...cd.carouselStyle, fontFamily: f }); pushHistory(); }} />
+                          </label>
+                          <label>
+                            <span className="text-[9px] text-slate-400 block mb-0.5">Tự chuyển (ms)</span>
+                            <input type="number" min={0} step={500} value={st.autoplayMs}
+                              onChange={(e) => updateCarousel(items, { ...cd.carouselStyle, autoplayMs: Number(e.target.value) })}
+                              onBlur={() => pushHistory()}
+                              className="w-full px-1.5 py-1 text-[10px] rounded border border-slate-200 bg-white" />
+                          </label>
+                          <label>
+                            <span className="text-[9px] text-slate-400 block mb-0.5">Cỡ chữ chính</span>
+                            <input type="number" min={8} max={32} value={isMedia ? st.titleFontSize : st.quoteFontSize}
+                              onChange={(e) => updateCarousel(items, isMedia ? { ...cd.carouselStyle, titleFontSize: Number(e.target.value) } : { ...cd.carouselStyle, quoteFontSize: Number(e.target.value) })}
+                              onBlur={() => pushHistory()}
+                              className="w-full px-1.5 py-1 text-[10px] rounded border border-slate-200 bg-white" />
+                          </label>
+                          <label>
+                            <span className="text-[9px] text-slate-400 block mb-0.5">Màu chữ chính</span>
+                            <input type="color" value={isMedia ? st.titleColor : st.quoteColor}
+                              onChange={(e) => updateCarousel(items, isMedia ? { ...cd.carouselStyle, titleColor: e.target.value } : { ...cd.carouselStyle, quoteColor: e.target.value })}
+                              onBlur={() => pushHistory()}
+                              className="w-full h-8 rounded border border-slate-200 cursor-pointer" />
+                          </label>
+                        </div>
+                        <div className="space-y-2 max-h-56 overflow-y-auto">
+                          {items.map((it, idx) => (
+                            <div key={idx} className="p-2 rounded border border-slate-200 bg-slate-50/50 space-y-1">
+                              {isMedia ? (
+                                <>
+                                  <input type="text" value={it.title ?? ""} onChange={(e) => updateItem(idx, { title: e.target.value })} onBlur={() => pushHistory()} className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white font-semibold" placeholder="Tiêu đề slide" />
+                                  <textarea value={it.desc ?? ""} onChange={(e) => updateItem(idx, { desc: e.target.value })} onBlur={() => pushHistory()} rows={2} className="w-full px-1.5 py-1 text-[10px] rounded border border-slate-200 bg-white" placeholder="Mô tả" />
+                                </>
+                              ) : (
+                                <>
+                                  <textarea value={it.quote ?? ""} onChange={(e) => updateItem(idx, { quote: e.target.value })} onBlur={() => pushHistory()} rows={2} className="w-full px-1.5 py-1 text-[10px] rounded border border-slate-200 bg-white" placeholder="Quote" />
+                                  <input type="text" value={it.name ?? ""} onChange={(e) => updateItem(idx, { name: e.target.value })} onBlur={() => pushHistory()} className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white font-semibold" placeholder="Tên" />
+                                  <input type="text" value={it.role ?? ""} onChange={(e) => updateItem(idx, { role: e.target.value })} onBlur={() => pushHistory()} className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white" placeholder="Vai trò" />
+                                </>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       </div>
                     );

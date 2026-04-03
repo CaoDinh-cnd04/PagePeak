@@ -1,5 +1,6 @@
 using LadiPage.Domain.Entities;
 using LadiPage.Domain.Interfaces;
+using LadiPage.Infrastructure.Data.Configurations;
 using Microsoft.EntityFrameworkCore;
 
 namespace LadiPage.Infrastructure.Data;
@@ -31,6 +32,7 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<Order> Orders { get; set; }
     public DbSet<Customer> Customers { get; set; }
     public DbSet<Lead> Leads { get; set; }
+    public DbSet<MomoPaymentOrder> MomoPaymentOrders { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -136,6 +138,15 @@ public class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.IsDefault).HasColumnName("LaMacDinh");
             e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
             e.Property(x => x.UpdatedAt).HasColumnName("NgayCapNhat");
+            e.Property(x => x.StoreAddress).HasColumnName("DiaChiCuaHang").HasMaxLength(500);
+            e.Property(x => x.StorePhone).HasColumnName("SoDienThoaiCuaHang").HasMaxLength(30);
+            e.Property(x => x.PostalCode).HasColumnName("MaBuuDien").HasMaxLength(20);
+            e.Property(x => x.Country).HasColumnName("QuocGia").HasMaxLength(100);
+            e.Property(x => x.Province).HasColumnName("TinhThanh").HasMaxLength(100);
+            e.Property(x => x.District).HasColumnName("QuanHuyen").HasMaxLength(100);
+            e.Property(x => x.Ward).HasColumnName("PhuongXa").HasMaxLength(100);
+            e.Property(x => x.Timezone).HasColumnName("MuiGio").HasMaxLength(100);
+            e.Property(x => x.StoreCurrency).HasColumnName("DonViTienKhongGian").HasMaxLength(10);
             // Tranh loi "multiple cascade paths": khong cascade delete Workspace khi xoa User (owner)
             e.HasOne(x => x.Owner).WithMany().HasForeignKey(x => x.OwnerId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(x => x.Plan).WithMany().HasForeignKey(x => x.PlanId);
@@ -367,23 +378,7 @@ public class AppDbContext : DbContext, IAppDbContext
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
-        modelBuilder.Entity<Product>(e =>
-        {
-            e.ToTable("SanPham");
-            e.HasKey(x => x.Id);
-            e.Property(x => x.Id).HasColumnName("MaSanPham");
-            e.Property(x => x.WorkspaceId).HasColumnName("MaKhongGian");
-            e.Property(x => x.Name).HasColumnName("TenSanPham").HasMaxLength(300);
-            e.Property(x => x.Price).HasColumnName("GiaTien").HasPrecision(12, 2);
-            e.Property(x => x.SalePrice).HasColumnName("GiaKhuyenMai").HasPrecision(12, 2);
-            e.Property(x => x.Description).HasColumnName("MoTa");
-            e.Property(x => x.ImageUrl).HasColumnName("AnhSanPham").HasMaxLength(500);
-            e.Property(x => x.Category).HasColumnName("DanhMuc").HasMaxLength(100);
-            e.Property(x => x.Stock).HasColumnName("TonKho");
-            e.Property(x => x.Status).HasColumnName("TrangThai").HasMaxLength(20);
-            e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
-            e.HasOne(x => x.Workspace).WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
-        });
+        modelBuilder.ApplyConfiguration(new ProductConfiguration());
 
         modelBuilder.Entity<Order>(e =>
         {
@@ -432,6 +427,25 @@ public class AppDbContext : DbContext, IAppDbContext
             e.HasOne(x => x.Workspace).WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Page).WithMany().HasForeignKey(x => x.PageId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(x => x.Form).WithMany().HasForeignKey(x => x.FormId).OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<MomoPaymentOrder>(e =>
+        {
+            e.ToTable("GiaoDichThanhToanMoMo");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaGiaoDich");
+            e.Property(x => x.UserId).HasColumnName("MaNguoiDung");
+            e.Property(x => x.PlanId).HasColumnName("MaGoi");
+            e.Property(x => x.Amount).HasColumnName("SoTien");
+            e.Property(x => x.OrderId).HasColumnName("MaDonHang").HasMaxLength(50);
+            e.Property(x => x.RequestId).HasColumnName("MaYeuCau").HasMaxLength(50);
+            e.Property(x => x.Status).HasColumnName("TrangThai").HasMaxLength(20);
+            e.Property(x => x.MomoTransId).HasColumnName("MaGiaoDichMoMo").HasMaxLength(100);
+            e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
+            e.Property(x => x.CompletedAt).HasColumnName("NgayHoanThanh");
+            e.HasIndex(x => x.OrderId).IsUnique();
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Plan).WithMany().HasForeignKey(x => x.PlanId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<Media>(e =>

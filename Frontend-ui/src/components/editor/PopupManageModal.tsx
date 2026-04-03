@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { LayoutTemplate, Trash2, X } from "lucide-react";
-import { parsePopupContent } from "@/lib/blogContent";
+import { parsePopupContent } from "@/lib/editor/blogContent";
 import {
   POPUP_CATEGORIES,
   filterPopupTemplates,
@@ -8,7 +8,7 @@ import {
   deleteMyPopup,
   type PopupTemplateEntry,
   type MySavedPopup,
-} from "@/lib/popupTemplateCatalog";
+} from "@/lib/editor/popupTemplateCatalog";
 
 type TabId = "mine" | "templates";
 
