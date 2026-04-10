@@ -1,17 +1,18 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import {
   X, GripVertical, Maximize2, Pencil, Zap, Wand2, Settings,
-  Copy, Trash2, Lock, Unlock, EyeOff, ArrowUp, ArrowDown,
+  Copy, Trash2, Lock, Unlock, Eye, EyeOff, ArrowUp, ArrowDown,
   ChevronsUp, ChevronsDown, MoveUp, MoveDown,
   Bold, Italic, Underline, Strikethrough,
   AlignLeft, AlignCenter, AlignRight, AlignJustify,
-  Paintbrush,
+  Paintbrush, Image as ImageIcon, Layers, RotateCcw,
   AlignHorizontalSpaceAround, AlignHorizontalSpaceBetween,
   Type, Upload, Plus, Crosshair, Code2,
 } from "lucide-react";
 import { useEditorStore } from "@/stores/editor/editorStore";
 import { type EditorElement } from "@/types/editor";
 import FontPicker from "./FontPicker";
+import ImagePickerPanel from "./ImagePickerPanel";
 import { mediaApi } from "@/lib/shared/api";
 import { parseProductDetailContent } from "@/lib/editor/productDetailContent";
 import { mergeCarouselStyle, parseCarouselContent, parseTabsContent, type TabsItem } from "@/lib/editor/tabsContent";
@@ -25,6 +26,7 @@ import {
   CART_PRESETS,
   BLOG_LIST_PRESETS,
   BLOG_DETAIL_PRESETS,
+  CAROUSEL_PRESETS,
 } from "@/lib/editor/editorDataPresets";
 import { saveMyPopup } from "@/lib/editor/popupTemplateCatalog";
 
@@ -673,14 +675,23 @@ export function PropertyPanelLadi({ onClose, dragHandleClassName, onRequestAddIm
     selected, getSelectedElement, getSelectedSection,
     updateElement, updateSection, removeElement, duplicateElement,
     removeSection, duplicateSection, moveSectionUp, moveSectionDown,
+    moveSectionToIndex, addSection,
     metaTitle, metaDescription, updatePageMeta, pushHistory,
     moveElementLayer,
     workspaceId,
   } = useEditorStore();
+  const sections = useEditorStore((s) => s.sections);
 
   const [activeTab, setActiveTab] = useState<PropPanelTab>("design");
   const el = getSelectedElement();
   const sec = getSelectedSection();
+
+  // Section background panel state
+  const [showSectionBgPicker, setShowSectionBgPicker] = useState(false);
+  const [sectionBgTab, setSectionBgTab] = useState<"color" | "image">("color");
+  const [sectionBgUploading, setSectionBgUploading] = useState(false);
+  const [sectionBgError, setSectionBgError] = useState("");
+  const sectionBgFileRef = useRef<HTMLInputElement>(null);
   const [catalogProducts, setCatalogProducts] = useState<ProductItem[]>([]);
   const [workspaceForms, setWorkspaceForms] = useState<{ id: number; name: string; fieldsJson: string }[]>([]);
   useEffect(() => {
@@ -727,7 +738,7 @@ export function PropertyPanelLadi({ onClose, dragHandleClassName, onRequestAddIm
   };
 
   if (selected.type === "element" && el) {
-    const isTextType = ["text", "headline", "paragraph", "button"].includes(el.type);
+    const isTextType = ["text", "headline", "paragraph", "button", "form"].includes(el.type);
     return (
       <div className="flex flex-col h-full bg-white">
         <PropertyPanelHeader title={getPanelTitle()} onClose={onClose} onRename={() => {}} dragHandleClassName={dragHandleClassName} />
@@ -838,161 +849,354 @@ export function PropertyPanelLadi({ onClose, dragHandleClassName, onRequestAddIm
                 />
               )}
               {el.type === "form" && (
-                <div className="border-t border-slate-100 pt-3 space-y-3">
-                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Thiết lập Form</p>
+                <div className="border-t border-slate-100 pt-3 space-y-4">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Thiết lập Form</p>
                   {(() => {
-                    let cfg: {
+                    type FormCfg = {
                       formType?: string;
                       title?: string;
+                      titleColor?: string;
                       buttonText?: string;
+                      buttonColor?: string;
+                      buttonTextColor?: string;
+                      backgroundColor?: string;
+                      formBorderRadius?: number;
+                      inputRadius?: number;
                       formConfigId?: number;
                       redirectUrl?: string;
-                      fields?: { id: string; name?: string; label?: string; placeholder?: string; type?: string }[];
+                      fields?: { id: string; name?: string; label?: string; placeholder?: string; type?: string; required?: boolean }[];
                       inputStyle?: string;
                       formOtp?: boolean;
                       autoComplete?: boolean;
-                    } = {};
+                      // SMTP / email notification
+                      emailNotifyEnabled?: boolean;
+                      emailNotifyRecipient?: string;
+                    };
+                    let cfg: FormCfg = {};
                     try { cfg = JSON.parse(el.content || "{}"); } catch {}
                     const fields = Array.isArray(cfg.fields) ? cfg.fields : [];
-                    const updateForm = (next: typeof cfg) => {
+
+                    const updateForm = (next: Partial<FormCfg>) => {
                       updateElement(el.id, { content: JSON.stringify({ ...cfg, ...next }) });
                       pushHistory();
                     };
-                    const addField = () => {
+                    const addField = (type = "text") => {
                       const id = `field_${Date.now()}`;
-                      updateForm({ fields: [...fields, { id, name: id, label: "Trường mới", placeholder: "Nhập...", type: "text" }] });
+                      updateForm({ fields: [...fields, { id, name: id, label: type === "email" ? "Email" : type === "phone" ? "Số điện thoại" : type === "textarea" ? "Tin nhắn" : "Trường mới", placeholder: "Nhập...", type }] });
                     };
                     const removeField = (idx: number) => {
                       updateForm({ fields: fields.filter((_, i) => i !== idx) });
                     };
-                    const updateField = (idx: number, key: string, val: string) => {
+                    const updateField = (idx: number, key: string, val: string | boolean) => {
                       const next = [...fields];
-                      (next[idx] as Record<string, string>)[key] = val;
+                      (next[idx] as Record<string, string | boolean>)[key] = val;
+                      updateForm({ fields: next });
+                    };
+                    const moveField = (idx: number, dir: -1 | 1) => {
+                      const next = [...fields];
+                      const target = idx + dir;
+                      if (target < 0 || target >= next.length) return;
+                      [next[idx], next[target]] = [next[target], next[idx]];
                       updateForm({ fields: next });
                     };
                     const syncFromWorkspace = () => {
                       const id = cfg.formConfigId;
-                      if (id == null) {
-                        onToast?.("Chọn cấu hình form workspace trước.", "info");
-                        return;
-                      }
+                      if (id == null) { onToast?.("Chọn cấu hình form workspace trước.", "info"); return; }
                       const wf = workspaceForms.find((x) => x.id === id);
-                      if (!wf) {
-                        onToast?.("Không tìm thấy cấu hình. Hãy làm mới trang hoặc tạo tại Cấu hình Form.", "error");
-                        return;
-                      }
+                      if (!wf) { onToast?.("Không tìm thấy cấu hình. Hãy tạo tại Cấu hình Form.", "error"); return; }
                       const defs = parseFieldsJson(wf.fieldsJson);
-                      const mapped = defs.map((d: FormFieldDefinition) => ({
-                        id: d.id,
-                        name: d.name,
-                        label: d.label,
-                        placeholder: d.placeholder ?? "",
-                        type: d.type,
-                      }));
+                      const mapped = defs.map((d: FormFieldDefinition) => ({ id: d.id, name: d.name, label: d.label, placeholder: d.placeholder ?? "", type: d.type }));
                       updateForm({ fields: mapped, formConfigId: id });
                       onToast?.("Đã đồng bộ trường từ cấu hình workspace.", "success");
                     };
+
+                    const fieldTypeLabel: Record<string, string> = {
+                      text: "Văn bản", email: "Email", phone: "SĐT", textarea: "Đoạn văn",
+                      select: "Chọn", radio: "Radio", checkbox: "Checkbox", number: "Số", date: "Ngày",
+                    };
+                    const fieldTypeBadgeColor: Record<string, string> = {
+                      text: "bg-blue-100 text-blue-700",
+                      email: "bg-violet-100 text-violet-700",
+                      phone: "bg-emerald-100 text-emerald-700",
+                      textarea: "bg-orange-100 text-orange-700",
+                      select: "bg-amber-100 text-amber-700",
+                      radio: "bg-pink-100 text-pink-700",
+                      checkbox: "bg-teal-100 text-teal-700",
+                      number: "bg-cyan-100 text-cyan-700",
+                      date: "bg-rose-100 text-rose-700",
+                    };
+
                     return (
-                      <div className="space-y-2">
+                      <div className="space-y-4">
+
+                        {/* ── Workspace config ───────────────────────────── */}
                         {workspaceId != null && (
-                          <div className="px-2 py-2 rounded-lg bg-indigo-50/90 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 space-y-2 mb-1">
-                            <p className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 uppercase tracking-wide">Cấu hình workspace</p>
-                            <label>
-                              <span className="text-[10px] text-slate-500 font-bold block mb-0.5">Gắn bộ trường đã lưu</span>
-                              <select
-                                value={cfg.formConfigId != null ? String(cfg.formConfigId) : ""}
-                                onChange={(e) => {
-                                  const v = e.target.value;
-                                  updateForm({ formConfigId: v ? Number(v) : undefined });
-                                }}
-                                className="w-full px-2 py-1.5 text-[11px] rounded border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900"
-                              >
-                                <option value="">— Chỉnh trực tiếp dưới đây —</option>
-                                {workspaceForms.map((f) => (
-                                  <option key={f.id} value={f.id}>
-                                    {f.name}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                onClick={syncFromWorkspace}
-                                className="text-[10px] font-semibold px-2 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700"
-                              >
+                          <div className="rounded-lg bg-indigo-50 border border-indigo-100 p-2.5 space-y-2">
+                            <p className="text-[10px] font-bold text-indigo-700 uppercase tracking-wide">Cấu hình Workspace</p>
+                            <select
+                              value={cfg.formConfigId != null ? String(cfg.formConfigId) : ""}
+                              onChange={(e) => { const v = e.target.value; updateForm({ formConfigId: v ? Number(v) : undefined }); }}
+                              className="w-full px-2 py-1.5 text-[11px] rounded border border-indigo-200 bg-white"
+                            >
+                              <option value="">— Chỉnh trực tiếp bên dưới —</option>
+                              {workspaceForms.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                            </select>
+                            <div className="flex gap-2">
+                              <button type="button" onClick={syncFromWorkspace}
+                                className="flex-1 text-[10px] font-semibold px-2 py-1.5 rounded bg-indigo-600 text-white hover:bg-indigo-700">
                                 Đồng bộ trường
                               </button>
-                              <a
-                                href="/dashboard/forms"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-[10px] text-indigo-600 hover:underline"
-                              >
-                                Mở Cấu hình Form
+                              <a href="/dashboard/forms" target="_blank" rel="noopener noreferrer"
+                                className="text-[10px] text-indigo-600 hover:underline flex items-center">
+                                Mở cấu hình ↗
                               </a>
                             </div>
                           </div>
                         )}
-                        <label><span className="text-[10px] text-slate-400 font-bold block mb-0.5">Loại form</span>
-                          <select value={cfg.formType ?? "contact"} onChange={(e) => updateForm({ formType: e.target.value })}
-                            className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white">
-                            <option value="contact">Liên hệ</option>
-                            <option value="registration">Đăng ký</option>
-                            <option value="login">Đăng nhập</option>
-                            <option value="otp">OTP</option>
-                            <option value="checkout">Checkout</option>
-                          </select></label>
-                        {cfg.formType !== "login" && (
-                          <label><span className="text-[10px] text-slate-400 font-bold block mb-0.5">Tiêu đề</span>
-                            <input type="text" value={cfg.title ?? ""} onChange={(e) => updateForm({ title: e.target.value })} onBlur={() => pushHistory()}
-                              className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white" placeholder="Tiêu đề form" /></label>
-                        )}
-                        <label><span className="text-[10px] text-slate-400 font-bold block mb-0.5">Nút gửi</span>
-                          <input type="text" value={cfg.buttonText ?? "Gửi"} onChange={(e) => updateForm({ buttonText: e.target.value })} onBlur={() => pushHistory()}
-                            className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white" /></label>
-                        {cfg.formType !== "login" && (
+
+                        {/* ── Loại form + cơ bản ────────────────────────── */}
+                        <div className="space-y-2">
                           <label>
-                            <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Chuyển hướng sau khi gửi (tùy chọn)</span>
-                            <input
-                              type="url"
-                              value={cfg.redirectUrl ?? ""}
-                              onChange={(e) => updateForm({ redirectUrl: e.target.value || undefined })}
-                              onBlur={() => pushHistory()}
-                              className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white"
-                              placeholder="https://... (cảm ơn / thank-you)"
-                            />
+                            <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Loại form</span>
+                            <select value={cfg.formType ?? "contact"} onChange={(e) => updateForm({ formType: e.target.value })}
+                              className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white">
+                              <option value="contact">Liên hệ</option>
+                              <option value="registration">Đăng ký</option>
+                              <option value="login">Đăng nhập</option>
+                              <option value="otp">OTP</option>
+                              <option value="checkout">Checkout</option>
+                            </select>
                           </label>
-                        )}
-                        <label><span className="text-[10px] text-slate-400 font-bold block mb-0.5">Kiểu ô nhập</span>
-                          <select value={cfg.inputStyle ?? "outlined"} onChange={(e) => updateForm({ inputStyle: e.target.value })}
-                            className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white">
-                            <option value="outlined">Viền</option>
-                            <option value="filled">Nền</option>
-                            <option value="underlined">Gạch chân</option>
-                          </select></label>
-                        <div>
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="text-[10px] text-slate-400 font-bold">Trường ({fields.length})</span>
-                            <button type="button" onClick={addField} className="text-[10px] text-indigo-600 hover:underline">+ Thêm</button>
+                          <label>
+                            <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Kiểu ô nhập</span>
+                            <div className="grid grid-cols-3 gap-1">
+                              {(["outlined", "filled", "underlined"] as const).map((v) => (
+                                <button key={v} type="button"
+                                  onClick={() => updateForm({ inputStyle: v })}
+                                  className={`py-1.5 text-[10px] font-medium rounded border transition ${cfg.inputStyle === v || (!cfg.inputStyle && v === "outlined") ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 text-slate-500 hover:border-slate-300"}`}>
+                                  {v === "outlined" ? "Viền" : v === "filled" ? "Nền" : "Gạch chân"}
+                                </button>
+                              ))}
+                            </div>
+                          </label>
+                        </div>
+
+                        {/* ── Giao diện form ────────────────────────────── */}
+                        <div className="rounded-lg border border-slate-200 p-2.5 space-y-2.5">
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Giao diện Form</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <label>
+                              <span className="text-[10px] text-slate-400 block mb-0.5">Màu nền form</span>
+                              <div className="flex gap-1">
+                                <input type="color" value={cfg.backgroundColor ?? "#ffffff"}
+                                  onChange={(e) => updateForm({ backgroundColor: e.target.value })}
+                                  className="w-8 h-7 rounded border border-slate-200 cursor-pointer shrink-0" />
+                                <input type="text" value={cfg.backgroundColor ?? "#ffffff"}
+                                  onChange={(e) => updateForm({ backgroundColor: e.target.value })}
+                                  className="flex-1 min-w-0 px-1.5 py-1 text-[10px] rounded border border-slate-200 bg-white font-mono" />
+                              </div>
+                            </label>
+                            <label>
+                              <span className="text-[10px] text-slate-400 block mb-0.5">Bo góc form (px)</span>
+                              <input type="number" min={0} max={40} value={cfg.formBorderRadius ?? 8}
+                                onChange={(e) => updateForm({ formBorderRadius: Number(e.target.value) })}
+                                className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white" />
+                            </label>
                           </div>
-                          <div className="space-y-1 max-h-32 overflow-y-auto">
+                          <div className="grid grid-cols-2 gap-2">
+                            <label>
+                              <span className="text-[10px] text-slate-400 block mb-0.5">Màu tiêu đề</span>
+                              <div className="flex gap-1">
+                                <input type="color" value={cfg.titleColor ?? "#1e293b"}
+                                  onChange={(e) => updateForm({ titleColor: e.target.value })}
+                                  className="w-8 h-7 rounded border border-slate-200 cursor-pointer shrink-0" />
+                                <input type="text" value={cfg.titleColor ?? "#1e293b"}
+                                  onChange={(e) => updateForm({ titleColor: e.target.value })}
+                                  className="flex-1 min-w-0 px-1.5 py-1 text-[10px] rounded border border-slate-200 bg-white font-mono" />
+                              </div>
+                            </label>
+                            <label>
+                              <span className="text-[10px] text-slate-400 block mb-0.5">Bo góc ô nhập (px)</span>
+                              <input type="number" min={0} max={24} value={cfg.inputRadius ?? 4}
+                                onChange={(e) => updateForm({ inputRadius: Number(e.target.value) })}
+                                className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white" />
+                            </label>
+                          </div>
+                          <label>
+                            <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Tiêu đề form</span>
+                            <input type="text" value={cfg.title ?? ""} onChange={(e) => updateForm({ title: e.target.value })} onBlur={() => pushHistory()}
+                              className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white" placeholder="Tiêu đề (để trống nếu không cần)" />
+                          </label>
+                        </div>
+
+                        {/* ── Nút gửi ───────────────────────────────────── */}
+                        <div className="rounded-lg border border-slate-200 p-2.5 space-y-2.5">
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Nút gửi</p>
+                          <label>
+                            <span className="text-[10px] text-slate-400 block mb-0.5">Nội dung nút</span>
+                            <input type="text" value={cfg.buttonText ?? "Gửi"} onChange={(e) => updateForm({ buttonText: e.target.value })} onBlur={() => pushHistory()}
+                              className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white" />
+                          </label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <label>
+                              <span className="text-[10px] text-slate-400 block mb-0.5">Màu nền nút</span>
+                              <div className="flex gap-1">
+                                <input type="color" value={cfg.buttonColor ?? "#1e293b"}
+                                  onChange={(e) => updateForm({ buttonColor: e.target.value })}
+                                  className="w-8 h-7 rounded border border-slate-200 cursor-pointer shrink-0" />
+                                <input type="text" value={cfg.buttonColor ?? "#1e293b"}
+                                  onChange={(e) => updateForm({ buttonColor: e.target.value })}
+                                  className="flex-1 min-w-0 px-1.5 py-1 text-[10px] rounded border border-slate-200 bg-white font-mono" />
+                              </div>
+                            </label>
+                            <label>
+                              <span className="text-[10px] text-slate-400 block mb-0.5">Màu chữ nút</span>
+                              <div className="flex gap-1">
+                                <input type="color" value={cfg.buttonTextColor ?? "#ffffff"}
+                                  onChange={(e) => updateForm({ buttonTextColor: e.target.value })}
+                                  className="w-8 h-7 rounded border border-slate-200 cursor-pointer shrink-0" />
+                                <input type="text" value={cfg.buttonTextColor ?? "#ffffff"}
+                                  onChange={(e) => updateForm({ buttonTextColor: e.target.value })}
+                                  className="flex-1 min-w-0 px-1.5 py-1 text-[10px] rounded border border-slate-200 bg-white font-mono" />
+                              </div>
+                            </label>
+                          </div>
+                          {/* Preview nút */}
+                          <div className="rounded overflow-hidden" style={{ borderRadius: cfg.inputRadius ?? 4, background: cfg.buttonColor ?? "#1e293b", color: cfg.buttonTextColor ?? "#ffffff", textAlign: "center", padding: "8px 12px", fontSize: 11, fontWeight: 700 }}>
+                            {cfg.buttonText || "Gửi"}
+                          </div>
+                          <label>
+                            <span className="text-[10px] text-slate-400 block mb-0.5">Chuyển hướng sau khi gửi</span>
+                            <input type="url" value={cfg.redirectUrl ?? ""} onChange={(e) => updateForm({ redirectUrl: e.target.value || undefined })} onBlur={() => pushHistory()}
+                              className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white" placeholder="https://... (trang cảm ơn)" />
+                          </label>
+                        </div>
+
+                        {/* ── Thông báo Email (SMTP) ─────────────────────── */}
+                        <div className="rounded-lg border border-slate-200 p-2.5 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Thông báo Email</p>
+                            <label className="flex items-center gap-1.5 cursor-pointer">
+                              <div className={`relative w-8 h-4 rounded-full transition ${cfg.emailNotifyEnabled ? "bg-indigo-600" : "bg-slate-200"}`}
+                                onClick={() => updateForm({ emailNotifyEnabled: !cfg.emailNotifyEnabled })}>
+                                <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-all ${cfg.emailNotifyEnabled ? "left-4" : "left-0.5"}`} />
+                              </div>
+                              <span className="text-[10px] text-slate-500">{cfg.emailNotifyEnabled ? "Bật" : "Tắt"}</span>
+                            </label>
+                          </div>
+                          {cfg.emailNotifyEnabled && (
+                            <>
+                              <label>
+                                <span className="text-[10px] text-slate-400 block mb-0.5">Email nhận thông báo</span>
+                                <input type="email" value={cfg.emailNotifyRecipient ?? ""}
+                                  onChange={(e) => updateForm({ emailNotifyRecipient: e.target.value || undefined })}
+                                  onBlur={() => pushHistory()}
+                                  className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white"
+                                  placeholder="admin@domain.com" />
+                              </label>
+                              <div className="flex gap-1.5 rounded-lg bg-amber-50 border border-amber-200 p-2">
+                                <span className="text-amber-500 text-[12px] shrink-0">⚠</span>
+                                <p className="text-[10px] text-amber-700 leading-relaxed">
+                                  Yêu cầu cấu hình SMTP trên server (<code className="bg-amber-100 px-0.5 rounded">Email:Smtp*</code>). Liên hệ admin hoặc xem tài liệu hướng dẫn.
+                                </p>
+                              </div>
+                            </>
+                          )}
+                          {!cfg.emailNotifyEnabled && (
+                            <p className="text-[10px] text-slate-400 leading-relaxed">
+                              Bật để nhận email mỗi khi có người gửi form — cần cấu hình SMTP Gmail/SMTP server phía backend.
+                            </p>
+                          )}
+                        </div>
+
+                        {/* ── Trường dữ liệu ────────────────────────────── */}
+                        <div className="rounded-lg border border-slate-200 p-2.5 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Trường dữ liệu ({fields.length})</p>
+                          </div>
+
+                          {/* Field list */}
+                          <div className="space-y-1.5">
                             {fields.map((f, idx) => (
-                              <div key={f.id} className="flex items-center gap-1 p-1.5 rounded border border-slate-200 bg-slate-50/50">
-                                <input type="text" value={f.label ?? ""} onChange={(e) => updateField(idx, "label", e.target.value)} onBlur={() => pushHistory()}
-                                  className="flex-1 min-w-0 px-1.5 py-1 text-[10px] rounded border border-slate-200 bg-white" placeholder="Nhãn" />
-                                <button type="button" onClick={() => removeField(idx)} className="p-1 rounded hover:bg-red-100 text-red-500 text-[10px]">×</button>
+                              <div key={f.id} className="rounded-lg border border-slate-200 bg-slate-50/50 p-2 space-y-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  {/* Type badge */}
+                                  <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded shrink-0 ${fieldTypeBadgeColor[f.type ?? "text"] ?? "bg-slate-100 text-slate-600"}`}>
+                                    {fieldTypeLabel[f.type ?? "text"] ?? f.type}
+                                  </span>
+                                  {/* Label input */}
+                                  <input type="text" value={f.label ?? ""} onChange={(e) => updateField(idx, "label", e.target.value)} onBlur={() => pushHistory()}
+                                    className="flex-1 min-w-0 px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white" placeholder="Nhãn" />
+                                  {/* Move up/down */}
+                                  <button type="button" onClick={() => moveField(idx, -1)} disabled={idx === 0}
+                                    className="p-0.5 rounded text-slate-400 hover:text-slate-600 disabled:opacity-30 text-[10px]">▲</button>
+                                  <button type="button" onClick={() => moveField(idx, 1)} disabled={idx === fields.length - 1}
+                                    className="p-0.5 rounded text-slate-400 hover:text-slate-600 disabled:opacity-30 text-[10px]">▼</button>
+                                  {/* Delete */}
+                                  <button type="button" onClick={() => removeField(idx)}
+                                    className="p-0.5 rounded hover:bg-red-100 text-red-400 hover:text-red-600 text-[11px] font-bold">×</button>
+                                </div>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <label>
+                                    <span className="text-[9px] text-slate-400 block">Placeholder</span>
+                                    <input type="text" value={f.placeholder ?? ""} onChange={(e) => updateField(idx, "placeholder", e.target.value)} onBlur={() => pushHistory()}
+                                      className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white" placeholder="Placeholder..." />
+                                  </label>
+                                  <label>
+                                    <span className="text-[9px] text-slate-400 block">Kiểu trường</span>
+                                    <select value={f.type ?? "text"} onChange={(e) => updateField(idx, "type", e.target.value)}
+                                      className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white">
+                                      <option value="text">Văn bản</option>
+                                      <option value="email">Email</option>
+                                      <option value="phone">SĐT</option>
+                                      <option value="textarea">Đoạn văn</option>
+                                      <option value="select">Chọn</option>
+                                      <option value="radio">Radio</option>
+                                      <option value="checkbox">Checkbox</option>
+                                      <option value="number">Số</option>
+                                      <option value="date">Ngày</option>
+                                    </select>
+                                  </label>
+                                </div>
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                  <input type="checkbox" checked={!!f.required} onChange={(e) => updateField(idx, "required", e.target.checked)}
+                                    className="rounded w-3 h-3 accent-indigo-600" />
+                                  <span className="text-[10px] text-slate-500">Bắt buộc nhập</span>
+                                </label>
                               </div>
                             ))}
                           </div>
+
+                          {/* Add field buttons */}
+                          <div className="pt-1">
+                            <p className="text-[9px] text-slate-400 mb-1.5">Thêm trường:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {[
+                                { type: "text", label: "Văn bản", cls: "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100" },
+                                { type: "email", label: "Email", cls: "bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100" },
+                                { type: "phone", label: "SĐT", cls: "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100" },
+                                { type: "textarea", label: "Đoạn văn", cls: "bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100" },
+                                { type: "select", label: "Chọn", cls: "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100" },
+                                { type: "number", label: "Số", cls: "bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100" },
+                                { type: "date", label: "Ngày", cls: "bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100" },
+                              ].map(({ type, label, cls }) => (
+                                <button key={type} type="button" onClick={() => addField(type)}
+                                  className={`text-[9px] font-semibold px-2 py-0.5 rounded border transition ${cls}`}>
+                                  + {label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </div>
-                        <div className="flex gap-2 pt-2 border-t border-slate-100">
-                          <label className="flex items-center gap-1.5 text-[10px] text-slate-600">
-                            <input type="checkbox" checked={cfg.formOtp ?? false} onChange={(e) => updateForm({ formOtp: e.target.checked })} className="rounded" />
-                            Form OTP
+
+                        {/* ── Tùy chọn khác ─────────────────────────────── */}
+                        <div className="flex gap-3 flex-wrap">
+                          <label className="flex items-center gap-1.5 text-[10px] text-slate-600 cursor-pointer">
+                            <input type="checkbox" checked={cfg.formOtp ?? false} onChange={(e) => updateForm({ formOtp: e.target.checked })} className="rounded w-3 h-3 accent-indigo-600" />
+                            Có OTP
                           </label>
-                          <label className="flex items-center gap-1.5 text-[10px] text-slate-600">
-                            <input type="checkbox" checked={cfg.autoComplete !== false} onChange={(e) => updateForm({ autoComplete: e.target.checked })} className="rounded" />
+                          <label className="flex items-center gap-1.5 text-[10px] text-slate-600 cursor-pointer">
+                            <input type="checkbox" checked={cfg.autoComplete !== false} onChange={(e) => updateForm({ autoComplete: e.target.checked })} className="rounded w-3 h-3 accent-indigo-600" />
                             Auto Complete
                           </label>
                         </div>
@@ -1725,6 +1929,141 @@ export function PropertyPanelLadi({ onClose, dragHandleClassName, onRequestAddIm
                   })()}
                 </div>
               )}
+              {el.type === "carousel" && (() => {
+                const cd = parseCarouselContent(el.content ?? undefined);
+                const updateCd = (next: Partial<typeof cd>) => {
+                  updateElement(el.id, { content: JSON.stringify({ ...cd, ...next }) });
+                  pushHistory();
+                };
+                const updateItem = (idx: number, patch: Partial<typeof cd.items[0]>) => {
+                  const next = [...cd.items];
+                  if (idx >= 0 && idx < next.length) { next[idx] = { ...next[idx], ...patch }; updateCd({ items: next }); }
+                };
+                const removeItem = (idx: number) => updateCd({ items: cd.items.filter((_, i) => i !== idx) });
+                const cs = cd.carouselStyle ?? {};
+                const updateCs = (next: Partial<typeof cs>) => updateCd({ carouselStyle: { ...cs, ...next } });
+                return (
+                  <div className="border-t border-slate-100 pt-3 space-y-3">
+                    <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-2">🎠 Carousel</p>
+                    {/* Preset picker */}
+                    <div>
+                      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Mẫu dữ liệu</p>
+                      <p className="text-[9px] text-slate-400 mb-1.5">Chọn để nạp toàn bộ nội dung mẫu (sửa lại sau).</p>
+                      <div className="grid grid-cols-1 gap-1 max-h-52 overflow-y-auto pr-0.5">
+                        {CAROUSEL_PRESETS.map((preset) => (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            onClick={() => {
+                              updateElement(el.id, {
+                                content: preset.contentJson,
+                                styles: { ...el.styles, ...(preset.styles ?? {}) },
+                              });
+                              pushHistory();
+                            }}
+                            className="text-left px-2.5 py-2 rounded-lg border border-slate-200 bg-white hover:border-indigo-400 hover:bg-indigo-50/50 transition-colors"
+                          >
+                            <span className="block text-[11px] font-semibold text-slate-800">{preset.name}</span>
+                            <span className="block text-[9px] text-slate-500 leading-snug">{preset.description}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {/* Layout type */}
+                    <div>
+                      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Kiểu hiển thị</p>
+                      <div className="flex gap-2">
+                        {(["testimonial", "media"] as const).map((lt) => (
+                          <button
+                            key={lt}
+                            type="button"
+                            onClick={() => updateCd({ layoutType: lt })}
+                            className={`flex-1 py-1.5 text-[10px] font-semibold rounded-lg border transition ${cd.layoutType === lt ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-slate-600 border-slate-200 hover:border-indigo-400"}`}
+                          >
+                            {lt === "testimonial" ? "💬 Nhận xét" : "🖼️ Media"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {/* Autoplay speed */}
+                    <div>
+                      <label>
+                        <span className="text-[10px] text-slate-400 font-bold block mb-0.5">Tốc độ tự chạy (ms)</span>
+                        <input
+                          type="number"
+                          min={1000}
+                          step={500}
+                          value={cs.autoplayMs ?? 5000}
+                          onChange={(e) => updateCs({ autoplayMs: Number(e.target.value) })}
+                          onBlur={() => pushHistory()}
+                          className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white"
+                        />
+                        <span className="text-[9px] text-slate-400">5000 = 5 giây. Preview sẽ tự chạy theo tốc độ này.</span>
+                      </label>
+                    </div>
+                    {/* Slides */}
+                    <div>
+                      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-1">Các slide</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newItem = cd.layoutType === "testimonial"
+                            ? { avatar: "", quote: "Trích dẫn mới...", name: "Tên khách hàng", role: "" }
+                            : { image: "", title: "Tiêu đề slide mới", desc: "" };
+                          updateCd({ items: [...cd.items, newItem] });
+                        }}
+                        className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg border border-dashed border-slate-300 hover:border-indigo-400 hover:bg-indigo-50/40 text-slate-700 text-[11px] font-medium transition-colors mb-2"
+                      >
+                        <Plus className="w-4 h-4 text-indigo-600" /> Thêm slide
+                      </button>
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                        {cd.items.map((item, idx) => (
+                          <div key={idx} className="p-2.5 rounded-lg border border-slate-200 bg-white shadow-sm space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <p className="text-[9px] font-bold text-slate-400 uppercase">Slide {idx + 1}</p>
+                              <button type="button" onClick={() => removeItem(idx)} className="p-1 rounded hover:bg-red-100 text-red-500">
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                            {cd.layoutType === "testimonial" ? (
+                              <>
+                                <input type="text" placeholder="URL avatar" value={item.avatar ?? ""} onChange={(e) => updateItem(idx, { avatar: e.target.value })} onBlur={() => pushHistory()} className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white" />
+                                <textarea placeholder="Trích dẫn..." value={item.quote ?? ""} onChange={(e) => updateItem(idx, { quote: e.target.value })} onBlur={() => pushHistory()} rows={2} className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white resize-none" />
+                                <input type="text" placeholder="Tên" value={item.name ?? ""} onChange={(e) => updateItem(idx, { name: e.target.value })} onBlur={() => pushHistory()} className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white" />
+                                <input type="text" placeholder="Vai trò / Chức vụ" value={item.role ?? ""} onChange={(e) => updateItem(idx, { role: e.target.value })} onBlur={() => pushHistory()} className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white" />
+                              </>
+                            ) : (
+                              <>
+                                <div
+                                  className="w-full h-14 rounded-md overflow-hidden bg-slate-100 border border-slate-200 cursor-pointer flex items-center justify-center text-[9px] text-slate-400"
+                                  style={{ backgroundImage: item.image ? `url(${item.image})` : undefined, backgroundSize: "cover", backgroundPosition: "center" }}
+                                  onClick={() => onRequestAddImage?.(el.id, idx, "image")}
+                                  role="presentation"
+                                >
+                                  {!item.image && "Nhấn để chọn ảnh"}
+                                </div>
+                                <input type="text" placeholder="URL ảnh (hoặc nhấn thumbnail)" value={item.image ?? ""} onChange={(e) => updateItem(idx, { image: e.target.value })} onBlur={() => pushHistory()} className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white" />
+                                <input type="text" placeholder="Tiêu đề" value={item.title ?? ""} onChange={(e) => updateItem(idx, { title: e.target.value })} onBlur={() => pushHistory()} className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white" />
+                                <input type="text" placeholder="Mô tả ngắn" value={item.desc ?? ""} onChange={(e) => updateItem(idx, { desc: e.target.value })} onBlur={() => pushHistory()} className="w-full px-1.5 py-0.5 text-[10px] rounded border border-slate-200 bg-white" />
+                              </>
+                            )}
+                          </div>
+                        ))}
+                        {cd.items.length === 0 && (
+                          <p className="text-[10px] text-slate-400 text-center py-3 border border-dashed border-slate-200 rounded-lg">Chưa có slide — nhấn nút trên để thêm.</p>
+                        )}
+                      </div>
+                    </div>
+                    {/* color settings */}
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                      <label><span className="text-[10px] text-slate-400 font-bold block mb-0.5">Màu nền</span>
+                        <input type="color" value={(el.styles?.backgroundColor as string) ?? "#f8fafc"} onChange={(e) => updateElement(el.id, { styles: { ...el.styles, backgroundColor: e.target.value } })} onBlur={() => pushHistory()} className="w-full h-8 rounded border border-slate-200 cursor-pointer" /></label>
+                      <label><span className="text-[10px] text-slate-400 font-bold block mb-0.5">Dot hoạt động</span>
+                        <input type="color" value={cs.dotActiveColor ?? "#6366f1"} onChange={(e) => updateCs({ dotActiveColor: e.target.value })} onBlur={() => pushHistory()} className="w-full h-8 rounded border border-slate-200 cursor-pointer" /></label>
+                    </div>
+                  </div>
+                );
+              })()}
               {el.type === "cart" && (
                 <div className="border-t border-slate-100 pt-3 space-y-3">
                   <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-2">Giỏ hàng</p>
@@ -2403,30 +2742,392 @@ export function PropertyPanelLadi({ onClose, dragHandleClassName, onRequestAddIm
   if (selected.type === "section" && sec) {
     const layoutMode = sec.layoutMode ?? "manual";
     const sectionTabs = sec.sectionTabs ?? false;
+    const secIdx = sections.findIndex((s) => s.id === sec.id);
+    const isFirst = secIdx === 0;
+    const isLast = secIdx === sections.length - 1;
+    const bgType = sectionBgTab === "image" || sec.backgroundImageUrl ? "image" : "color";
+
+    // Helper: small icon action button
+    const SecBtn = ({
+      onClick, title, disabled, danger, active, children,
+    }: {
+      onClick: () => void; title: string; disabled?: boolean; danger?: boolean;
+      active?: boolean; children: React.ReactNode;
+    }) => (
+      <button
+        type="button"
+        onClick={onClick}
+        title={title}
+        disabled={disabled}
+        className={`p-1.5 rounded transition disabled:opacity-30 disabled:cursor-not-allowed ${
+          danger
+            ? "hover:bg-red-50 text-red-500 hover:text-red-600"
+            : active
+              ? "bg-amber-50 text-amber-600 border border-amber-300"
+              : "hover:bg-slate-100 text-slate-500 hover:text-slate-700"
+        }`}
+      >
+        {children}
+      </button>
+    );
+
+    // Upload bg image directly from disk
+    const handleSectionBgFileUpload = async (files: FileList | null) => {
+      if (!files || !files[0]) return;
+      const file = files[0];
+      if (!IMAGE_TYPES.includes(file.type)) {
+        setSectionBgError("Chỉ hỗ trợ JPG, PNG, GIF, WebP, SVG");
+        return;
+      }
+      setSectionBgUploading(true);
+      setSectionBgError("");
+      try {
+        const item = await mediaApi.upload(file);
+        const url = item.url.startsWith("http") ? item.url : `${API_URL}${item.url}`;
+        updateSection(sec.id, { backgroundImageUrl: url, backgroundSize: "cover" });
+        pushHistory();
+        setSectionBgTab("image");
+      } catch {
+        setSectionBgError("Tải ảnh thất bại. Thử lại.");
+      } finally {
+        setSectionBgUploading(false);
+        if (sectionBgFileRef.current) sectionBgFileRef.current.value = "";
+      }
+    };
+
+    // If image picker (library) is open → show full-panel picker
+    if (showSectionBgPicker) {
+      return (
+        <div className="flex flex-col h-full bg-white">
+          <PropertyPanelHeader title={getPanelTitle()} onClose={onClose} dragHandleClassName={dragHandleClassName} />
+          <button
+            type="button"
+            onClick={() => setShowSectionBgPicker(false)}
+            className="flex items-center gap-1 px-3 py-2 text-[11px] text-slate-500 hover:text-slate-700 border-b border-slate-100 hover:bg-slate-50 transition"
+          >
+            <ArrowUp className="w-3 h-3 rotate-[-90deg]" />
+            ← Quay lại cài đặt section
+          </button>
+          <div className="flex-1 overflow-y-auto">
+            <ImagePickerPanel
+              onUse={(url: string) => {
+                updateSection(sec.id, { backgroundImageUrl: url, backgroundSize: "cover" });
+                pushHistory();
+                setSectionBgTab("image");
+                setShowSectionBgPicker(false);
+              }}
+              onClose={() => setShowSectionBgPicker(false)}
+            />
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex flex-col h-full bg-white">
         <PropertyPanelHeader title={getPanelTitle()} onClose={onClose} onRename={() => {}} dragHandleClassName={dragHandleClassName} />
         <PropertyPanelTabs activeTab={activeTab} onTab={setActiveTab} />
-        <div className="flex-1 overflow-y-auto p-3 space-y-4">
+        <div className="flex-1 overflow-y-auto min-h-0 p-3 space-y-4">
           {activeTab === "design" && (
             <>
-              <div className="space-y-2">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Chế độ layout</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <button type="button" onClick={() => { updateSection(sec.id, { layoutMode: "auto" }); pushHistory(); }}
-                    className={`p-3 rounded-lg border-2 text-left transition ${layoutMode === "auto" ? "border-slate-200 bg-slate-50" : "border-transparent bg-slate-50/50 hover:bg-slate-50"}`}>
-                    <AlignHorizontalSpaceAround className="w-5 h-5 text-slate-500 mb-1" />
-                    <p className="text-xs font-semibold text-slate-800">Tự động</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">Tự động căn chỉnh phần tử</p>
+              {/* ── THAO TÁC ── */}
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Thao tác</p>
+
+                {/* Move buttons */}
+                <div className="flex items-center gap-0.5 mb-2 rounded-lg border border-slate-200 p-1 bg-slate-50/50">
+                  <SecBtn title="Lên đầu trang" onClick={() => { moveSectionToIndex(sec.id, 0); pushHistory(); }} disabled={isFirst}>
+                    <ChevronsUp className="w-3.5 h-3.5" />
+                  </SecBtn>
+                  <SecBtn title="Lên trên" onClick={() => moveSectionUp(sec.id)} disabled={isFirst}>
+                    <ArrowUp className="w-3.5 h-3.5" />
+                  </SecBtn>
+                  <SecBtn title="Xuống dưới" onClick={() => moveSectionDown(sec.id)} disabled={isLast}>
+                    <ArrowDown className="w-3.5 h-3.5" />
+                  </SecBtn>
+                  <SecBtn title="Xuống cuối trang" onClick={() => { moveSectionToIndex(sec.id, sections.length - 1); pushHistory(); }} disabled={isLast}>
+                    <ChevronsDown className="w-3.5 h-3.5" />
+                  </SecBtn>
+                  <div className="w-px h-4 bg-slate-200 mx-1" />
+                  <SecBtn
+                    title={sec.visible === false ? "Hiển thị section" : "Ẩn section"}
+                    onClick={() => { updateSection(sec.id, { visible: sec.visible === false ? true : false }); pushHistory(); }}
+                    active={sec.visible === false}
+                  >
+                    {sec.visible === false ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </SecBtn>
+                  <SecBtn
+                    title={sec.isLocked ? "Mở khóa section" : "Khóa section"}
+                    onClick={() => { updateSection(sec.id, { isLocked: !sec.isLocked }); pushHistory(); }}
+                    active={sec.isLocked}
+                  >
+                    {sec.isLocked ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                  </SecBtn>
+                  <div className="w-px h-4 bg-slate-200 mx-1" />
+                  <SecBtn title="Xóa section" onClick={() => { removeSection(sec.id); pushHistory(); }} danger>
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </SecBtn>
+                </div>
+
+                {/* Status badges */}
+                {(sec.visible === false || sec.isLocked) && (
+                  <div className="flex gap-1 mb-2">
+                    {sec.visible === false && (
+                      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                        <EyeOff className="w-3 h-3" /> Đang ẩn
+                      </span>
+                    )}
+                    {sec.isLocked && (
+                      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                        <Lock className="w-3 h-3" /> Đã khóa
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Quick ops */}
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button type="button" onClick={() => duplicateSection(sec.id)}
+                    className="flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-medium hover:bg-slate-50 transition">
+                    <Copy className="w-3 h-3" /> Nhân bản
                   </button>
-                  <button type="button" onClick={() => { updateSection(sec.id, { layoutMode: "manual" }); pushHistory(); }}
-                    className={`p-3 rounded-lg border-2 text-left transition ${layoutMode === "manual" ? "border-indigo-500 bg-indigo-50/30" : "border-transparent bg-slate-50/50 hover:bg-slate-50"}`}>
-                    <AlignHorizontalSpaceBetween className="w-5 h-5 text-slate-500 mb-1" />
-                    <p className="text-xs font-semibold text-slate-800">Thủ công</p>
-                    <p className="text-[10px] text-slate-500 mt-0.5">Chỉnh sửa phần tử tự do</p>
+                  <button type="button" onClick={() => { addSection(); pushHistory(); }}
+                    className="flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-medium hover:bg-slate-50 transition">
+                    <Plus className="w-3 h-3" /> Thêm section
                   </button>
                 </div>
               </div>
+
+              {/* ── CHẾ ĐỘ LAYOUT ── */}
+              <div className="border-t border-slate-100 pt-3 space-y-2">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Chế độ layout</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => { updateSection(sec.id, { layoutMode: "auto" }); pushHistory(); }}
+                    className={`p-2.5 rounded-lg border-2 text-left transition ${layoutMode === "auto" ? "border-indigo-500 bg-indigo-50/30" : "border-slate-200 hover:bg-slate-50"}`}>
+                    <AlignHorizontalSpaceAround className="w-4 h-4 text-slate-500 mb-1" />
+                    <p className="text-[10px] font-semibold text-slate-800">Tự động</p>
+                    <p className="text-[9px] text-slate-400 mt-0.5">Tự động căn chỉnh</p>
+                  </button>
+                  <button type="button" onClick={() => { updateSection(sec.id, { layoutMode: "manual" }); pushHistory(); }}
+                    className={`p-2.5 rounded-lg border-2 text-left transition ${layoutMode === "manual" ? "border-indigo-500 bg-indigo-50/30" : "border-slate-200 hover:bg-slate-50"}`}>
+                    <AlignHorizontalSpaceBetween className="w-4 h-4 text-slate-500 mb-1" />
+                    <p className="text-[10px] font-semibold text-slate-800">Thủ công</p>
+                    <p className="text-[9px] text-slate-400 mt-0.5">Chỉnh sửa tự do</p>
+                  </button>
+                </div>
+              </div>
+
+              {/* ── KÍCH THƯỚC ── */}
+              <div className="border-t border-slate-100 pt-3">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Kích thước</p>
+                <label className="flex items-center gap-2">
+                  <span className="text-[10px] text-slate-400 font-bold w-4">H</span>
+                  <input type="number" min={100} step={10} value={sec.height ?? 600}
+                    onChange={(e) => updateSection(sec.id, { height: Number(e.target.value) })}
+                    onBlur={() => pushHistory()}
+                    className="flex-1 px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white" />
+                  <span className="text-[10px] text-slate-400">px</span>
+                </label>
+              </div>
+
+              {/* ── MÀU & HÌNH NỀN ── */}
+              <div className="border-t border-slate-100 pt-3">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Màu & Hình nền</p>
+
+                {/* Type tab switcher */}
+                <div className="flex rounded-lg border border-slate-200 overflow-hidden mb-3 text-[10px] font-semibold">
+                  {(["color", "image"] as const).map((t, i) => (
+                    <button key={t} type="button"
+                      onClick={() => setSectionBgTab(t)}
+                      className={`flex-1 py-1.5 flex items-center justify-center gap-1 transition ${i > 0 ? "border-l border-slate-200" : ""} ${
+                        (t === "color" && bgType === "color") || (t === "image" && bgType === "image")
+                          ? "bg-slate-800 text-white"
+                          : "text-slate-500 hover:bg-slate-50"
+                      }`}>
+                      {t === "color" ? <Paintbrush className="w-3 h-3" /> : <ImageIcon className="w-3 h-3" />}
+                      {t === "color" ? "Màu nền" : "Hình ảnh"}
+                    </button>
+                  ))}
+                </div>
+
+                {/* ── Màu ── */}
+                {bgType === "color" && (
+                  <div className="flex items-center gap-2">
+                    <input type="color" value={sec.backgroundColor ?? "#ffffff"}
+                      onChange={(e) => updateSection(sec.id, { backgroundColor: e.target.value })}
+                      onBlur={() => pushHistory()}
+                      className="w-10 h-8 rounded border border-slate-200 cursor-pointer shrink-0" />
+                    <input type="text" value={sec.backgroundColor ?? "#ffffff"}
+                      onChange={(e) => updateSection(sec.id, { backgroundColor: e.target.value })}
+                      onBlur={() => pushHistory()}
+                      className="flex-1 px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white font-mono" />
+                    <button type="button" title="Reset màu"
+                      onClick={() => { updateSection(sec.id, { backgroundColor: "#ffffff" }); pushHistory(); }}
+                      className="p-1.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600">
+                      <RotateCcw className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+
+                {/* ── Hình ảnh ── */}
+                {bgType === "image" && (
+                  <div className="space-y-3">
+                    {/* Preview */}
+                    {sec.backgroundImageUrl ? (
+                      <div className="relative group rounded-lg overflow-hidden border border-slate-200">
+                        <img src={sec.backgroundImageUrl} alt="bg preview" className="w-full h-24 object-cover" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-2">
+                          <button type="button" onClick={() => setShowSectionBgPicker(true)}
+                            className="px-2.5 py-1 rounded bg-white text-slate-700 text-[10px] font-semibold hover:bg-slate-50 transition">
+                            Đổi ảnh
+                          </button>
+                          <button type="button"
+                            onClick={() => { updateSection(sec.id, { backgroundImageUrl: null, backgroundOverlayColor: null, backgroundOverlayOpacity: null }); pushHistory(); }}
+                            className="p-1.5 rounded bg-red-500 text-white hover:bg-red-600 transition">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="h-20 rounded-lg border-2 border-dashed border-slate-200 flex flex-col items-center justify-center gap-1 bg-slate-50/50">
+                        <ImageIcon className="w-6 h-6 text-slate-300" />
+                        <span className="text-[10px] text-slate-400">Chưa có hình nền</span>
+                      </div>
+                    )}
+
+                    {/* Upload buttons */}
+                    <input
+                      ref={sectionBgFileRef}
+                      type="file"
+                      accept={IMAGE_TYPES.join(",")}
+                      className="hidden"
+                      onChange={(e) => handleSectionBgFileUpload(e.target.files)}
+                    />
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button type="button" disabled={sectionBgUploading}
+                        onClick={() => sectionBgFileRef.current?.click()}
+                        className="flex items-center justify-center gap-1.5 py-2 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-medium hover:bg-slate-50 disabled:opacity-50 transition">
+                        <Upload className="w-3 h-3" />
+                        {sectionBgUploading ? "Đang tải…" : "Tải ảnh lên"}
+                      </button>
+                      <button type="button"
+                        onClick={() => setShowSectionBgPicker(true)}
+                        className="flex items-center justify-center gap-1.5 py-2 rounded-lg border border-slate-200 text-slate-600 text-[10px] font-medium hover:bg-slate-50 transition">
+                        <Layers className="w-3 h-3" />
+                        Thư viện ảnh
+                      </button>
+                    </div>
+                    {sectionBgError && <p className="text-[10px] text-red-500">{sectionBgError}</p>}
+
+                    {/* URL input */}
+                    <input type="text" placeholder="Hoặc dán URL ảnh..."
+                      value={sec.backgroundImageUrl ?? ""}
+                      onChange={(e) => updateSection(sec.id, { backgroundImageUrl: e.target.value || null })}
+                      onBlur={() => pushHistory()}
+                      className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white" />
+
+                    {/* Image settings — only when image is set */}
+                    {sec.backgroundImageUrl && (
+                      <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-2.5 space-y-3">
+                        {/* Size */}
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-bold block mb-1.5">Kích thước ảnh</span>
+                          <div className="flex rounded border border-slate-200 overflow-hidden text-[10px] font-medium bg-white">
+                            {(["cover", "contain", "auto"] as const).map((sz, i) => (
+                              <button key={sz} type="button"
+                                onClick={() => { updateSection(sec.id, { backgroundSize: sz }); pushHistory(); }}
+                                className={`flex-1 py-1.5 transition ${i > 0 ? "border-l border-slate-200" : ""} ${(sec.backgroundSize ?? "cover") === sz ? "bg-slate-800 text-white" : "text-slate-500 hover:bg-slate-100"}`}>
+                                {sz === "cover" ? "Phủ đầy" : sz === "contain" ? "Vừa khít" : "Tự nhiên"}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Position — 3×3 grid */}
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-bold block mb-1.5">Vị trí ảnh</span>
+                          <div className="grid grid-cols-3 gap-1">
+                            {[
+                              ["top left","↖"],["top center","↑"],["top right","↗"],
+                              ["center left","←"],["center center","·"],["center right","→"],
+                              ["bottom left","↙"],["bottom center","↓"],["bottom right","↘"],
+                            ].map(([pos, icon]) => (
+                              <button key={pos} type="button"
+                                onClick={() => { updateSection(sec.id, { backgroundPosition: pos }); pushHistory(); }}
+                                className={`h-7 rounded border text-base transition ${(sec.backgroundPosition ?? "center center") === pos ? "border-indigo-500 bg-indigo-50 text-indigo-600" : "border-slate-200 bg-white text-slate-400 hover:border-slate-300"}`}>
+                                {icon}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Repeat */}
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] text-slate-500 font-medium">Lặp lại ảnh</span>
+                          <button type="button"
+                            onClick={() => { updateSection(sec.id, { backgroundRepeat: sec.backgroundRepeat === "repeat" ? "no-repeat" : "repeat" }); pushHistory(); }}
+                            className={`relative w-8 h-4 rounded-full transition ${sec.backgroundRepeat === "repeat" ? "bg-indigo-600" : "bg-slate-200"}`}>
+                            <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition ${sec.backgroundRepeat === "repeat" ? "left-4" : "left-0.5"}`} />
+                          </button>
+                        </div>
+
+                        {/* Overlay */}
+                        <div className="border-t border-slate-200 pt-2.5 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
+                              <Layers className="w-3 h-3" /> Lớp phủ (Overlay)
+                            </span>
+                            <button type="button"
+                              onClick={() => {
+                                if (sec.backgroundOverlayColor) {
+                                  updateSection(sec.id, { backgroundOverlayColor: null, backgroundOverlayOpacity: null });
+                                } else {
+                                  updateSection(sec.id, { backgroundOverlayColor: "#000000", backgroundOverlayOpacity: 40 });
+                                }
+                                pushHistory();
+                              }}
+                              className={`relative w-8 h-4 rounded-full transition ${sec.backgroundOverlayColor ? "bg-indigo-600" : "bg-slate-200"}`}>
+                              <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition ${sec.backgroundOverlayColor ? "left-4" : "left-0.5"}`} />
+                            </button>
+                          </div>
+                          {sec.backgroundOverlayColor && (
+                            <div className="space-y-2 pl-1">
+                              <div className="flex items-center gap-2">
+                                <input type="color" value={sec.backgroundOverlayColor}
+                                  onChange={(e) => updateSection(sec.id, { backgroundOverlayColor: e.target.value })}
+                                  onBlur={() => pushHistory()}
+                                  className="w-8 h-7 rounded border border-slate-200 cursor-pointer shrink-0" />
+                                <input type="text" value={sec.backgroundOverlayColor}
+                                  onChange={(e) => updateSection(sec.id, { backgroundOverlayColor: e.target.value })}
+                                  onBlur={() => pushHistory()}
+                                  className="flex-1 px-2 py-1 text-[11px] rounded border border-slate-200 bg-white font-mono" />
+                              </div>
+                              <div>
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="text-[10px] text-slate-400">Độ trong suốt</span>
+                                  <span className="text-[10px] text-slate-500 font-medium">{sec.backgroundOverlayOpacity ?? 40}%</span>
+                                </div>
+                                <input type="range" min={0} max={100}
+                                  value={sec.backgroundOverlayOpacity ?? 40}
+                                  onChange={(e) => updateSection(sec.id, { backgroundOverlayOpacity: Number(e.target.value) })}
+                                  onMouseUp={() => pushHistory()}
+                                  className="w-full accent-indigo-600" />
+                                {/* Live preview */}
+                                <div className="mt-1 h-4 rounded-sm overflow-hidden flex">
+                                  <div className="flex-1" style={{ background: "url(\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAGElEQVQoU2NkYGBg+M9AACRgYGBgJKYIABJaAAktV1YjAAAAAElFTkSuQmCC\") repeat" }} />
+                                  <div className="flex-1" style={{ background: sec.backgroundOverlayColor, opacity: (sec.backgroundOverlayOpacity ?? 40) / 100 + 0.001 }} />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* ── SECTION TABS ── */}
               <div className="border-t border-slate-100 pt-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Section Tabs</span>
@@ -2435,55 +3136,44 @@ export function PropertyPanelLadi({ onClose, dragHandleClassName, onRequestAddIm
                     <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition ${sectionTabs ? "left-4" : "left-0.5"}`} />
                   </button>
                 </div>
-              </div>
-              <div className="border-t border-slate-100 pt-3">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Kích thước</p>
-                <label className="flex items-center gap-2">
-                  <span className="text-[10px] text-slate-400 font-bold w-4">H</span>
-                  <input type="number" value={sec.height ?? 600} onChange={(e) => updateSection(sec.id, { height: Number(e.target.value) })} onBlur={() => pushHistory()}
-                    className="flex-1 px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white" />
-                </label>
-              </div>
-              <div className="border-t border-slate-100 pt-3">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Màu & Hình nền</p>
-                <div className="space-y-2">
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-bold block mb-1">Chọn kiểu</span>
-                    <select className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white">
-                      <option>Màu cơ bản</option>
-                      <option>Hình ảnh</option>
-                      <option>Gradient</option>
-                    </select>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 font-bold block mb-1">Màu nền</span>
-                    <div className="flex items-center gap-2">
-                      <input type="color" value={sec.backgroundColor ?? "#ffffff"} onChange={(e) => updateSection(sec.id, { backgroundColor: e.target.value })} onBlur={() => pushHistory()}
-                        className="w-10 h-8 rounded border border-slate-200 cursor-pointer shrink-0" />
-                      <span className="text-[11px] text-slate-600">Chọn màu</span>
-                    </div>
-                  </div>
-                  <label className="block">
-                    <span className="text-[10px] text-slate-400 font-bold block mb-1">Ảnh nền URL</span>
-                    <input type="text" placeholder="https://..." value={sec.backgroundImageUrl ?? ""} onChange={(e) => updateSection(sec.id, { backgroundImageUrl: e.target.value })} onBlur={() => pushHistory()}
-                      className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white" />
-                  </label>
-                </div>
-              </div>
-              <div className="border-t border-slate-100 pt-3 flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-700">Thao tác</span>
-                <div className="flex gap-1">
-                  <button type="button" onClick={() => moveSectionUp(sec.id)} className="p-1.5 rounded hover:bg-slate-100" title="Lên"><ArrowUp className="w-3.5 h-3.5 text-slate-500" /></button>
-                  <button type="button" onClick={() => moveSectionDown(sec.id)} className="p-1.5 rounded hover:bg-slate-100" title="Xuống"><ArrowDown className="w-3.5 h-3.5 text-slate-500" /></button>
-                  <button type="button" onClick={() => duplicateSection(sec.id)} className="p-1.5 rounded hover:bg-slate-100" title="Nhân bản"><Copy className="w-3.5 h-3.5 text-slate-500" /></button>
-                  <button type="button" onClick={() => { removeSection(sec.id); pushHistory(); }} className="p-1.5 rounded hover:bg-red-50 text-red-500" title="Xóa"><Trash2 className="w-3.5 h-3.5" /></button>
-                </div>
+                <p className="text-[10px] text-slate-400 mt-1">Biến section thành bộ tabs chuyển đổi nội dung.</p>
               </div>
             </>
           )}
-          {activeTab === "events" && <div className="text-center py-8 text-slate-400 text-sm px-4">Tính năng Sự kiện hiện chỉ áp dụng cho <br/><b className="text-indigo-500">Phần tử (Element)</b>.<br/><br/>Hãy click chọn 1 phần tử trên khung thiết kế để cài đặt.</div>}
-          {activeTab === "effects" && <div className="text-center py-8 text-slate-400 text-sm px-4">Tính năng Hiệu ứng hiện chỉ áp dụng cho <br/><b className="text-indigo-500">Phần tử (Element)</b>.<br/><br/>Hãy click chọn 1 phần tử trên khung thiết kế để cài đặt.</div>}
-          {activeTab === "advanced" && <div className="text-center py-8 text-slate-400 text-sm px-4">Tính năng Nâng cao hiện chỉ áp dụng cho <br/><b className="text-indigo-500">Phần tử (Element)</b>.<br/><br/>Hãy click chọn 1 phần tử trên khung thiết kế để cài đặt.</div>}
+
+          {activeTab === "events" && (
+            <div className="text-center py-8 text-slate-400 text-sm px-4">
+              Tính năng Sự kiện hiện chỉ áp dụng cho <br /><b className="text-indigo-500">Phần tử (Element)</b>.<br /><br />
+              Hãy click chọn 1 phần tử trên khung thiết kế.
+            </div>
+          )}
+          {activeTab === "effects" && (
+            <div className="text-center py-8 text-slate-400 text-sm px-4">
+              Tính năng Hiệu ứng hiện chỉ áp dụng cho <br /><b className="text-indigo-500">Phần tử (Element)</b>.<br /><br />
+              Hãy click chọn 1 phần tử trên khung thiết kế.
+            </div>
+          )}
+          {activeTab === "advanced" && (
+            <div className="space-y-3">
+              <div>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">CSS Class tùy chỉnh</p>
+                <input type="text" placeholder="my-section custom-class"
+                  value={sec.customClass ?? ""}
+                  onChange={(e) => updateSection(sec.id, { customClass: e.target.value })}
+                  onBlur={() => pushHistory()}
+                  className="w-full px-2 py-1.5 text-[11px] rounded border border-slate-200 bg-white font-mono" />
+                <p className="text-[10px] text-slate-400 mt-1">Thêm CSS class cho section để style tùy chỉnh.</p>
+              </div>
+              <div className="border-t border-slate-100 pt-3">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Thông tin section</p>
+                <div className="space-y-1 text-[10px] text-slate-500">
+                  <div className="flex justify-between"><span>ID:</span><span className="font-mono">{sec.id}</span></div>
+                  <div className="flex justify-between"><span>Thứ tự:</span><span>{secIdx + 1} / {sections.length}</span></div>
+                  <div className="flex justify-between"><span>Phần tử:</span><span>{sec.elements.length}</span></div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );

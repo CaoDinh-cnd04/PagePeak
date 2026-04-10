@@ -1,0 +1,12 @@
+{
+  "folders": [
+    {
+      "path": "Frontend-ui",
+      "name": "Frontend-ui"
+    }
+  ],
+  "settings": {
+    "typescript.tsdk": "node_modules/typescript/lib",
+    "typescript.enablePromptUseWorkspaceTsdk": true
+  }
+}

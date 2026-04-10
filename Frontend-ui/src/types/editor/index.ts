@@ -60,6 +60,16 @@ export type EditorSection = {
   name?: string | null;
   backgroundColor?: string | null;
   backgroundImageUrl?: string | null;
+  /** CSS background-size: "cover" | "contain" | "auto" */
+  backgroundSize?: "cover" | "contain" | "auto" | null;
+  /** CSS background-position, e.g. "center center" | "top left" */
+  backgroundPosition?: string | null;
+  /** CSS background-repeat */
+  backgroundRepeat?: "no-repeat" | "repeat" | "repeat-x" | "repeat-y" | null;
+  /** Overlay color hex, e.g. "#000000" */
+  backgroundOverlayColor?: string | null;
+  /** Overlay opacity 0-100 */
+  backgroundOverlayOpacity?: number | null;
   height?: number | null;
   visible: boolean;
   isLocked: boolean;

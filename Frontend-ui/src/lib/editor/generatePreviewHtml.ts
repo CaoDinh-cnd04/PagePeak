@@ -2,7 +2,7 @@ import DOMPurify from "isomorphic-dompurify";
 import { getIconById } from "@/lib/editor/data/iconData";
 import type { EditorSection, EditorElement, UtilityEffectsSettings } from "@/types/editor";
 import { parseProductDetailContent } from "@/lib/editor/productDetailContent";
-import { parseTabsContent, parseCarouselContent } from "@/lib/editor/tabsContent";
+import { parseTabsContent, parseCarouselContent, mergeCarouselStyle } from "@/lib/editor/tabsContent";
 import {
   parseBlogListContent,
   parseBlogDetailContent,
@@ -403,18 +403,27 @@ function elementToHtml(
           ? "background:transparent;border:none;border-bottom:2px solid #1e293b;border-radius:0"
           : "background:#fff;border:1px solid #e2e8f0;border-radius:4px";
       const fs = (s.fontSize as number) ?? 14;
-      styles.push("border:1px solid #e2e8f0", "border-radius:8px", "padding:16px", "background:#fff", "display:flex", "flex-direction:column", "gap:8px");
+      const ff = s.fontFamily ? `font-family:${escHtml(String(s.fontFamily))},sans-serif;` : "";
+      const fw = s.fontWeight ? `font-weight:${s.fontWeight};` : "font-weight:400;";
+      const fStyle = s.fontStyle ? `font-style:${escHtml(String(s.fontStyle))};` : "";
+      const fDeco = s.textDecoration ? `text-decoration:${escHtml(String(s.textDecoration))};` : "";
+      const tColor = s.color ? `color:${escHtml(String(s.color))}` : "color:#1e293b";
+      const bg = s.backgroundColor ? `background:${escHtml(String(s.backgroundColor))}` : "background:#fff";
+      const inputBaseWithColor = inputStyle === "underlined" ? "background:transparent;border:none;border-bottom:2px solid rgba(0,0,0,0.3);border-radius:0" : inputBase;
+      styles.push("border:1px solid #e2e8f0", "border-radius:8px", "padding:16px", bg, "display:flex", "flex-direction:column", "gap:8px");
       let inner = "";
       if (title && formType !== "login") {
-        inner += `<div style="font-size:${Math.min(fs + 2, 18)}px;font-weight:600;color:#1e293b;margin-bottom:4px">${escHtml(title)}</div>`;
+        inner += `<div style="font-size:${Math.min(fs + 2, 18)}px;font-weight:600;${tColor};${ff}margin-bottom:4px">${escHtml(title)}</div>`;
       }
       if (formType === "otp") {
-        inner += `<div style="font-size:${fs - 2}px;color:#64748b;margin-bottom:4px">Nhập mã OTP được gửi đến số điện thoại của bạn để xác nhận</div>`;
+        inner += `<div style="font-size:${fs - 2}px;color:#64748b;${ff}margin-bottom:4px">Nhập mã OTP được gửi đến số điện thoại của bạn để xác nhận</div>`;
       }
       if (formType === "login") {
         inner += `<form class="lp-form" data-lp-form-type="login" style="display:flex;gap:8px;align-items:center">
-          <input type="text" name="accessCode" placeholder="Mã truy cập" style="flex:1;padding:10px 12px;font-size:${fs}px;${inputBase}" />
-          <button type="submit" style="padding:10px 20px;background:#000;color:#fff;border:none;border-radius:4px;font-weight:600;cursor:pointer;font-size:${fs}px">${escHtml(buttonText)}</button>
+          <input type="text" name="accessCode" placeholder="Mã truy cập" style="flex:1;padding:10px 12px;font-size:${fs}px;${ff}${fw}${fStyle}${fDeco}${tColor};${inputBaseWithColor};box-sizing:border-box" />
+          <button type="submit" style="padding:10px 20px;${tColor.replace("color:","background:")};${bg.replace("background:","color:")};border:none;border-radius:4px;font-weight:600;cursor:pointer;font-size:${fs}px;${ff}">
+            ${escHtml(buttonText)}
+          </button>
         </form>`;
       } else {
         inner += `<form class="lp-form" data-lp-form-type="${escHtml(formType)}"${leadAttrs}>`;
@@ -423,12 +432,12 @@ function elementToHtml(
           const nm = (f.name ?? f.id) as string;
           const tp = (f.type ?? "text") as string;
           if (tp === "textarea") {
-            inner += `<div style="margin-bottom:4px"><textarea name="${escHtml(nm)}" placeholder="${escHtml(ph)}" style="width:100%;padding:10px 12px;font-size:${fs}px;${inputBase};min-height:60px;resize:vertical;font-family:inherit"></textarea></div>`;
+            inner += `<div style="margin-bottom:4px"><textarea name="${escHtml(nm)}" placeholder="${escHtml(ph)}" style="width:100%;padding:10px 12px;font-size:${fs}px;${ff}${fw}${fStyle}${fDeco}${tColor};${inputBaseWithColor};min-height:60px;resize:vertical;font-family:inherit;box-sizing:border-box"></textarea></div>`;
           } else {
-            inner += `<div style="margin-bottom:4px"><input type="${tp === "phone" ? "tel" : tp}" name="${escHtml(nm)}" placeholder="${escHtml(ph)}" style="width:100%;padding:10px 12px;font-size:${fs}px;${inputBase}" /></div>`;
+            inner += `<div style="margin-bottom:4px"><input type="${tp === "phone" ? "tel" : tp}" name="${escHtml(nm)}" placeholder="${escHtml(ph)}" style="width:100%;padding:10px 12px;font-size:${fs}px;${ff}${fw}${fStyle}${fDeco}${tColor};${inputBaseWithColor};box-sizing:border-box" /></div>`;
           }
         }
-        inner += `<button type="submit" style="width:100%;padding:12px;background:#000;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer;font-size:${fs}px;margin-top:4px">${escHtml(buttonText)}</button></form>`;
+        inner += `<button type="submit" style="width:100%;padding:12px;${tColor.replace("color:","background:")};${bg.replace("background:","color:")};border:none;border-radius:6px;font-weight:600;cursor:pointer;font-size:${fs}px;${ff}text-align:center;margin-top:4px">${escHtml(buttonText)}</button></form>`;
       }
       return `<div class="lp-element lp-form-container" style="${styles.join(";")}">${inner}</div>`;
     }
@@ -613,54 +622,96 @@ function elementToHtml(
     }
 
     case "carousel": {
-      const { layoutType: lt, items: carouselItems } = parseCarouselContent(el.content ?? undefined);
+      const { layoutType: lt, items: carouselItems, carouselStyle: cStyle } = parseCarouselContent(el.content ?? undefined);
+      const cs = mergeCarouselStyle(cStyle);
       const layoutType = lt === "testimonial" || lt === "media" ? lt : "testimonial";
       const bg = (s.backgroundColor as string) ?? "#f8fafc";
+      const autoplayMs = Math.max(1000, cs.autoplayMs ?? 5000);
+      const dotActiveColor = cs.dotActiveColor ?? "#6366f1";
+      const dotColor = cs.dotColor ?? "#d1d5db";
       styles.push(
         `background-color:${bg}`,
         `border-radius:12px`,
-        `overflow:hidden`,
-        `padding:16px`,
+        `overflow:visible`,
+        `padding:24px 40px 16px`,
         `box-sizing:border-box`,
         `display:flex`,
         `flex-direction:column`,
-        `align-items:stretch`,
-        `justify-content:flex-start`,
+        `align-items:center`,
+        `justify-content:center`,
+        `position:relative`,
       );
       if (carouselItems.length === 0) {
         return `<div style="${styles.join(";")}"><span style="color:#94a3b8;font-size:12px">Carousel</span></div>`;
       }
+      const n = carouselItems.length;
+      const stripQ = (str: string) => escHtml(str.replace(/^[""\u201c\u2018']+|[""\u201d\u2019']+$/g, "").trim());
       const buildSlide = (item: (typeof carouselItems)[0], si: number) => {
-        let slide = "";
+        let inner = "";
         if (layoutType === "testimonial") {
           if (item.avatar?.trim()) {
-            slide += `<div style="width:60px;height:60px;border-radius:50%;overflow:hidden;background:#e2e8f0;margin:0 auto 8px"><img src="${escHtml(item.avatar)}" alt="" style="width:100%;height:100%;object-fit:cover" /></div>`;
+            inner += `<div style="width:72px;height:72px;border-radius:50%;overflow:hidden;background:#e2e8f0;margin:0 auto 14px;box-shadow:0 2px 14px rgba(0,0,0,.13);flex-shrink:0"><img src="${escHtml(item.avatar)}" alt="" style="width:100%;height:100%;object-fit:cover" /></div>`;
           }
-          slide += `<div style="font-style:italic;font-size:12px;color:#374151;text-align:center;margin-bottom:8px;line-height:1.5">&ldquo;${escHtml((item.quote || "Trích dẫn...").slice(0, 220))}&rdquo;</div>`;
-          slide += `<div style="font-size:13px;font-weight:700;color:#111827;text-align:center">${escHtml(item.name || "Tên")}</div>`;
-          if (item.role) slide += `<div style="font-size:11px;color:#6b7280;text-align:center">${escHtml(item.role)}</div>`;
+          const q = stripQ(item.quote || "Trích dẫn hài lòng của khách hàng về sản phẩm/dịch vụ");
+          inner += `<div style="font-style:italic;font-size:${cs.quoteFontSize}px;color:${cs.quoteColor};text-align:center;line-height:1.7;padding:0 8px;margin-bottom:14px">\u201c${q.slice(0,220)}\u201d</div>`;
+          inner += `<div style="font-size:${cs.nameFontSize}px;font-weight:700;color:${cs.nameColor};text-align:center;line-height:1.3;margin-bottom:3px">${escHtml(item.name || "Tên khách hàng")}</div>`;
+          if (item.role) inner += `<div style="font-size:${cs.roleFontSize}px;color:${cs.roleColor};text-align:center;opacity:0.72;line-height:1.3">${escHtml(item.role)}</div>`;
         } else {
           if (item.image?.trim()) {
-            slide += `<div style="width:100%;flex:1;min-height:0;border-radius:8px;overflow:hidden;background:#e2e8f0;margin-bottom:8px"><img src="${escHtml(item.image)}" alt="" style="width:100%;height:100%;object-fit:cover" /></div>`;
+            inner += `<div style="width:100%;border-radius:10px;overflow:hidden;background:#e2e8f0;margin-bottom:12px;aspect-ratio:16/9;flex-shrink:0"><img src="${escHtml(item.image)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block" /></div>`;
           }
-          if (item.title || item.name) slide += `<div style="font-size:13px;font-weight:600;color:#111827;text-align:center">${escHtml(item.title || item.name || "")}</div>`;
-          if (item.desc?.trim()) slide += `<div style="font-size:11px;color:#64748b;text-align:center;margin-top:4px;line-height:1.45">${escHtml(item.desc)}</div>`;
+          if (item.title || item.name) inner += `<div style="font-size:${cs.titleFontSize}px;font-weight:700;color:${cs.titleColor};text-align:${cs.titleAlign};margin-bottom:5px;line-height:1.3">${escHtml(item.title || item.name || "")}</div>`;
+          if (item.desc?.trim()) inner += `<div style="font-size:${cs.descFontSize}px;color:${cs.descColor};text-align:${cs.descAlign};line-height:1.55;opacity:0.82">${escHtml(item.desc)}</div>`;
         }
-        const disp = si === 0 ? "flex" : "none";
-        return `<div data-lp-carousel-slide data-slide-index="${si}" style="display:${disp};flex-direction:column;align-items:center;justify-content:center;width:100%;min-height:0;flex:1">${slide || `<span style="color:#94a3b8;font-size:12px">Slide ${si + 1}</span>`}</div>`;
+        return `<div data-lp-carousel-slide data-slide-index="${si}" style="display:${si===0?"flex":"none"};flex-direction:column;align-items:center;width:100%;box-sizing:border-box;padding:0 ${n>1?"28px":"4px"}">${inner || `<span style="color:#94a3b8;font-size:12px">Slide ${si + 1}</span>`}</div>`;
       };
       const slidesHtml = carouselItems.map((it, si) => buildSlide(it, si)).join("");
       const maxDots = 12;
-      const dotCount = Math.min(carouselItems.length, maxDots);
+      const dotCount = Math.min(n, maxDots);
       const dotsHtml = carouselItems.slice(0, maxDots).map((_, di) => {
         const active = di === 0;
-        return `<button type="button" data-lp-carousel-dot="${di}" aria-label="Slide ${di + 1}" aria-current="${active ? "true" : "false"}" style="width:${active ? 16 : 6}px;height:6px;border:none;border-radius:3px;background:${active ? "#6366f1" : "#d1d5db"};cursor:pointer;padding:0;flex-shrink:0;transition:background .2s,width .2s"></button>`;
+        return `<button type="button" data-lp-carousel-dot="${di}" aria-label="Slide ${di + 1}" aria-current="${active ? "true" : "false"}" style="width:${active ? 20 : 7}px;height:7px;border:none;border-radius:4px;background:${active ? dotActiveColor : dotColor};cursor:pointer;padding:0;flex-shrink:0;transition:background .25s,width .25s"></button>`;
       }).join("");
-      const dotsRow =
-        dotCount > 1
-          ? `<div style="display:flex;gap:4px;align-items:center;margin-top:10px;justify-content:center;flex-wrap:wrap">${dotsHtml}</div>`
-          : "";
-      return `<div data-lp-carousel="1" style="${styles.join(";")}"><div style="display:flex;flex-direction:column;width:100%;flex:1;min-height:0">${slidesHtml}</div>${dotsRow}</div>`;
+      const carouselId = "carousel_" + Math.random().toString(36).substring(2, 9);
+      const dotsRow = dotCount > 1
+        ? `<div style="display:flex;gap:5px;align-items:center;margin-top:14px;justify-content:center;flex-shrink:0">${dotsHtml}</div>`
+        : "";
+      const navBtns = n > 1 ? `
+        <button type="button" data-lp-carousel-prev aria-label="Slide trước" style="position:absolute;left:6px;top:50%;transform:translateY(-50%);z-index:10;width:32px;height:32px;border-radius:50%;border:none;background:rgba(15,23,42,0.32);color:#fff;cursor:pointer;font-size:20px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0">&#8249;</button>
+        <button type="button" data-lp-carousel-next aria-label="Slide tiếp" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);z-index:10;width:32px;height:32px;border-radius:50%;border:none;background:rgba(15,23,42,0.32);color:#fff;cursor:pointer;font-size:20px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0">&#8250;</button>` : "";
+      
+      const isolateScript = n > 1 ? `<script>
+        (function(){
+          var init = function() {
+            var widget = document.getElementById('${carouselId}');
+            if(!widget) return;
+            var slides=widget.querySelectorAll('[data-lp-carousel-slide]');
+            var dots=widget.querySelectorAll('[data-lp-carousel-dot]');
+            var btnPrev=widget.querySelector('[data-lp-carousel-prev]');
+            var btnNext=widget.querySelector('[data-lp-carousel-next]');
+            var cur=0;
+            function go(i){
+              i=(i%${n}+${n})%${n};cur=i;
+              for(var k=0;k<slides.length;k++) slides[k].style.display=(k===i)?'flex':'none';
+              for(var d=0;d<dots.length;d++){
+                var on=(d===i);
+                dots[d].setAttribute('aria-current',on?'true':'false');
+                dots[d].style.background=on?'${escHtml(dotActiveColor)}':'${escHtml(dotColor)}';
+                dots[d].style.width=on?'20px':'7px';
+              }
+            }
+            var timer=setInterval(function(){go(cur+1)}, ${autoplayMs});
+            function reset(){clearInterval(timer);timer=setInterval(function(){go(cur+1)}, ${autoplayMs});}
+            if(btnPrev) btnPrev.addEventListener('click', function(e){e.preventDefault();go(cur-1);reset();});
+            if(btnNext) btnNext.addEventListener('click', function(e){e.preventDefault();go(cur+1);reset();});
+            dots.forEach(function(d,i){ d.addEventListener('click', function(e){e.preventDefault();go(i);reset();})});
+          };
+          if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init);
+          else init();
+        })();
+      </script>` : "";
+
+      return `<div id="${carouselId}" data-lp-carousel="1" data-autoplay-ms="${autoplayMs}" data-dot-active="${escHtml(dotActiveColor)}" data-dot-color="${escHtml(dotColor)}" style="${styles.join(";")}"><div style="display:flex;flex-direction:column;width:100%;align-items:center">${slidesHtml}</div>${dotsRow}${navBtns}</div>${isolateScript}`;
     }
 
     case "tabs": {
@@ -986,6 +1037,11 @@ function addDataAttrs(el: EditorElement, html: string): string {
     const tgt = String(s.actionTarget ?? "").trim();
     if (tgt) attrs.push(`data-action-target="${escHtml(tgt)}"`);
     if (String(s.actionOpenNewTab) === "true") attrs.push(`data-action-newtab="true"`);
+
+    if (at === "section" && tgt) {
+      const clickJs = `event.preventDefault(); event.stopPropagation(); var sec=document.getElementById('lp-section-${escHtml(tgt)}'); if(sec) { var pc=document.querySelector('.page-container'); var m=pc&&pc.style.transform.match(/scale\\(([^)]+)\\)/); var sc=m&&m[1]?parseFloat(m[1]):1; window.scrollTo({top: sec.offsetTop*sc, behavior:'smooth'}); } return false;`;
+      attrs.push(`onclick="${escHtml(clickJs)}"`);
+    }
   }
 
   return html.replace(/^<(\w+)/, `<$1 ${attrs.join(" ")}`);
@@ -1219,6 +1275,8 @@ export function generatePreviewHtml(
   ${fontLinks}
   ${recaptchaHeadScript}
   <style>
+    /* Reset & Base */
+    html { scroll-behavior: smooth; } /* Fix native anchor sliding */
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body { min-height: 100vh; }
     body { font-family: Inter, system-ui, -apple-system, sans-serif; background: #e8ecf1; }
@@ -1278,6 +1336,8 @@ export function generatePreviewHtml(
   </div>
   ${htmlFullscreenOverlayHtml}
   <script>
+  (function(){
+  function lpInitInteractive(){
   document.querySelectorAll('[data-hover]').forEach(function(el){
     var t=el.dataset.hover,orig={transform:el.style.transform,filter:el.style.filter,boxShadow:el.style.boxShadow};
     el.addEventListener('mouseenter',function(){
@@ -1327,7 +1387,7 @@ export function generatePreviewHtml(
       if(t&&t.nodeType===3)t=t.parentElement;
       if(t&&t.closest){
         if(t.closest('form'))return;
-        if(t.closest('input,textarea,select,button,label'))return;
+        if(t.closest('input,textarea,select,label'))return;
         if(t.closest('iframe,video,audio'))return;
         var innerA=t.closest('a[href]');
         if(innerA&&innerA!==el)return;
@@ -1335,7 +1395,31 @@ export function generatePreviewHtml(
       if(type==='link'&&target){ if(nt)window.open(target,'_blank'); else window.location.href=target; e.preventDefault(); }
       else if(type==='phone'&&target){ window.location.href='tel:'+target.replace(/\\s/g,''); e.preventDefault(); }
       else if(type==='email'&&target){ window.location.href='mailto:'+target; e.preventDefault(); }
-      else if(type==='section'&&target){ var sec=document.getElementById('lp-section-'+target); if(sec)sec.scrollIntoView({behavior:'smooth'}); e.preventDefault(); }
+      else if(type==='section'&&target){ 
+        e.preventDefault();
+        var sec=document.getElementById('lp-section-'+target); 
+        if(sec){
+           var pc=document.querySelector('.page-container');
+           var scale=1;
+           if(pc && pc.style.transform){
+             var m=pc.style.transform.match(/scale\(([^)]+)\)/);
+             if(m&&m[1]) scale=parseFloat(m[1]);
+           }
+           // Không dùng scrollIntoView() vì có thể bị lỗi container hoặc scroll parent trong iframe.
+           // Tính chính xác toạ độ Absolute top
+           var targetY = sec.offsetTop * scale;
+           try {
+             if(typeof window.scrollTo === 'function') {
+               window.scrollTo({top: targetY, behavior: 'smooth'});
+             } else {
+               window.scroll(0, targetY);
+             }
+           } catch(err) {
+             document.documentElement.scrollTop = targetY;
+             document.body.scrollTop = targetY;
+           }
+        } 
+      }
       else if(type==='popup'&&target){
         var t2=String(target).trim();
         if(t2==='close'){ lpCloseAllPopups(); }
@@ -1442,25 +1526,6 @@ export function generatePreviewHtml(
       btn.addEventListener('click',function(){setActive(idx);});
     });
   });
-  document.querySelectorAll('.lp-element[data-lp-carousel]').forEach(function(widget){
-    var slides=widget.querySelectorAll('[data-lp-carousel-slide]');
-    var dots=widget.querySelectorAll('[data-lp-carousel-dot]');
-    if(!slides.length)return;
-    var n=slides.length;
-    function go(i){
-      i=((i%n)+n)%n;
-      for(var k=0;k<slides.length;k++){ slides[k].style.display=k===i?'flex':'none'; }
-      for(var d=0;d<dots.length;d++){
-        var on=d===i;
-        dots[d].setAttribute('aria-current',on?'true':'false');
-        dots[d].style.background=on?'#6366f1':'#d1d5db';
-        dots[d].style.width=on?'16px':'6px';
-      }
-    }
-    dots.forEach(function(dot){
-      dot.addEventListener('click',function(e){ e.stopPropagation(); var idx=parseInt(dot.getAttribute('data-lp-carousel-dot')||'0',10); if(!isNaN(idx))go(idx); });
-    });
-  });
   document.querySelectorAll('.lp-element[data-lp-accordion]').forEach(function(root){
     root.querySelectorAll('[data-lp-acc-header]').forEach(function(btn){
       btn.addEventListener('click',function(e){
@@ -1472,11 +1537,18 @@ export function generatePreviewHtml(
         if(!panel)return;
         var open=panel.style.display!=='none';
         panel.style.display=open?'none':'block';
-        if(icon) icon.textContent=open?'▼':'▲';
+        if(icon) icon.textContent=open?'\u25bc':'\u25b2';
       });
     });
   });
   ${utilityFxInline}
+  } /* end lpInitInteractive */
+  
+  /* Trong iframe srcDoc, DOMContentLoaded và load có thể không fire ổn định.
+     Vì script nằm ở cuối <body>, ta có thể khởi động ngay lập tức: */
+  lpInitInteractive();
+  
+  })();
   </script>
   <script>
   (function(){

@@ -1,14 +1,14 @@
+import { Link } from "react-router-dom";
 import { Button } from "@/components/shared/ui/Button";
-import { ClipboardCheck, ExternalLink } from "lucide-react";
+import { ClipboardCheck, BookOpen } from "lucide-react";
 
 type Props = {
   onCreate: () => void;
-  /** Link hướng dẫn (docs) */
-  guideUrl?: string;
+  onCreateGoogle?: () => void;
 };
 
 /** Empty state kiểu LadiPage — card 2 cột: copy + minh họa */
-export function FormConfigEmptyState({ onCreate, guideUrl = "https://docs.pagepeak.com" }: Props) {
+export function FormConfigEmptyState({ onCreate, onCreateGoogle }: Props) {
   return (
     <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 shadow-sm overflow-hidden">
       <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center p-8 lg:p-12">
@@ -24,7 +24,7 @@ export function FormConfigEmptyState({ onCreate, guideUrl = "https://docs.pagepe
             Tạo bộ trường dữ liệu dùng chung cho landing page: thêm, sắp xếp và tùy chỉnh nhãn, kiểu nhập, bắt buộc hay không.
             Sau đó gắn cấu hình vào phần tử Form trên trình soạn thảo.
           </p>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-1">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 pt-1 flex-wrap">
             <Button
               type="button"
               className="bg-[#2563eb] hover:bg-[#1d4ed8] text-white px-6 py-2.5 text-sm font-semibold shadow-sm"
@@ -32,18 +32,29 @@ export function FormConfigEmptyState({ onCreate, guideUrl = "https://docs.pagepe
             >
               Tạo cấu hình ngay
             </Button>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Hoặc{" "}
-              <a
-                href={guideUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[#2563eb] font-semibold hover:underline inline-flex items-center gap-1"
+            {onCreateGoogle && (
+              <button
+                type="button"
+                onClick={onCreateGoogle}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border border-[#6741D9]/30 text-[#6741D9] dark:text-[#c4b5fd] text-sm font-semibold hover:bg-[#6741D9]/5 transition"
               >
-                Xem hướng dẫn
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-            </p>
+                <svg width="14" height="14" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+                  <rect width="48" height="48" rx="7" fill="#6741D9" />
+                  <rect x="13" y="10" width="22" height="28" rx="2.5" fill="white" />
+                  <rect x="17" y="17" width="14" height="2.2" rx="1.1" fill="#6741D9" />
+                  <rect x="17" y="22" width="9" height="2.2" rx="1.1" fill="#6741D9" />
+                  <rect x="17" y="27" width="11" height="2.2" rx="1.1" fill="#6741D9" />
+                </svg>
+                Liên kết Google Form
+              </button>
+            )}
+            <Link
+              to="/dashboard/forms/guide"
+              className="inline-flex items-center gap-1.5 text-sm text-slate-600 dark:text-slate-400 hover:text-[#5e35b1] transition font-medium"
+            >
+              <BookOpen className="w-4 h-4" />
+              Xem hướng dẫn
+            </Link>
           </div>
         </div>
 

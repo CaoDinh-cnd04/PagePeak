@@ -16,7 +16,197 @@ import { mergeCarouselStyle, parseTabsContent, parseCarouselContent } from "@/li
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
 
-/** Tránh `</script>` trong mã HTML người dùng làm vỡ parse khi nhúng vào iframe srcDoc. */
+// ─── CarouselPreview — interactive carousel cho DomCanvas ──────────────────
+function CarouselPreview({
+  el,
+  onSelectCarouselTextField,
+}: {
+  el: EditorElement;
+  onSelectCarouselTextField?: (field: "quote" | "name" | "role" | "title" | "desc") => void;
+}) {
+  const s = el.styles ?? {};
+  const updateElementFromStore = useEditorStore((st) => st.updateElement);
+  const pushHistoryFromStore = useEditorStore((st) => st.pushHistory);
+  const cd = parseCarouselContent(el.content ?? undefined);
+  const { layoutType: lt, items: carouselItems } = cd;
+  const st2 = mergeCarouselStyle(cd.carouselStyle);
+  const layoutType = lt === "media" ? "media" : "testimonial";
+  const bg = (s.backgroundColor as string) || "#f8fafc";
+  const autoplayMs = Math.max(1000, st2.autoplayMs ?? 5000);
+  const dotActiveColor = st2.dotActiveColor ?? "#6366f1";
+  const dotColor = st2.dotColor ?? "#d1d5db";
+  const n = carouselItems.length;
+
+  const [cur, setCur] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const touchXRef = useRef(0);
+
+  // Reset về slide 0 khi data thay đổi (số slide hoặc content)
+  useEffect(() => { setCur(0); }, [el.content]);
+
+  const go = useCallback((idx: number) => {
+    setCur(((idx % n) + n) % n);
+  }, [n]);
+
+  const resetAutoplay = useCallback(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (n > 1) {
+      timerRef.current = setInterval(() => setCur((c) => (c + 1) % n), autoplayMs);
+    }
+  }, [n, autoplayMs]);
+
+  useEffect(() => {
+    resetAutoplay();
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [resetAutoplay]);
+
+  const handleGo = (idx: number) => { go(idx); resetAutoplay(); };
+
+  const commitCarouselText = (field: "quote" | "name" | "role" | "title" | "desc", value: string) => {
+    const next = [...carouselItems];
+    if (next[cur]) { next[cur] = { ...next[cur], [field]: value }; }
+    updateElementFromStore(el.id, { content: JSON.stringify({ layoutType: cd.layoutType, items: next, carouselStyle: cd.carouselStyle }) });
+    pushHistoryFromStore();
+  };
+
+  const fill: React.CSSProperties = { position: "absolute", inset: 0, boxSizing: "border-box" };
+
+  if (n === 0 || !carouselItems[cur]) {
+    return (
+      <div style={{ ...fill, background: bg, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ color: "#94a3b8", fontSize: 12 }}>Carousel — thêm slide ở panel phải</span>
+      </div>
+    );
+  }
+
+  const item = carouselItems[cur];
+
+  const stripQuotes = (s: string) => s.replace(/^["\u201c\u2018']+|["\u201d\u2019']+$/g, "").trim();
+  const slideContent = layoutType === "testimonial" ? (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%", gap: 0 }}>
+      {item.avatar?.trim() && (
+        <div style={{ width: 68, height: 68, borderRadius: "50%", overflow: "hidden", background: "#e2e8f0", marginBottom: 12, flexShrink: 0, boxShadow: "0 2px 12px rgba(0,0,0,.12)" }}>
+          <img src={item.avatar} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        </div>
+      )}
+      <div
+        contentEditable suppressContentEditableWarning
+        onFocus={() => onSelectCarouselTextField?.("quote")}
+        onPointerDown={(e) => e.stopPropagation()}
+        onBlur={(e) => commitCarouselText("quote", e.currentTarget.textContent || "")}
+        style={{ fontStyle: "italic", fontSize: st2.quoteFontSize, color: st2.quoteColor, textAlign: "center", marginBottom: 0, lineHeight: 1.7, outline: "none", cursor: "text", fontFamily: st2.fontFamily ? `${st2.fontFamily}, sans-serif` : undefined, padding: "0 2px" }}
+      >
+        “{stripQuotes((item.quote || "Trích dẫn...").slice(0, 120))}”
+      </div>
+      <div
+        contentEditable suppressContentEditableWarning
+        onFocus={() => onSelectCarouselTextField?.("name")}
+        onPointerDown={(e) => e.stopPropagation()}
+        onBlur={(e) => commitCarouselText("name", e.currentTarget.textContent || "")}
+        style={{ fontSize: st2.nameFontSize, fontWeight: 700, color: st2.nameColor, textAlign: "center", outline: "none", cursor: "text", fontFamily: st2.fontFamily ? `${st2.fontFamily}, sans-serif` : undefined, marginTop: 10, lineHeight: 1.3 }}
+      >
+        {item.name || "Tên"}
+      </div>
+      {item.role && (
+        <div
+          contentEditable suppressContentEditableWarning
+          onFocus={() => onSelectCarouselTextField?.("role")}
+          onPointerDown={(e) => e.stopPropagation()}
+          onBlur={(e) => commitCarouselText("role", e.currentTarget.textContent || "")}
+          style={{ fontSize: st2.roleFontSize, color: st2.roleColor, textAlign: "center", outline: "none", cursor: "text", fontFamily: st2.fontFamily ? `${st2.fontFamily}, sans-serif` : undefined, opacity: 0.7, lineHeight: 1.3 }}
+        >
+          {item.role}
+        </div>
+      )}
+    </div>
+  ) : (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%", gap: 0 }}>
+      {item.image?.trim() && (
+        <div style={{ width: "100%", borderRadius: 10, overflow: "hidden", background: "#e2e8f0", marginBottom: 10, flexShrink: 0, aspectRatio: "16/9" }}>
+          <img src={item.image} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        </div>
+      )}
+      {(item.title || item.name) && (
+        <div
+          contentEditable suppressContentEditableWarning
+          onFocus={() => onSelectCarouselTextField?.("title")}
+          onPointerDown={(e) => e.stopPropagation()}
+          onBlur={(e) => commitCarouselText("title", e.currentTarget.textContent || "")}
+          style={{ fontSize: st2.titleFontSize, fontWeight: 700, color: st2.titleColor, textAlign: st2.titleAlign, outline: "none", cursor: "text", fontFamily: st2.fontFamily ? `${st2.fontFamily}, sans-serif` : undefined, marginBottom: 4, lineHeight: 1.3 }}
+        >
+          {item.title || item.name}
+        </div>
+      )}
+      {item.desc?.trim() && (
+        <div
+          contentEditable suppressContentEditableWarning
+          onFocus={() => onSelectCarouselTextField?.("desc")}
+          onPointerDown={(e) => e.stopPropagation()}
+          onBlur={(e) => commitCarouselText("desc", e.currentTarget.textContent || "")}
+          style={{ fontSize: st2.descFontSize, color: st2.descColor, textAlign: st2.descAlign, lineHeight: 1.5, outline: "none", cursor: "text", fontFamily: st2.fontFamily ? `${st2.fontFamily}, sans-serif` : undefined, opacity: 0.85 }}
+        >
+          {item.desc}
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div
+      style={{ ...fill, background: bg, borderRadius: 12, padding: "20px 40px 16px", boxSizing: "border-box", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", overflow: "visible", opacity: el.opacity ?? 1, position: "relative", minHeight: "100%" }}
+      onTouchStart={(e) => { touchXRef.current = e.changedTouches[0].clientX; }}
+      onTouchEnd={(e) => {
+        const dx = e.changedTouches[0].clientX - touchXRef.current;
+        if (Math.abs(dx) > 40) { handleGo(dx < 0 ? cur + 1 : cur - 1); }
+      }}
+    >
+      {/* Content slide với padding ngang để không chạm nút Prev/Next */}
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%", flex: 1, minHeight: 0, padding: n > 1 ? "0 36px" : 0, boxSizing: "border-box" }}>
+        {slideContent}
+      </div>
+
+      {/* Dots */}
+      {n > 1 && (
+        <div style={{ display: "flex", gap: 5, alignItems: "center", marginTop: 12, flexShrink: 0 }}>
+          {carouselItems.slice(0, 12).map((_, di) => (
+            <button
+              key={di}
+              type="button"
+              onPointerDown={(e) => { e.stopPropagation(); handleGo(di); }}
+              style={{ width: di === cur ? 20 : 7, height: 7, borderRadius: 4, background: di === cur ? dotActiveColor : dotColor, border: "none", cursor: "pointer", padding: 0, flexShrink: 0, transition: "width .25s, background .25s" }}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Nút Prev */}
+      {n > 1 && (
+        <button
+          type="button"
+          onPointerDown={(e) => { e.stopPropagation(); handleGo(cur - 1); }}
+          style={{ position: "absolute", left: 4, top: "50%", transform: "translateY(-50%)", zIndex: 10, width: 30, height: 30, borderRadius: "50%", border: "none", background: "rgba(15,23,42,0.35)", color: "#fff", cursor: "pointer", fontSize: 18, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+          aria-label="Slide trước"
+        >
+          &#8249;
+        </button>
+      )}
+
+      {/* Nút Next */}
+      {n > 1 && (
+        <button
+          type="button"
+          onPointerDown={(e) => { e.stopPropagation(); handleGo(cur + 1); }}
+          style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", zIndex: 10, width: 30, height: 30, borderRadius: "50%", border: "none", background: "rgba(15,23,42,0.35)", color: "#fff", cursor: "pointer", fontSize: 18, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+          aria-label="Slide tiếp"
+        >
+          &#8250;
+        </button>
+      )}
+    </div>
+  );
+}
+
+
 function sanitizeUserHtmlForEmbed(s: string): string {
   return s.replace(/<\/script/gi, "<\\/script");
 }
@@ -539,25 +729,99 @@ function VideoElement({ el }: { el: EditorElement }) {
 
 function FormElement({ el }: { el: EditorElement }) {
   const s = el.styles ?? {};
-  let cfg: { title?: string; buttonText?: string; fields?: { id: string; label?: string; placeholder?: string; type?: string }[]; inputStyle?: string } = {};
+  let cfg: {
+    title?: string;
+    titleColor?: string;
+    buttonText?: string;
+    buttonColor?: string;
+    buttonTextColor?: string;
+    backgroundColor?: string;
+    formBorderRadius?: number;
+    inputRadius?: number;
+    fields?: { id: string; label?: string; placeholder?: string; type?: string; required?: boolean }[];
+    inputStyle?: string;
+    formOtp?: boolean;
+  } = {};
   try { cfg = JSON.parse(el.content || "{}"); } catch {}
+
   const fs = (s.fontSize as number) || 14;
+  const btnBg = cfg.buttonColor ?? (s.buttonColor as string) ?? "#1e293b";
+  const btnText = cfg.buttonTextColor ?? "#ffffff";
+  const formBg = cfg.backgroundColor ?? (s.backgroundColor as string) ?? "#ffffff";
+  const borderRadius = cfg.formBorderRadius ?? 8;
+  const inputRadius = cfg.inputRadius ?? 4;
+  const titleColor = cfg.titleColor ?? "#1e293b";
+
   const inputBase: React.CSSProperties = cfg.inputStyle === "filled"
-    ? { background: "#f1f5f9", border: "none" }
+    ? { background: "#f1f5f9", border: "none", borderRadius: inputRadius }
     : cfg.inputStyle === "underlined"
-      ? { background: "transparent", border: "none", borderBottom: "2px solid #1e293b", borderRadius: 0 }
-      : { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 4 };
-  const fields = cfg.fields || [{ id: "name", label: "Họ và tên", placeholder: "Họ và tên", type: "text" }, { id: "email", label: "Email", placeholder: "Email", type: "email" }];
+      ? { background: "transparent", border: "none", borderBottom: "1.5px solid #94a3b8", borderRadius: 0 }
+      : { background: "#fff", border: "1px solid #e2e8f0", borderRadius: inputRadius };
+
+  const fields = cfg.fields?.length
+    ? cfg.fields
+    : [
+        { id: "name", label: "Họ và tên", placeholder: "Họ và tên", type: "text" },
+        { id: "email", label: "Email", placeholder: "Email", type: "email" },
+      ];
+
+  const css = buildElementCss(el);
+
   return (
-    <div style={{ ...buildElementCss(el), border: "1px solid #e2e8f0", borderRadius: 8, padding: 16, background: "#fff", display: "flex", flexDirection: "column", gap: 8, overflow: "hidden" }}>
-      {cfg.title && <div style={{ fontSize: fs + 2, fontWeight: 600, color: "#1e293b", marginBottom: 4 }}>{cfg.title}</div>}
-      {fields.map((f) => (
-        <input key={f.id} type={f.type === "phone" ? "tel" : f.type || "text"} placeholder={f.placeholder || f.label || f.id}
-          style={{ width: "100%", padding: "10px 12px", fontSize: fs, ...inputBase, boxSizing: "border-box" }}
-          readOnly
-        />
-      ))}
-      <div style={{ width: "100%", padding: 12, background: "#000", color: "#fff", border: "none", borderRadius: 6, fontWeight: 600, fontSize: fs, textAlign: "center", marginTop: 4 }}>
+    <div style={{
+      ...css,
+      border: `1px solid ${formBg === "#ffffff" ? "#e2e8f0" : "transparent"}`,
+      borderRadius,
+      padding: 16,
+      background: formBg,
+      display: "flex",
+      flexDirection: "column",
+      gap: 8,
+      overflow: "hidden",
+      boxSizing: "border-box",
+    }}>
+      {cfg.title && (
+        <div style={{ fontSize: fs + 2, fontWeight: 700, color: titleColor, marginBottom: 4 }}>
+          {cfg.title}
+        </div>
+      )}
+      {fields.map((f) =>
+        f.type === "textarea" ? (
+          <textarea
+            key={f.id}
+            placeholder={f.placeholder || f.label || f.id}
+            style={{ width: "100%", padding: "9px 12px", fontSize: fs - 1, ...inputBase, boxSizing: "border-box", resize: "none", height: 64, fontFamily: "inherit" }}
+            readOnly
+          />
+        ) : (
+          <input
+            key={f.id}
+            type={f.type === "phone" ? "tel" : f.type === "password" ? "password" : f.type || "text"}
+            placeholder={f.placeholder || f.label || f.id}
+            style={{ width: "100%", padding: "9px 12px", fontSize: fs - 1, ...inputBase, boxSizing: "border-box", fontFamily: "inherit" }}
+            readOnly
+          />
+        )
+      )}
+      {cfg.formOtp && (
+        <div style={{ fontSize: fs - 2, color: "#6366f1", textAlign: "center", cursor: "pointer" }}>
+          Gửi lại mã OTP
+        </div>
+      )}
+      <div style={{
+        width: "100%",
+        padding: "11px 16px",
+        background: btnBg,
+        color: btnText,
+        border: "none",
+        borderRadius: inputRadius,
+        fontWeight: 700,
+        fontSize: fs - 1,
+        textAlign: "center",
+        marginTop: 4,
+        cursor: "default",
+        letterSpacing: "0.02em",
+      }}>
         {cfg.buttonText || "Gửi"}
       </div>
     </div>
@@ -872,20 +1136,27 @@ function InnerElementRenderer({
       let cfg: { title?: string; buttonText?: string; fields?: { id: string; label?: string; placeholder?: string; type?: string }[]; inputStyle?: string } = {};
       try { cfg = JSON.parse(el.content || "{}"); } catch {}
       const fs2 = (s.fontSize as number) || 14;
+      const ff = s.fontFamily ? `${s.fontFamily}, sans-serif` : undefined;
+      const fw = (s.fontWeight as number) || 400;
+      const fStyle = (s.fontStyle as string) || "normal";
+      const fDeco = (s.textDecoration as string) || "none";
+      const tColor = (s.color as string) || "#1e293b";
+      const bg = (s.backgroundColor as string) || "#fff";
+      
       const inputS: React.CSSProperties = cfg.inputStyle === "filled"
         ? { background: "#f1f5f9", border: "none" }
         : cfg.inputStyle === "underlined"
-          ? { background: "transparent", border: "none", borderBottom: "2px solid #1e293b", borderRadius: 0 }
+          ? { background: "transparent", border: "none", borderBottom: "2px solid rgba(0,0,0,0.3)", borderRadius: 0 }
           : { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 4 };
       const fields = cfg.fields || [{ id: "name", label: "Họ và tên", type: "text" }, { id: "email", label: "Email", type: "email" }];
       return (
-        <div style={{ ...fill, border: "1px solid #e2e8f0", borderRadius: 8, padding: 16, background: "#fff", display: "flex", flexDirection: "column", gap: 8, overflow: "hidden", opacity: el.opacity ?? 1 }}>
-          {cfg.title && <div style={{ fontSize: fs2 + 2, fontWeight: 600, color: "#1e293b", marginBottom: 4 }}>{cfg.title}</div>}
+        <div style={{ ...fill, border: "1px solid #e2e8f0", borderRadius: 8, padding: 16, background: bg, display: "flex", flexDirection: "column", gap: 8, overflow: "hidden", opacity: el.opacity ?? 1 }}>
+          {cfg.title && <div style={{ fontSize: fs2 + 2, fontWeight: 600, color: tColor, fontFamily: ff, marginBottom: 4 }}>{cfg.title}</div>}
           {fields.map((f) => (
             <input key={f.id} type={f.type === "phone" ? "tel" : f.type || "text"} placeholder={f.placeholder || f.label || f.id}
-              style={{ width: "100%", padding: "8px 12px", fontSize: fs2, ...inputS, boxSizing: "border-box" }} readOnly />
+              style={{ width: "100%", padding: "8px 12px", fontSize: fs2, fontFamily: ff, fontWeight: fw, fontStyle: fStyle, textDecoration: fDeco, color: tColor, ...inputS, boxSizing: "border-box" }} readOnly />
           ))}
-          <div style={{ padding: "10px 0", background: "#000", color: "#fff", borderRadius: 6, fontWeight: 600, fontSize: fs2, textAlign: "center" }}>
+          <div style={{ padding: "10px 0", background: tColor, color: bg, borderRadius: 6, fontWeight: 600, fontSize: fs2, fontFamily: ff, textAlign: "center" }}>
             {cfg.buttonText || "Gửi"}
           </div>
         </div>
@@ -996,48 +1267,13 @@ function InnerElementRenderer({
       );
     }
 
-    case "carousel": {
-      const cd = parseCarouselContent(el.content ?? undefined);
-      const { layoutType: lt, items: carouselItems } = cd;
-      const st = mergeCarouselStyle(cd.carouselStyle);
-      const bg = (s.backgroundColor as string) || "#f8fafc";
-      const layoutType = lt === "media" ? "media" : "testimonial";
-      const item = carouselItems[0];
-      const commitCarouselText = (field: "quote" | "name" | "role" | "title" | "desc", value: string) => {
-        if (!item) return;
-        const next = [...carouselItems];
-        next[0] = { ...next[0], [field]: value };
-        updateElementFromStore(el.id, { content: JSON.stringify({ layoutType: cd.layoutType, items: next, carouselStyle: cd.carouselStyle }) });
-        pushHistoryFromStore();
-      };
+    case "carousel":
       return (
-        <div style={{ ...fill, background: bg, borderRadius: 12, padding: 16, boxSizing: "border-box", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", overflow: "hidden", opacity: el.opacity ?? 1 }}>
-          {!item ? (
-            <span style={{ color: "#94a3b8", fontSize: 12 }}>Carousel</span>
-          ) : layoutType === "testimonial" ? (
-            <>
-              {item.avatar?.trim() && <div style={{ width: 60, height: 60, borderRadius: "50%", overflow: "hidden", background: "#e2e8f0", marginBottom: 8 }}><img src={resolveAsset(item.avatar)} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>}
-              <div contentEditable suppressContentEditableWarning onFocus={() => onSelectCarouselTextField?.("quote")} onPointerDown={(e) => e.stopPropagation()} onBlur={(e) => commitCarouselText("quote", (e.currentTarget.textContent || "").replace(/^\"|\"$/g, ""))} style={{ fontStyle: "italic", fontSize: st.quoteFontSize, color: st.quoteColor, textAlign: st.quoteAlign, marginBottom: 8, lineHeight: 1.5, outline: "none", cursor: "text", fontFamily: st.fontFamily ? `${st.fontFamily}, sans-serif` : undefined }}>"{(item.quote || "Trích dẫn...").slice(0, 120)}"</div>
-              <div contentEditable suppressContentEditableWarning onFocus={() => onSelectCarouselTextField?.("name")} onPointerDown={(e) => e.stopPropagation()} onBlur={(e) => commitCarouselText("name", e.currentTarget.textContent || "")} style={{ fontSize: st.nameFontSize, fontWeight: 700, color: st.nameColor, textAlign: st.nameAlign, outline: "none", cursor: "text", fontFamily: st.fontFamily ? `${st.fontFamily}, sans-serif` : undefined }}>{item.name || "Tên"}</div>
-              {item.role && <div contentEditable suppressContentEditableWarning onFocus={() => onSelectCarouselTextField?.("role")} onPointerDown={(e) => e.stopPropagation()} onBlur={(e) => commitCarouselText("role", e.currentTarget.textContent || "")} style={{ fontSize: st.roleFontSize, color: st.roleColor, textAlign: st.roleAlign, outline: "none", cursor: "text", fontFamily: st.fontFamily ? `${st.fontFamily}, sans-serif` : undefined }}>{item.role}</div>}
-            </>
-          ) : (
-            <>
-              {item.image?.trim() && <div style={{ width: "100%", flex: 1, minHeight: 0, borderRadius: 8, overflow: "hidden", background: "#e2e8f0", marginBottom: 8 }}><img src={resolveAsset(item.image)} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>}
-              {(item.title || item.name) && <div contentEditable suppressContentEditableWarning onFocus={() => onSelectCarouselTextField?.("title")} onPointerDown={(e) => e.stopPropagation()} onBlur={(e) => commitCarouselText("title", e.currentTarget.textContent || "")} style={{ fontSize: st.titleFontSize, fontWeight: 600, color: st.titleColor, textAlign: st.titleAlign, outline: "none", cursor: "text", fontFamily: st.fontFamily ? `${st.fontFamily}, sans-serif` : undefined }}>{item.title || item.name}</div>}
-              {item.desc?.trim() && <div contentEditable suppressContentEditableWarning onFocus={() => onSelectCarouselTextField?.("desc")} onPointerDown={(e) => e.stopPropagation()} onBlur={(e) => commitCarouselText("desc", e.currentTarget.textContent || "")} style={{ fontSize: st.descFontSize, color: st.descColor, textAlign: st.descAlign, marginTop: 4, lineHeight: 1.45, outline: "none", cursor: "text", fontFamily: st.fontFamily ? `${st.fontFamily}, sans-serif` : undefined }}>{item.desc}</div>}
-            </>
-          )}
-          {carouselItems.length > 1 && (
-            <div style={{ display: "flex", gap: 4, alignItems: "center", marginTop: 8 }}>
-              {carouselItems.slice(0, 5).map((_, di) => (
-                <div key={di} style={{ width: di === 0 ? 16 : 6, height: 6, borderRadius: 3, background: di === 0 ? "#6366f1" : "#d1d5db" }} />
-              ))}
-            </div>
-          )}
-        </div>
+        <CarouselPreview
+          el={el}
+          onSelectCarouselTextField={onSelectCarouselTextField}
+        />
       );
-    }
 
     case "tabs": {
       const [activeTab, setActiveTab] = useState(0);
@@ -1276,12 +1512,14 @@ function DomSection({
     height: sectionH,
     backgroundColor: bg,
     backgroundImage: bgImg ? `url(${bgImg})` : undefined,
-    backgroundSize: "cover",
-    backgroundPosition: "center",
+    backgroundSize: section.backgroundSize ?? "cover",
+    backgroundPosition: section.backgroundPosition ?? "center center",
+    backgroundRepeat: section.backgroundRepeat ?? "no-repeat",
     overflow: "visible",
     flexShrink: 0,
     outline: isSelectedSection ? "2px solid #4f46e5" : hovered ? "1.5px dashed #a5b4fc" : "none",
     outlineOffset: -1,
+    opacity: section.visible === false ? 0.4 : 1,
   };
 
   return (
@@ -1312,6 +1550,19 @@ function DomSection({
         }}>
           {section.name || "Section"}
         </div>
+      )}
+      {/* Background overlay */}
+      {section.backgroundOverlayColor && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            backgroundColor: section.backgroundOverlayColor,
+            opacity: (section.backgroundOverlayOpacity ?? 50) / 100,
+            pointerEvents: "none",
+            zIndex: 0,
+          }}
+        />
       )}
       {(section.elements ?? [])
         .filter((el) => !el.isHidden)
@@ -1386,7 +1637,7 @@ function ElementWrapper({
     top: el.y,
     width: w,
     height: h,
-    zIndex: (el.zIndex ?? 0) + (isSelected ? 500 : hovered ? 200 : 0),
+    zIndex: el.zIndex ?? 0,
     transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
     outline: isEditing ? "2px solid #f59e0b" : isSelected ? "2px solid #4f46e5" : hovered && !el.isLocked ? "1.5px dashed #818cf8" : "none",
     outlineOffset: 0,

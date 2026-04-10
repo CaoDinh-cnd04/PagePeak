@@ -3,27 +3,100 @@ import { FORM_PRESETS, FORM_TABS, type FormPreset } from "@/lib/editor/data/form
 
 function FormPresetPreview({ preset }: { preset: FormPreset }) {
   const style = preset.inputStyle ?? "outlined";
-  const inputCls = style === "filled"
-    ? "bg-slate-100 border-0"
-    : style === "underlined"
-      ? "bg-transparent border-0 border-b-2 border-slate-800 rounded-none"
-      : "bg-white border border-slate-300";
+  const btnBg = preset.buttonColor ?? "#1e293b";
+  const btnText = preset.buttonTextColor ?? "#ffffff";
+  const formBg = preset.backgroundColor ?? "#ffffff";
+  const titleColor = preset.titleColor ?? "#1e293b";
+  const borderRadius = preset.formBorderRadius ?? 8;
+  const inputRadius = preset.inputRadius ?? 4;
+  const accentColor = preset.accentColor ?? btnBg;
+
+  const inputStyle: React.CSSProperties =
+    style === "filled"
+      ? { background: accentColor + "15", border: "none", borderRadius: inputRadius }
+      : style === "underlined"
+        ? {
+            background: "transparent",
+            border: "none",
+            borderBottom: `1.5px solid ${accentColor}55`,
+            borderRadius: 0,
+          }
+        : { background: "#fff", border: "1px solid #e2e8f0", borderRadius: inputRadius };
+
+  const isOtp = preset.formType === "otp";
+  const isLogin = preset.formType === "login";
+  const fieldCount = isOtp ? 1 : isLogin ? Math.min(preset.fields.length, 2) : Math.min(preset.fields.length, 2);
+
   return (
-    <div className="p-3 rounded border border-slate-200 bg-white space-y-2 min-h-[80px]">
+    <div
+      style={{
+        padding: "10px",
+        borderRadius,
+        background: formBg,
+        border: `1px solid ${accentColor}22`,
+        minHeight: 90,
+        display: "flex",
+        flexDirection: "column",
+        gap: 5,
+      }}
+    >
       {preset.title && (
-        <div className="text-[10px] font-semibold text-slate-700 truncate">{preset.title}</div>
+        <div
+          style={{
+            fontSize: 9,
+            fontWeight: 700,
+            color: titleColor,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {preset.title}
+        </div>
       )}
-      {preset.formType === "login" ? (
-        <div className="flex gap-1">
-          <div className={`flex-1 h-6 rounded ${inputCls}`} />
-          <div className="w-16 h-6 rounded bg-black shrink-0" />
+
+      {isLogin && preset.fields.length > 1 ? (
+        // Login inline layout
+        <div style={{ display: "flex", gap: 4 }}>
+          <div style={{ flex: 1, height: 20, ...inputStyle }} />
+          <div
+            style={{
+              width: 52,
+              height: 20,
+              borderRadius: inputRadius,
+              background: btnBg,
+              flexShrink: 0,
+            }}
+          />
         </div>
       ) : (
         <>
-          {preset.fields.slice(0, preset.formType === "otp" ? 1 : 2).map((f) => (
-            <div key={f.id} className={`h-5 rounded ${inputCls}`} />
+          {Array.from({ length: fieldCount }).map((_, i) => (
+            <div key={i} style={{ height: 18, ...inputStyle }} />
           ))}
-          <div className={`h-6 rounded ${preset.formType === "otp" ? "bg-black" : "bg-slate-800"}`} />
+
+          {isOtp && (
+            <div style={{ fontSize: 8, color: accentColor, textAlign: "center", opacity: 0.7 }}>
+              Gửi lại mã OTP
+            </div>
+          )}
+
+          <div
+            style={{
+              height: 22,
+              borderRadius: inputRadius,
+              background: btnBg,
+              color: btnText,
+              fontSize: 8,
+              fontWeight: 700,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginTop: 2,
+            }}
+          >
+            {preset.buttonText.length > 16 ? preset.buttonText.slice(0, 14) + "…" : preset.buttonText}
+          </div>
         </>
       )}
     </div>
@@ -44,14 +117,17 @@ export default function FormPickerPanel({
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      {/* Tabs */}
       <div className="flex border-b border-slate-200 shrink-0 overflow-x-auto">
         {FORM_TABS.map((tab) => (
           <button
             key={tab}
             type="button"
             onClick={() => setActiveTab(tab)}
-            className={`shrink-0 px-3 py-2 text-[11px] font-medium transition border-b-2 ${
-              activeTab === tab ? "border-[#1e2d7d] text-[#1e2d7d]" : "border-transparent text-slate-500 hover:text-slate-700"
+            className={`shrink-0 px-3 py-2.5 text-[11px] font-medium transition border-b-2 whitespace-nowrap ${
+              activeTab === tab
+                ? "border-[#1e2d7d] text-[#1e2d7d]"
+                : "border-transparent text-slate-500 hover:text-slate-700"
             }`}
           >
             {tab}
@@ -59,6 +135,7 @@ export default function FormPickerPanel({
         ))}
       </div>
 
+      {/* Grid */}
       <div className="flex-1 overflow-y-auto p-2 min-h-0">
         <div className="grid grid-cols-2 gap-2">
           {presets.map((preset) => (
@@ -66,10 +143,12 @@ export default function FormPickerPanel({
               key={preset.id}
               type="button"
               onClick={() => onSelect(preset)}
-              className="text-left rounded border border-transparent hover:border-[#1e2d7d] hover:bg-slate-50 transition"
+              className="text-left rounded-lg border border-transparent hover:border-[#1e2d7d]/40 hover:shadow-sm transition group"
             >
               <FormPresetPreview preset={preset} />
-              <div className="px-2 pb-1 text-[10px] text-slate-500 truncate">{preset.name}</div>
+              <div className="px-1 py-1.5 text-[10px] text-slate-500 group-hover:text-[#1e2d7d] truncate font-medium transition">
+                {preset.name}
+              </div>
             </button>
           ))}
         </div>
@@ -78,12 +157,20 @@ export default function FormPickerPanel({
       {(onBack || onClose) && (
         <div className="p-2 border-t border-slate-100 shrink-0 flex gap-2">
           {onBack && (
-            <button type="button" onClick={onBack} className="text-[11px] text-slate-500 hover:text-slate-700">
+            <button
+              type="button"
+              onClick={onBack}
+              className="text-[11px] text-slate-500 hover:text-slate-700"
+            >
               ← Quay lại
             </button>
           )}
           {onClose && (
-            <button type="button" onClick={onClose} className="text-[11px] text-slate-500 hover:text-slate-700 ml-auto">
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-[11px] text-slate-500 hover:text-slate-700 ml-auto"
+            >
               Đóng
             </button>
           )}

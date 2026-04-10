@@ -1,27 +1,30 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { HomePage } from "@/pages/public/Home";
+import { HomePage } from "@/pages/public";
 import { LoginPage } from "@/pages/auth/Login";
 import { RegisterPage } from "@/pages/auth/Register";
 import { AuthCallbackPage } from "@/pages/auth/AuthCallback";
 import { AuthExternalRegisterPage } from "@/pages/auth/AuthExternalRegister";
 import { VerifyEmailPage } from "@/pages/auth/VerifyEmail";
-import { DashboardLayout } from "@/pages/dashboard/DashboardLayout";
-import { DashboardPage } from "@/pages/dashboard/Dashboard";
-import DashboardPages from "@/pages/dashboard/DashboardPages";
-import { DashboardSettingsPage } from "@/pages/dashboard/DashboardSettings";
-import { DashboardTemplatesPage } from "@/pages/dashboard/DashboardTemplates";
-import { DashboardEditorPage } from "@/pages/dashboard/DashboardEditor";
-import { DashboardOrdersPage } from "@/pages/dashboard/DashboardOrders";
-import DashboardMedia from "@/pages/dashboard/DashboardMedia";
-import { DashboardProductsPage } from "@/pages/dashboard/DashboardProducts";
-import { DashboardCustomersPage } from "@/pages/dashboard/DashboardCustomers";
-import { DashboardFormsPage } from "@/pages/dashboard/DashboardForms";
-import { DashboardTagsPage } from "@/pages/dashboard/DashboardTags";
-import { DashboardDomainsPage } from "@/pages/dashboard/DashboardDomains";
-import { DashboardDataLeadsPage } from "@/pages/dashboard/DashboardDataLeads";
-import { DashboardReportsPage } from "@/pages/dashboard/DashboardReports";
-import { DashboardIntegrationsPage } from "@/pages/dashboard/DashboardIntegrations";
-import { DashboardPricingPage } from "@/pages/dashboard/DashboardPricingPage";
+import {
+  DashboardLayout,
+  DashboardPage,
+  DashboardPages,
+  DashboardMedia,
+  DashboardSettingsPage,
+  DashboardTemplatesPage,
+  DashboardEditorPage,
+  DashboardOrdersPage,
+  DashboardProductsPage,
+  DashboardCustomersPage,
+  DashboardFormsPage,
+  DashboardTagsPage,
+  DashboardDomainsPage,
+  DashboardDataLeadsPage,
+  DashboardReportsPage,
+  DashboardIntegrationsPage,
+  DashboardPricingPage,
+  DashboardFormGuidePage,
+} from "@/pages/dashboard";
 
 export function App() {
   return (
@@ -45,6 +48,7 @@ export function App() {
           <Route path="customers" element={<DashboardCustomersPage />} />
           <Route path="reports" element={<DashboardReportsPage />} />
           <Route path="forms" element={<DashboardFormsPage />} />
+          <Route path="forms/guide" element={<DashboardFormGuidePage />} />
           <Route path="tags" element={<DashboardTagsPage />} />
           <Route path="domains" element={<DashboardDomainsPage />} />
           <Route path="data-leads" element={<DashboardDataLeadsPage />} />

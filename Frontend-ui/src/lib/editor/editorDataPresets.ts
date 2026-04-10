@@ -699,3 +699,212 @@ export const BLOG_DETAIL_PRESETS: BlogDetailPreset[] = [
     styles: { backgroundColor: "#ffffff", borderRadius: 8, fontSize: 15 },
   },
 ];
+
+// ─── CAROUSEL PRESETS ────────────────────────────────────────────────────────
+
+export type CarouselPreset = {
+  id: string;
+  name: string;
+  description: string;
+  /** JSON string cho content của element carousel */
+  contentJson: string;
+  styles?: { backgroundColor?: string; borderRadius?: number };
+};
+
+export const CAROUSEL_PRESETS: CarouselPreset[] = [
+  {
+    id: "testimonial-3",
+    name: "Nhận xét khách hàng",
+    description: "3 testimonial — avatar + quote + tên",
+    contentJson: JSON.stringify({
+      layoutType: "testimonial",
+      carouselStyle: { autoplayMs: 4000, quoteAlign: "center", nameAlign: "center" },
+      items: [
+        {
+          avatar: "https://picsum.photos/seed/av1/120/120",
+          quote: "Sản phẩm chất lượng tuyệt vời, tôi đã mua nhiều lần và không bao giờ thất vọng. Giao hàng nhanh, đóng gói cẩn thận!",
+          name: "Nguyễn Thị Lan",
+          role: "Khách hàng thân thiết",
+        },
+        {
+          avatar: "https://picsum.photos/seed/av2/120/120",
+          quote: "Dịch vụ hỗ trợ rất nhiệt tình, team phản hồi nhanh và giải quyết vấn đề triệt để. Rất hài lòng!",
+          name: "Trần Văn Minh",
+          role: "CEO — StartUp ABC",
+        },
+        {
+          avatar: "https://picsum.photos/seed/av3/120/120",
+          quote: "Tôi đặc biệt ấn tượng với UX/UI của sản phẩm, rất dễ dùng ngay cả với người không rành công nghệ.",
+          name: "Phạm Hoàng Yến",
+          role: "Designer tự do",
+        },
+      ],
+    }),
+    styles: { backgroundColor: "#f8fafc", borderRadius: 16 },
+  },
+  {
+    id: "media-products",
+    name: "Banner sản phẩm",
+    description: "3 slide ảnh + tên + mô tả ngắn",
+    contentJson: JSON.stringify({
+      layoutType: "media",
+      carouselStyle: { autoplayMs: 3500, titleAlign: "center", descAlign: "center" },
+      items: [
+        {
+          image: "https://picsum.photos/seed/cp1/800/400",
+          title: "Bộ sưu tập Xuân Hè 2025",
+          desc: "Nhẹ nhàng, tươi sáng — ra mắt 01/05",
+        },
+        {
+          image: "https://picsum.photos/seed/cp2/800/400",
+          title: "Flash Sale cuối tuần",
+          desc: "Giảm đến 50% — chỉ từ thứ Sáu đến Chủ Nhật",
+        },
+        {
+          image: "https://picsum.photos/seed/cp3/800/400",
+          title: "Freeship toàn quốc",
+          desc: "Đơn hàng từ 300.000đ — không cần mã",
+        },
+      ],
+    }),
+    styles: { backgroundColor: "#ffffff", borderRadius: 12 },
+  },
+  {
+    id: "team-members",
+    name: "Đội ngũ",
+    description: "Giới thiệu thành viên — ảnh + chức vụ",
+    contentJson: JSON.stringify({
+      layoutType: "testimonial",
+      carouselStyle: { autoplayMs: 5000, nameAlign: "center", roleAlign: "center", quoteAlign: "center" },
+      items: [
+        {
+          avatar: "https://picsum.photos/seed/tm1/200/200",
+          name: "Lê Quang Hùng",
+          role: "Giám đốc điều hành (CEO)",
+          quote: "10+ năm kinh nghiệm trong lĩnh vực công nghệ và phát triển sản phẩm số.",
+        },
+        {
+          avatar: "https://picsum.photos/seed/tm2/200/200",
+          name: "Hoàng Minh Châu",
+          role: "Giám đốc Marketing (CMO)",
+          quote: "Chuyên gia growth hacking — đã giúp 30+ thương hiệu tăng trưởng 3X.",
+        },
+        {
+          avatar: "https://picsum.photos/seed/tm3/200/200",
+          name: "Vũ Thanh Tùng",
+          role: "Trưởng phòng Kỹ thuật (CTO)",
+          quote: "Full-stack developer với đam mê xây dựng hệ thống mạnh mẽ và bền vững.",
+        },
+        {
+          avatar: "https://picsum.photos/seed/tm4/200/200",
+          name: "Ngô Phương Linh",
+          role: "UI/UX Designer",
+          quote: "Tin rằng trải nghiệm người dùng tốt là nền tảng của mọi sản phẩm thành công.",
+        },
+      ],
+    }),
+    styles: { backgroundColor: "#f0f9ff", borderRadius: 14 },
+  },
+  {
+    id: "services",
+    name: "Dịch vụ nổi bật",
+    description: "Liệt kê dịch vụ dạng media — icon + mô tả",
+    contentJson: JSON.stringify({
+      layoutType: "media",
+      carouselStyle: { autoplayMs: 4500, titleAlign: "center", descAlign: "center" },
+      items: [
+        {
+          image: "https://picsum.photos/seed/sv1/600/300",
+          title: "Thiết kế Landing Page",
+          desc: "Giao diện chuyên nghiệp, tối ưu chuyển đổi — bàn giao trong 48h.",
+        },
+        {
+          image: "https://picsum.photos/seed/sv2/600/300",
+          title: "Chạy quảng cáo Google/Meta",
+          desc: "ROAS tối thiểu 3x — cam kết báo cáo hàng tuần minh bạch.",
+        },
+        {
+          image: "https://picsum.photos/seed/sv3/600/300",
+          title: "Tư vấn chiến lược số",
+          desc: "Lộ trình 90 ngày cho doanh nghiệp muốn bứt phá doanh thu online.",
+        },
+      ],
+    }),
+    styles: { backgroundColor: "#fafafa", borderRadius: 12 },
+  },
+  {
+    id: "partners-logos",
+    name: "Đối tác / Logo",
+    description: "Hiển thị logo đối tác theo dạng media",
+    contentJson: JSON.stringify({
+      layoutType: "media",
+      carouselStyle: { autoplayMs: 2500 },
+      items: [
+        { image: "https://picsum.photos/seed/lo1/400/200", title: "Đối tác A", desc: "" },
+        { image: "https://picsum.photos/seed/lo2/400/200", title: "Đối tác B", desc: "" },
+        { image: "https://picsum.photos/seed/lo3/400/200", title: "Đối tác C", desc: "" },
+        { image: "https://picsum.photos/seed/lo4/400/200", title: "Đối tác D", desc: "" },
+      ],
+    }),
+    styles: { backgroundColor: "#ffffff", borderRadius: 8 },
+  },
+  {
+    id: "blog-highlights",
+    name: "Bài viết nổi bật",
+    description: "Carousel bài blog — ảnh + tiêu đề",
+    contentJson: JSON.stringify({
+      layoutType: "media",
+      carouselStyle: { autoplayMs: 5000, titleAlign: "center", descAlign: "center" },
+      items: [
+        {
+          image: "https://picsum.photos/seed/bl1/700/350",
+          title: "10 xu hướng landing page 2025",
+          desc: "Tối ưu chuyển đổi với layout rõ ràng và CTA đơn giản.",
+        },
+        {
+          image: "https://picsum.photos/seed/bl2/700/350",
+          title: "Cách viết headline không bị 'sáo'",
+          desc: "Gợi ý công thức AIDA áp dụng cho từng ngành.",
+        },
+        {
+          image: "https://picsum.photos/seed/bl3/700/350",
+          title: "Checklist SEO trước khi publish",
+          desc: "Meta, schema, tốc độ tải — làm từng bước.",
+        },
+      ],
+    }),
+    styles: { backgroundColor: "#f8fafc", borderRadius: 14 },
+  },
+  {
+    id: "testimonial-minimal",
+    name: "Nhận xét tối giản",
+    description: "Không ảnh — chỉ quote + tên + vai trò",
+    contentJson: JSON.stringify({
+      layoutType: "testimonial",
+      carouselStyle: { autoplayMs: 6000, quoteColor: "#1e293b", nameColor: "#6366f1", quoteAlign: "center" },
+      items: [
+        { quote: "Đây là lần đầu tôi tìm được dịch vụ đúng kỳ vọng ngay lần đầu tiên!", name: "Khách hàng A", role: "" },
+        { quote: "Tôi đã tiết kiệm được rất nhiều thời gian nhờ giải pháp này.", name: "Khách hàng B", role: "Manager" },
+        { quote: "Recommend 100% cho ai đang cần giải pháp nhanh và hiệu quả.", name: "Khách hàng C", role: "Freelancer" },
+      ],
+    }),
+    styles: { backgroundColor: "#eff6ff", borderRadius: 16 },
+  },
+  {
+    id: "one-slide-hero",
+    name: "1 slide (Hero banner)",
+    description: "Chỉ một ảnh nền lớn — thay ảnh dễ dàng",
+    contentJson: JSON.stringify({
+      layoutType: "media",
+      carouselStyle: { autoplayMs: 999999 },
+      items: [
+        {
+          image: "https://picsum.photos/seed/hero1/900/400",
+          title: "Tiêu đề chính của bạn",
+          desc: "Mô tả ngắn thu hút — kêu gọi hành động rõ ràng.",
+        },
+      ],
+    }),
+    styles: { backgroundColor: "#1e293b", borderRadius: 12 },
+  },
+];
