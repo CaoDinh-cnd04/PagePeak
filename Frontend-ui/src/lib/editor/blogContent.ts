@@ -25,6 +25,21 @@ export type PopupData = {
   /** id mẫu trong popupTemplateCatalog (nếu có) */
   templateId?: string;
   category?: string;
+  /** layout: flat | header | banner */
+  layout?: string;
+  /** CTA button */
+  btnText?: string;
+  btnUrl?: string;
+  showBtn?: boolean;
+  /** Icon/emoji hiển thị phía trên tiêu đề */
+  imageEmoji?: string;
+  /** Hiệu ứng xuất hiện: fade | slide-up | zoom | none */
+  animation?: string;
+  /** Đóng khi click ra ngoài overlay */
+  closeOnOverlay?: boolean;
+  /** Kích hoạt: click | delay | exit | scroll */
+  trigger?: string;
+  triggerDelay?: number;
 };
 
 export function parseBlogListContent(content: string | undefined): BlogListData {
@@ -67,6 +82,17 @@ export function parsePopupContent(content: string | undefined): PopupData {
       return {
         title: typeof p.title === "string" ? p.title : undefined,
         body: typeof p.body === "string" ? p.body : undefined,
+        templateId: typeof p.templateId === "string" ? p.templateId : undefined,
+        category: typeof p.category === "string" ? p.category : undefined,
+        layout: typeof p.layout === "string" ? p.layout : "flat",
+        btnText: typeof p.btnText === "string" ? p.btnText : undefined,
+        btnUrl: typeof p.btnUrl === "string" ? p.btnUrl : undefined,
+        showBtn: typeof p.showBtn === "boolean" ? p.showBtn : false,
+        imageEmoji: typeof p.imageEmoji === "string" ? p.imageEmoji : undefined,
+        animation: typeof p.animation === "string" ? p.animation : "fade",
+        closeOnOverlay: typeof p.closeOnOverlay === "boolean" ? p.closeOnOverlay : true,
+        trigger: typeof p.trigger === "string" ? p.trigger : "click",
+        triggerDelay: typeof p.triggerDelay === "number" ? p.triggerDelay : 0,
       };
     }
   } catch {

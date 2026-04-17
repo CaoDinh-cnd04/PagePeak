@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using LadiPage.Domain.Entities;
 using LadiPage.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -9,7 +10,20 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LadiPage.Api.Controllers;
 
-/// <summary>Gửi lead từ trang đích đã xuất bản — không cần đăng nhập.</summary>
+/// <summary>DTO cho workspace SMTP settings JSON.</summary>
+public record WorkspaceSmtpDto
+{
+    [JsonPropertyName("enabled")] public bool Enabled { get; init; }
+    [JsonPropertyName("host")] public string? Host { get; init; }
+    [JsonPropertyName("port")] public int Port { get; init; }
+    [JsonPropertyName("username")] public string? Username { get; init; }
+    [JsonPropertyName("password")] public string? Password { get; init; }
+    [JsonPropertyName("fromEmail")] public string? FromEmail { get; init; }
+    [JsonPropertyName("fromName")] public string? FromName { get; init; }
+    [JsonPropertyName("useSsl")] public bool UseSsl { get; init; } = true;
+}
+
+/// <summary>Gửi lead từ trang đích — hỗ trợ cả draft (preview) và published.</summary>
 [ApiController]
 [Route("api/public/leads")]
 [AllowAnonymous]
@@ -38,7 +52,11 @@ public class PublicLeadController : ControllerBase
         long? FormId,
         string? ElementId,
         string? RecaptchaToken,
-        Dictionary<string, string>? Data);
+        Dictionary<string, string>? Data,
+        // Per-element email settings (set from page HTML data-attributes)
+        bool? EmailNotifyEnabled,
+        string? EmailNotifyRecipient,
+        bool? SendConfirmationEmail);
 
     [HttpPost]
     public async Task<IActionResult> Submit([FromBody] SubmitLeadRequest req, CancellationToken ct)
@@ -50,8 +68,7 @@ public class PublicLeadController : ControllerBase
             .FirstOrDefaultAsync(p => p.Id == req.PageId, ct);
         if (page == null) return NotFound(new { error = "page_not_found" });
         if (page.WorkspaceId != req.WorkspaceId) return BadRequest(new { error = "workspace_mismatch" });
-        if (!string.Equals(page.Status, "published", StringComparison.OrdinalIgnoreCase))
-            return BadRequest(new { error = "page_not_published" });
+        // Cho phép cả draft/preview (để test form trước khi publish)
 
         var recaptchaResult = await VerifyRecaptchaIfRequiredAsync(req.RecaptchaToken, ct);
         if (recaptchaResult != null) return recaptchaResult;
@@ -80,8 +97,23 @@ public class PublicLeadController : ControllerBase
         if (formEntity?.WebhookUrl is { Length: > 0 } webhookUrl)
             await TryPostWebhookAsync(webhookUrl, req, lead.Id, ct);
 
-        if (formEntity?.EmailNotify == true)
-            await TryNotifyLeadEmailAsync(req, page.Name, lead.Id, ct);
+        // Lấy workspace SMTP config (nếu có) để dùng cho email
+        var smtpOverride = await GetWorkspaceSmtpAsync(req.WorkspaceId, ct);
+
+        // Notify admin: FormConfig.EmailNotify OR per-element emailNotifyEnabled flag
+        bool shouldNotifyAdmin = formEntity?.EmailNotify == true || req.EmailNotifyEnabled == true;
+        if (shouldNotifyAdmin)
+        {
+            // Use per-element recipient if provided, otherwise fall back to workspace owner
+            string? explicitRecipient = req.EmailNotifyEnabled == true && !string.IsNullOrWhiteSpace(req.EmailNotifyRecipient)
+                ? req.EmailNotifyRecipient!.Trim()
+                : null;
+            await TryNotifyLeadEmailAsync(req, page.Name, lead.Id, explicitRecipient, smtpOverride, ct);
+        }
+
+        // Send confirmation email to the form submitter (if they provided an email field)
+        if (req.SendConfirmationEmail == true)
+            await TrySendConfirmationEmailAsync(req, page.Name, smtpOverride, ct);
 
         return Ok(new { ok = true, id = lead.Id });
     }
@@ -124,24 +156,136 @@ public class PublicLeadController : ControllerBase
         return null;
     }
 
-    private async Task TryNotifyLeadEmailAsync(SubmitLeadRequest req, string pageName, long leadId, CancellationToken ct)
+    /// <summary>Đọc workspace SMTP config và tạo SmtpOverride nếu có.</summary>
+    private async Task<SmtpOverride?> GetWorkspaceSmtpAsync(long workspaceId, CancellationToken ct)
     {
-        var ownerId = await _db.Workspaces.AsNoTracking()
-            .Where(w => w.Id == req.WorkspaceId)
-            .Select(w => w.OwnerId)
+        var smtpJson = await _db.Workspaces.AsNoTracking()
+            .Where(w => w.Id == workspaceId)
+            .Select(w => w.SmtpConfigJson)
             .FirstOrDefaultAsync(ct);
-        if (ownerId == 0) return;
-        var owner = await _db.Users.AsNoTracking()
-            .Where(u => u.Id == ownerId)
-            .Select(u => new { u.Email, u.FullName })
-            .FirstOrDefaultAsync(ct);
-        if (owner == null || string.IsNullOrWhiteSpace(owner.Email)) return;
-
-        var title = $"Lead mới — {pageName}";
-        var body = $"Trang: {pageName} (ID trang {req.PageId})\nLead ID: {leadId}\n\nDữ liệu gửi:\n{JsonSerializer.Serialize(req.Data, new JsonSerializerOptions { WriteIndented = true })}";
+        if (string.IsNullOrWhiteSpace(smtpJson)) return null;
         try
         {
-            await _email.SendNotificationEmailAsync(owner.Email, owner.FullName ?? "Chủ workspace", title, body, ct);
+            var cfg = JsonSerializer.Deserialize<WorkspaceSmtpDto>(smtpJson);
+            if (cfg == null || !cfg.Enabled || string.IsNullOrEmpty(cfg.Username) || string.IsNullOrEmpty(cfg.Password))
+                return null;
+            return new SmtpOverride(
+                cfg.Host ?? "smtp.gmail.com",
+                cfg.Port > 0 ? cfg.Port : 587,
+                cfg.Username,
+                cfg.Password,
+                cfg.FromEmail ?? cfg.Username,
+                cfg.FromName ?? "PagePeak",
+                cfg.UseSsl
+            );
+        }
+        catch { return null; }
+    }
+
+    private async Task TryNotifyLeadEmailAsync(SubmitLeadRequest req, string pageName, long leadId, string? explicitRecipient, SmtpOverride? smtp, CancellationToken ct)
+    {
+        string toEmail;
+        string toName;
+
+        if (!string.IsNullOrWhiteSpace(explicitRecipient))
+        {
+            toEmail = explicitRecipient;
+            toName = "Admin";
+        }
+        else
+        {
+            // Mặc định gửi về email của chủ workspace (tài khoản đã đăng nhập tạo page)
+            var ws = await _db.Workspaces.AsNoTracking()
+                .Where(w => w.Id == req.WorkspaceId)
+                .Select(w => new { w.OwnerId })
+                .FirstOrDefaultAsync(ct);
+            if (ws == null || ws.OwnerId == 0) return;
+            var owner = await _db.Users.AsNoTracking()
+                .Where(u => u.Id == ws.OwnerId)
+                .Select(u => new { u.Email, u.FullName })
+                .FirstOrDefaultAsync(ct);
+            if (owner == null || string.IsNullOrWhiteSpace(owner.Email)) return;
+            toEmail = owner.Email;
+            toName = owner.FullName ?? "Chủ workspace";
+        }
+
+        var dataLines = req.Data != null
+            ? string.Join("<br/>", req.Data.Select(kv => $"<strong>{kv.Key}:</strong> {kv.Value}"))
+            : "(không có dữ liệu)";
+        var title = $"Form mới từ trang \"{pageName}\"";
+        var body = $"Bạn vừa nhận được một form mới từ trang: <strong>{pageName}</strong><br/><br/>"
+                 + $"Lead ID: {leadId}<br/><br/>"
+                 + $"Thông tin khách hàng:<br/>{dataLines}<br/><br/>"
+                 + $"Thời gian: {DateTime.UtcNow:dd/MM/yyyy HH:mm} UTC";
+        try
+        {
+            await _email.SendNotificationEmailAsync(toEmail, toName, title, body, ct, smtp);
+        }
+        catch
+        {
+            /* Giữ lead dù gửi mail lỗi */
+        }
+    }
+
+    private async Task TrySendConfirmationEmailAsync(SubmitLeadRequest req, string pageName, SmtpOverride? smtp, CancellationToken ct)
+    {
+        if (req.Data == null) return;
+
+        // Tìm trường email trong dữ liệu form
+        string? submitterEmail = null;
+        foreach (var key in new[] { "email", "Email", "EMAIL", "mail", "e-mail" })
+        {
+            if (req.Data.TryGetValue(key, out var val) && !string.IsNullOrWhiteSpace(val))
+            {
+                submitterEmail = val.Trim();
+                break;
+            }
+        }
+        // Tìm theo partial match nếu không tìm được chính xác
+        if (string.IsNullOrWhiteSpace(submitterEmail))
+        {
+            foreach (var kv in req.Data)
+            {
+                if (kv.Key.Contains("email", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(kv.Value))
+                {
+                    submitterEmail = kv.Value.Trim();
+                    break;
+                }
+            }
+        }
+        if (string.IsNullOrWhiteSpace(submitterEmail)) return;
+
+        // Tìm tên người gửi
+        string submitterName = "Bạn";
+        foreach (var key in new[] { "name", "Name", "ho_ten", "fullname", "full_name", "họ_và_tên", "Họ và tên", "Họ_và_tên" })
+        {
+            if (req.Data.TryGetValue(key, out var val) && !string.IsNullOrWhiteSpace(val))
+            {
+                submitterName = val.Trim();
+                break;
+            }
+        }
+        if (submitterName == "Bạn")
+        {
+            foreach (var kv in req.Data)
+            {
+                if ((kv.Key.Contains("name", StringComparison.OrdinalIgnoreCase) || kv.Key.Contains("ten", StringComparison.OrdinalIgnoreCase))
+                    && !string.IsNullOrWhiteSpace(kv.Value))
+                {
+                    submitterName = kv.Value.Trim();
+                    break;
+                }
+            }
+        }
+
+        var title = $"Xác nhận đã nhận form — {pageName}";
+        var body = $"Chào {submitterName},<br/><br/>"
+                 + $"Chúng tôi đã nhận được thông tin của bạn từ trang <strong>\"{pageName}\"</strong>.<br/><br/>"
+                 + $"Chúng tôi sẽ liên hệ lại với bạn trong thời gian sớm nhất.<br/><br/>"
+                 + $"Trân trọng.";
+        try
+        {
+            await _email.SendNotificationEmailAsync(submitterEmail, submitterName, title, body, ct, smtp);
         }
         catch
         {

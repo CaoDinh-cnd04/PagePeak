@@ -1,208 +1,130 @@
 /**
- * Mẫu dữ liệu có sẵn — người dùng chọn trong panel thuộc tính (không thay thế chỉnh tay sau đó).
+ * Mẫu dữ liệu Blog — dùng cho blog template catalog (BlogSidebarPanel).
+ * Các preset khác (collection-list, product-detail, carousel, cart) đã chuyển lên SQL Server DB.
  */
 
 import type { BlogDetailData, BlogListData } from "@/lib/editor/blogContent";
+
+// ─── Kept for blogTemplateCatalog.ts / BlogSidebarPanel.tsx ──────────────────
+
+export type CLItem = {
+  image: string;
+  title: string;
+  price: string;
+  originalPrice?: string;
+  badge?: string;
+  rating?: number;
+};
+
+export type CLContent = {
+  columns: number;
+  gap?: number;
+  cardRadius?: number;
+  showBadge?: boolean;
+  showRating?: boolean;
+  showOriginalPrice?: boolean;
+  accentColor?: string;
+  items: CLItem[];
+};
 
 export type CollectionListPreset = {
   id: string;
   name: string;
   description: string;
-  content: { columns: number; items: { image: string; title: string; price: string }[] };
+  content: CLContent;
   styles?: { backgroundColor?: string; borderRadius?: number };
 };
 
-/** Lưới sản phẩm — ảnh mẫu picsum (ổn định theo seed). */
-export const COLLECTION_LIST_PRESETS: CollectionListPreset[] = [
+/** @deprecated Data đã chuyển lên SQL Server DB. */
+export const COLLECTION_LIST_PRESETS: CollectionListPreset[] = [];
+const _CL_UNUSED = [
   {
-    id: "shop-3",
-    name: "Cửa hàng 3 cột",
-    description: "3 sản phẩm — layout phổ biến",
+    id: "fashion-3",
+    name: "Thời trang 3 cột",
+    description: "Áo, quần, phụ kiện — badge sale",
     content: {
-      columns: 3,
+      columns: 3, gap: 10, cardRadius: 8, showBadge: true, showRating: true, showOriginalPrice: true,
+      accentColor: "#e11d48",
       items: [
-        { image: "https://picsum.photos/seed/cl1/400/400", title: "Áo Polo Basic", price: "299.000đ" },
-        { image: "https://picsum.photos/seed/cl2/400/400", title: "Quần Jeans Slim", price: "499.000đ" },
-        { image: "https://picsum.photos/seed/cl3/400/400", title: "Giày Sneaker", price: "890.000đ" },
+        { image: "https://picsum.photos/seed/fa1/400/400", title: "Áo Polo Basic Cotton", price: "299.000đ", originalPrice: "450.000đ", badge: "-34%", rating: 4.5 },
+        { image: "https://picsum.photos/seed/fa2/400/400", title: "Quần Jeans Slim Fit", price: "499.000đ", originalPrice: "699.000đ", badge: "HOT", rating: 4.3 },
+        { image: "https://picsum.photos/seed/fa3/400/400", title: "Giày Sneaker Trắng", price: "890.000đ", originalPrice: "1.200.000đ", badge: "-26%", rating: 4.7 },
       ],
     },
-    styles: { backgroundColor: "#f8fafc", borderRadius: 12 },
+    styles: { backgroundColor: "#fff7f0", borderRadius: 12 },
   },
   {
-    id: "grid-2",
-    name: "Lưới 2 cột",
-    description: "4 ô lớn — nổi bật từng món",
+    id: "tech-3",
+    name: "Điện tử 3 cột",
+    description: "Tai nghe, sạc, phụ kiện công nghệ",
     content: {
-      columns: 2,
+      columns: 3, gap: 10, cardRadius: 8, showBadge: true, showRating: true, showOriginalPrice: true,
+      accentColor: "#2563eb",
       items: [
-        { image: "https://picsum.photos/seed/g21/500/500", title: "Bộ sofa góc", price: "12.900.000đ" },
-        { image: "https://picsum.photos/seed/g22/500/500", title: "Bàn trà kính", price: "3.200.000đ" },
-        { image: "https://picsum.photos/seed/g23/500/500", title: "Đèn đứng", price: "1.150.000đ" },
-        { image: "https://picsum.photos/seed/g24/500/500", title: "Thảm len", price: "2.490.000đ" },
+        { image: "https://picsum.photos/seed/te1/400/400", title: "Tai nghe Bluetooth ANC", price: "1.990.000đ", originalPrice: "2.990.000đ", badge: "-33%", rating: 4.8 },
+        { image: "https://picsum.photos/seed/te2/400/400", title: "Sạc nhanh 65W GaN", price: "450.000đ", originalPrice: "650.000đ", badge: "Mới", rating: 4.6 },
+        { image: "https://picsum.photos/seed/te3/400/400", title: "Chuột không dây Ergo", price: "320.000đ", originalPrice: "480.000đ", badge: "-33%", rating: 4.4 },
       ],
     },
-    styles: { backgroundColor: "#fafafa", borderRadius: 16 },
+    styles: { backgroundColor: "#eff6ff", borderRadius: 12 },
   },
   {
-    id: "grid-4",
-    name: "Lưới 4 cột",
-    description: "8 ô nhỏ — nhiều SKU",
+    id: "food-3",
+    name: "Thực phẩm 3 cột",
+    description: "Đồ ăn, đồ uống, đặc sản",
     content: {
-      columns: 4,
+      columns: 3, gap: 10, cardRadius: 10, showBadge: true, showRating: true, showOriginalPrice: false,
+      accentColor: "#ea580c",
       items: [
-        { image: "https://picsum.photos/seed/41/300/300", title: "SP A", price: "99k" },
-        { image: "https://picsum.photos/seed/42/300/300", title: "SP B", price: "129k" },
-        { image: "https://picsum.photos/seed/43/300/300", title: "SP C", price: "159k" },
-        { image: "https://picsum.photos/seed/44/300/300", title: "SP D", price: "189k" },
-        { image: "https://picsum.photos/seed/45/300/300", title: "SP E", price: "199k" },
-        { image: "https://picsum.photos/seed/46/300/300", title: "SP F", price: "219k" },
-        { image: "https://picsum.photos/seed/47/300/300", title: "SP G", price: "249k" },
-        { image: "https://picsum.photos/seed/48/300/300", title: "SP H", price: "279k" },
-      ],
-    },
-    styles: { backgroundColor: "#ffffff", borderRadius: 8 },
-  },
-  {
-    id: "fashion",
-    name: "Thời trang",
-    description: "Tên & giá gợi ý ngành may mặc",
-    content: {
-      columns: 3,
-      items: [
-        { image: "https://picsum.photos/seed/fa1/400/500", title: "Đầm maxi hoa", price: "659.000đ" },
-        { image: "https://picsum.photos/seed/fa2/400/500", title: "Blazer xám", price: "899.000đ" },
-        { image: "https://picsum.photos/seed/fa3/400/500", title: "Túi da mini", price: "429.000đ" },
-      ],
-    },
-    styles: { backgroundColor: "#fff7ed", borderRadius: 14 },
-  },
-  {
-    id: "tech",
-    name: "Điện tử",
-    description: "Phụ kiện & thiết bị",
-    content: {
-      columns: 3,
-      items: [
-        { image: "https://picsum.photos/seed/te1/400/400", title: "Tai nghe không dây", price: "1.990.000đ" },
-        { image: "https://picsum.photos/seed/te2/400/400", title: "Sạc nhanh 65W", price: "450.000đ" },
-        { image: "https://picsum.photos/seed/te3/400/400", title: "Chuột không dây", price: "320.000đ" },
-      ],
-    },
-    styles: { backgroundColor: "#f0f9ff", borderRadius: 12 },
-  },
-  {
-    id: "skeleton",
-    name: "Một ô trống",
-    description: "Chỉ 1 dòng — tự điền ảnh & giá",
-    content: {
-      columns: 3,
-      items: [{ image: "", title: "Tên sản phẩm", price: "0đ" }],
-    },
-    styles: { backgroundColor: "#f8fafc", borderRadius: 12 },
-  },
-  {
-    id: "empty",
-    name: "Trống",
-    description: "Không có ô — tự thêm sau",
-    content: { columns: 3, items: [] },
-    styles: { backgroundColor: "#f8fafc", borderRadius: 12 },
-  },
-  {
-    id: "col-1-spotlight",
-    name: "1 cột — nổi bật",
-    description: "Một sản phẩm hero / landing",
-    content: {
-      columns: 1,
-      items: [
-        {
-          image: "https://picsum.photos/seed/spot1/800/500",
-          title: "Combo khai trương — giới hạn 50 suất",
-          price: "Chỉ từ 1.990.000đ",
-        },
-      ],
-    },
-    styles: { backgroundColor: "#fef3c7", borderRadius: 16 },
-  },
-  {
-    id: "beverage",
-    name: "Đồ uống / cafe",
-    description: "Trà, cà phê, chai nước",
-    content: {
-      columns: 3,
-      items: [
-        { image: "https://picsum.photos/seed/bev1/400/400", title: "Cold brew 500ml", price: "45.000đ" },
-        { image: "https://picsum.photos/seed/bev2/400/400", title: "Trà đào cam sả", price: "39.000đ" },
-        { image: "https://picsum.photos/seed/bev3/400/400", title: "Latte đá vừa", price: "55.000đ" },
-      ],
-    },
-    styles: { backgroundColor: "#fffbeb", borderRadius: 14 },
-  },
-  {
-    id: "food-snack",
-    name: "Đồ ăn / snack",
-    description: "Bánh, đồ khô, gói quà",
-    content: {
-      columns: 3,
-      items: [
-        { image: "https://picsum.photos/seed/fd1/400/400", title: "Hạt mix dinh dưỡng 250g", price: "129.000đ" },
-        { image: "https://picsum.photos/seed/fd2/400/400", title: "Bánh quy bơ hộp", price: "89.000đ" },
-        { image: "https://picsum.photos/seed/fd3/400/400", title: "Set quà Tết mini", price: "350.000đ" },
+        { image: "https://picsum.photos/seed/fd1/400/400", title: "Hạt điều rang muối 500g", price: "129.000đ", badge: "Best Seller", rating: 4.9 },
+        { image: "https://picsum.photos/seed/fd2/400/400", title: "Cà phê Arabica nguyên hạt 500g", price: "185.000đ", badge: "Đặc sản", rating: 4.7 },
+        { image: "https://picsum.photos/seed/fd3/400/400", title: "Mật ong rừng nguyên chất 350ml", price: "220.000đ", badge: "Organic", rating: 4.8 },
       ],
     },
     styles: { backgroundColor: "#fff7ed", borderRadius: 12 },
   },
   {
-    id: "books",
-    name: "Sách / khoá học",
-    description: "Bìa sách, gói học online",
+    id: "beauty-3",
+    name: "Mỹ phẩm 3 cột",
+    description: "Serum, kem dưỡng, chăm sóc da",
     content: {
-      columns: 3,
+      columns: 3, gap: 10, cardRadius: 12, showBadge: true, showRating: true, showOriginalPrice: true,
+      accentColor: "#db2777",
       items: [
-        { image: "https://picsum.photos/seed/bk1/400/520", title: "Marketing từ con số 0", price: "199.000đ" },
-        { image: "https://picsum.photos/seed/bk2/400/520", title: "Thiết kế UI cho người mới", price: "259.000đ" },
-        { image: "https://picsum.photos/seed/bk3/400/520", title: "Khoá Excel nâng cao", price: "449.000đ" },
-      ],
-    },
-    styles: { backgroundColor: "#f0fdf4", borderRadius: 12 },
-  },
-  {
-    id: "mom-baby",
-    name: "Mẹ và bé",
-    description: "Đồ dùng trẻ em",
-    content: {
-      columns: 3,
-      items: [
-        { image: "https://picsum.photos/seed/mb1/400/400", title: "Bỉm quần size M", price: "265.000đ" },
-        { image: "https://picsum.photos/seed/mb2/400/400", title: "Sữa bột 800g", price: "520.000đ" },
-        { image: "https://picsum.photos/seed/mb3/400/400", title: "Xe đẩy gấp gọn", price: "2.190.000đ" },
+        { image: "https://picsum.photos/seed/bea1/400/400", title: "Serum Vitamin C 20% Brightening", price: "590.000đ", originalPrice: "890.000đ", badge: "-34%", rating: 4.7 },
+        { image: "https://picsum.photos/seed/bea2/400/400", title: "Kem dưỡng ẩm Hyaluronic", price: "420.000đ", originalPrice: "620.000đ", badge: "Mới", rating: 4.5 },
+        { image: "https://picsum.photos/seed/bea3/400/400", title: "Tẩy trang dạng dầu 200ml", price: "280.000đ", originalPrice: "380.000đ", badge: "-26%", rating: 4.6 },
       ],
     },
     styles: { backgroundColor: "#fdf2f8", borderRadius: 14 },
   },
   {
-    id: "sports",
-    name: "Thể thao / gym",
-    description: "Dụng cụ tập, phụ kiện",
+    id: "grid-2-furniture",
+    name: "Nội thất 2 cột",
+    description: "4 món đồ nội thất nổi bật",
     content: {
-      columns: 3,
+      columns: 2, gap: 12, cardRadius: 10, showBadge: true, showRating: false, showOriginalPrice: true,
+      accentColor: "#0ea5e9",
       items: [
-        { image: "https://picsum.photos/seed/sp1/400/400", title: "Tạ tay 5kg (cặp)", price: "320.000đ" },
-        { image: "https://picsum.photos/seed/sp2/400/400", title: "Thảm yoga TPE", price: "189.000đ" },
-        { image: "https://picsum.photos/seed/sp3/400/400", title: "Bình nước thể thao 750ml", price: "95.000đ" },
+        { image: "https://picsum.photos/seed/fu1/500/500", title: "Bàn làm việc gỗ tự nhiên 120cm", price: "3.200.000đ", originalPrice: "4.500.000đ", badge: "Sale" },
+        { image: "https://picsum.photos/seed/fu2/500/500", title: "Ghế văn phòng Ergonomic lưới", price: "2.990.000đ", originalPrice: "4.200.000đ", badge: "-29%" },
+        { image: "https://picsum.photos/seed/fu3/500/500", title: "Kệ sách treo tường 5 tầng", price: "890.000đ", originalPrice: "1.200.000đ", badge: "Mới" },
+        { image: "https://picsum.photos/seed/fu4/500/500", title: "Đèn bàn LED cảm ứng dimmer", price: "450.000đ", originalPrice: "680.000đ", badge: "-34%" },
       ],
     },
-    styles: { backgroundColor: "#ecfdf5", borderRadius: 12 },
+    styles: { backgroundColor: "#f8fafc", borderRadius: 12 },
   },
   {
     id: "flash-sale",
-    name: "Flash sale",
-    description: "Giá gốc gạch + giá KM",
+    name: "Flash Sale",
+    description: "Giá gốc + giá khuyến mãi",
     content: {
-      columns: 3,
+      columns: 3, gap: 8, cardRadius: 8, showBadge: true, showRating: true, showOriginalPrice: true,
+      accentColor: "#dc2626",
       items: [
-        { image: "https://picsum.photos/seed/fs1/400/400", title: "Tai nghe (SL có hạn)", price: "~~799k~~ 399k" },
-        { image: "https://picsum.photos/seed/fs2/400/400", title: "Loa bluetooth mini", price: "~~599k~~ 299k" },
-        { image: "https://picsum.photos/seed/fs3/400/400", title: "Đồng hồ thông minh", price: "~~1,99tr~~ 990k" },
+        { image: "https://picsum.photos/seed/fs1/400/400", title: "Tai nghe TWS chống ồn", price: "399.000đ", originalPrice: "799.000đ", badge: "-50%", rating: 4.4 },
+        { image: "https://picsum.photos/seed/fs2/400/400", title: "Loa Bluetooth Portable", price: "299.000đ", originalPrice: "599.000đ", badge: "-50%", rating: 4.2 },
+        { image: "https://picsum.photos/seed/fs3/400/400", title: "Đồng hồ thông minh Sport", price: "990.000đ", originalPrice: "1.990.000đ", badge: "-50%", rating: 4.5 },
       ],
     },
     styles: { backgroundColor: "#fef2f2", borderRadius: 12 },
@@ -210,32 +132,39 @@ export const COLLECTION_LIST_PRESETS: CollectionListPreset[] = [
   {
     id: "premium-dark",
     name: "Cao cấp (nền tối)",
-    description: "Trang sức, đồng hồ, quà tặng",
+    description: "Trang sức, đồng hồ sang trọng",
     content: {
-      columns: 3,
+      columns: 3, gap: 10, cardRadius: 10, showBadge: false, showRating: true, showOriginalPrice: false,
+      accentColor: "#f59e0b",
       items: [
-        { image: "https://picsum.photos/seed/pr1/400/400", title: "Vòng tay bạc 925", price: "1.450.000đ" },
-        { image: "https://picsum.photos/seed/pr2/400/400", title: "Đồng hồ quartz", price: "3.200.000đ" },
-        { image: "https://picsum.photos/seed/pr3/400/400", title: "Hộp quà cao cấp", price: "890.000đ" },
+        { image: "https://picsum.photos/seed/pr1/400/400", title: "Vòng tay bạc 925 đính đá", price: "1.450.000đ", rating: 4.9 },
+        { image: "https://picsum.photos/seed/pr2/400/400", title: "Đồng hồ cơ sapphire", price: "8.900.000đ", rating: 4.8 },
+        { image: "https://picsum.photos/seed/pr3/400/400", title: "Nhẫn vàng 14K tự nhiên", price: "3.200.000đ", rating: 4.7 },
       ],
     },
-    styles: { backgroundColor: "#1e293b", borderRadius: 16 },
+    styles: { backgroundColor: "#0f172a", borderRadius: 14 },
   },
   {
-    id: "green-eco",
-    name: "Xanh / eco",
-    description: "Sản phẩm thân thiện môi trường",
+    id: "grid-4-mini",
+    name: "Lưới 4 cột nhỏ",
+    description: "8 sản phẩm — nhiều SKU",
     content: {
-      columns: 3,
+      columns: 4, gap: 8, cardRadius: 6, showBadge: true, showRating: false, showOriginalPrice: true,
+      accentColor: "#7c3aed",
       items: [
-        { image: "https://picsum.photos/seed/ec1/400/400", title: "Túi vải canvas", price: "75.000đ" },
-        { image: "https://picsum.photos/seed/ec2/400/400", title: "Ống hút inox + cọ", price: "45.000đ" },
-        { image: "https://picsum.photos/seed/ec3/400/400", title: "Bộ đồ dùng tre", price: "210.000đ" },
+        { image: "https://picsum.photos/seed/m1/300/300", title: "Bút máy cao cấp", price: "199.000đ", originalPrice: "290.000đ", badge: "-31%" },
+        { image: "https://picsum.photos/seed/m2/300/300", title: "Sổ da A5 ép nổi", price: "159.000đ", originalPrice: "230.000đ", badge: "Mới" },
+        { image: "https://picsum.photos/seed/m3/300/300", title: "Bộ highlight 6 màu", price: "89.000đ", originalPrice: "130.000đ", badge: "-31%" },
+        { image: "https://picsum.photos/seed/m4/300/300", title: "Hộp đựng bút nhôm", price: "129.000đ", originalPrice: "190.000đ", badge: "Sale" },
+        { image: "https://picsum.photos/seed/m5/300/300", title: "Bộ tem dán sáng tạo", price: "45.000đ", originalPrice: "70.000đ", badge: "-36%" },
+        { image: "https://picsum.photos/seed/m6/300/300", title: "Clip giữ sổ kim loại", price: "35.000đ", badge: "Mới" },
+        { image: "https://picsum.photos/seed/m7/300/300", title: "Bộ viết vẽ watercolor", price: "249.000đ", originalPrice: "350.000đ", badge: "-29%" },
+        { image: "https://picsum.photos/seed/m8/300/300", title: "Notebook dotted 160tr", price: "185.000đ", badge: "Hot" },
       ],
     },
-    styles: { backgroundColor: "#ecfccb", borderRadius: 12 },
+    styles: { backgroundColor: "#faf5ff", borderRadius: 10 },
   },
-];
+]; void _CL_UNUSED;
 
 export type ProductDetailPreset = {
   id: string;
@@ -252,7 +181,9 @@ export type ProductDetailPreset = {
   styles?: { backgroundColor?: string; borderRadius?: number };
 };
 
-export const PRODUCT_DETAIL_PRESETS: ProductDetailPreset[] = [
+/** @deprecated Data đã chuyển lên SQL Server DB. */
+export const PRODUCT_DETAIL_PRESETS: ProductDetailPreset[] = [];
+const _PD_UNUSED = [
   {
     id: "fashion-pd",
     name: "Thời trang",
@@ -393,7 +324,7 @@ export const PRODUCT_DETAIL_PRESETS: ProductDetailPreset[] = [
     },
     styles: { backgroundColor: "#f1f5f9", borderRadius: 10 },
   },
-];
+]; void _PD_UNUSED;
 
 export type CartPreset = {
   id: string;
@@ -404,7 +335,9 @@ export type CartPreset = {
   styles?: { backgroundColor?: string; borderRadius?: number };
 };
 
-export const CART_PRESETS: CartPreset[] = [
+/** @deprecated Data đã chuyển lên SQL Server DB. */
+export const CART_PRESETS: CartPreset[] = [];
+const _CART_UNUSED = [
   {
     id: "demo-2",
     name: "Giỏ demo",
@@ -541,9 +474,9 @@ export const CART_PRESETS: CartPreset[] = [
     }),
     styles: { backgroundColor: "#eef2ff", borderRadius: 12 },
   },
-];
+]; void _CART_UNUSED;
 
-/** --- Blog (code-first, đồng bộ BlogListData / BlogDetailData) --- */
+/** --- Blog (còn dùng bởi blogTemplateCatalog.ts / BlogSidebarPanel.tsx) --- */
 
 export type BlogListPreset = {
   id: string;
@@ -711,7 +644,9 @@ export type CarouselPreset = {
   styles?: { backgroundColor?: string; borderRadius?: number };
 };
 
-export const CAROUSEL_PRESETS: CarouselPreset[] = [
+/** @deprecated Data đã chuyển lên SQL Server DB. */
+export const CAROUSEL_PRESETS: CarouselPreset[] = [];
+const _CAR_UNUSED = [
   {
     id: "testimonial-3",
     name: "Nhận xét khách hàng",
@@ -907,4 +842,4 @@ export const CAROUSEL_PRESETS: CarouselPreset[] = [
     }),
     styles: { backgroundColor: "#1e293b", borderRadius: 12 },
   },
-];
+]; void _CAR_UNUSED;

@@ -1,46 +1,47 @@
-/** Dữ liệu địa giới tối giản cho cascade Tỉnh → Quận/Huyện → Phường/Xã (mở rộng dần). */
+/**
+ * Dữ liệu địa giới hành chính Việt Nam — API loader.
+ * Dữ liệu KHÔNG còn hardcode ở đây; tất cả được lưu trong SQL Server
+ * và truy xuất qua GET /api/vn-address/*
+ */
+
+import { vnAddressApi, type ProvinceApi, type DistrictApi, type WardApi } from "@/lib/shared/api";
 
 export const DEFAULT_COUNTRY = "Việt Nam";
 
 export type DistrictNode = { name: string; wards: string[] };
 export type ProvinceNode = { name: string; districts: DistrictNode[] };
 
-export const PROVINCES: ProvinceNode[] = [
-  {
-    name: "Hà Nội",
-    districts: [
-      {
-        name: "Quận Bắc Từ Liêm",
-        wards: ["Phường Thượng Cát", "Phường Liên Mạc", "Phường Đông Ngạc"],
-      },
-      {
-        name: "Quận Ba Đình",
-        wards: ["Phường Điện Biên", "Phường Trúc Bạch", "Phường Phúc Xá"],
-      },
-    ],
-  },
-  {
-    name: "TP. Hồ Chí Minh",
-    districts: [
-      {
-        name: "Quận 1",
-        wards: ["Phường Bến Nghé", "Phường Đa Kao", "Phường Tân Định"],
-      },
-      {
-        name: "Quận 7",
-        wards: ["Phường Tân Hưng", "Phường Tân Phú", "Phường Phú Mỹ"],
-      },
-    ],
-  },
-];
+// ─── API loaders ────────────────────────────────────────────────────────────
 
-export function findProvince(name: string | null | undefined): ProvinceNode | undefined {
-  if (!name?.trim()) return undefined;
-  return PROVINCES.find((p) => p.name === name);
+/** Load danh sách tỉnh/thành từ API */
+export async function fetchProvinces(): Promise<ProvinceApi[]> {
+  try {
+    return await vnAddressApi.provinces();
+  } catch (err) {
+    console.warn("[VnAddress] Không thể tải tỉnh/thành:", err);
+    return [];
+  }
 }
 
-export function findDistrict(provinceName: string | null | undefined, districtName: string | null | undefined): DistrictNode | undefined {
-  const p = findProvince(provinceName);
-  if (!p || !districtName?.trim()) return undefined;
-  return p.districts.find((d) => d.name === districtName);
+/** Load danh sách quận/huyện theo tỉnh */
+export async function fetchDistricts(provinceId: number): Promise<DistrictApi[]> {
+  try {
+    return await vnAddressApi.districts(provinceId);
+  } catch (err) {
+    console.warn("[VnAddress] Không thể tải quận/huyện:", err);
+    return [];
+  }
 }
+
+/** Load danh sách phường/xã theo quận */
+export async function fetchWards(districtId: number): Promise<WardApi[]> {
+  try {
+    return await vnAddressApi.wards(districtId);
+  } catch (err) {
+    console.warn("[VnAddress] Không thể tải phường/xã:", err);
+    return [];
+  }
+}
+
+// Re-export types cho backward compat
+export type { ProvinceApi, DistrictApi, WardApi };

@@ -6,8 +6,14 @@ import type {
   EditorElementType,
   PageContent,
   PageSettings,
+  PagePopupDef,
 } from "@/types/editor";
 import { normalizeElementType, normalizeSectionsElementTypes } from "@/lib/editor/normalizeElementType";
+import {
+  SIDEBAR_SAMPLE_COLLECTION_LIST,
+  SIDEBAR_SAMPLE_PRODUCT_DETAIL,
+} from "@/lib/editor/elementSidebarSamples";
+import { getDefaultContentForVariant } from "@/lib/editor/frameContent";
 
 type SelectedTarget =
   | { type: "page" }
@@ -28,7 +34,10 @@ type EditorState = {
   mobileFriendly: boolean;
   pageSettings: PageSettings;
   sections: EditorSection[];
+  popups: PagePopupDef[];
   selected: SelectedTarget;
+  /** Chọn nhiều phần tử (Shift+click) — rỗng = chỉ dùng selected */
+  multiSelectedElementIds: number[];
   deviceType: DeviceType;
   dirty: boolean;
   history: EditorSection[][];
@@ -46,10 +55,27 @@ type EditorState = {
 
 type EditorActions = {
   loadFromContent: (content: PageContent) => void;
+  /** Swap canvas sections (dùng khi vào/ra chế độ edit popup) */
+  swapEditorContext: (
+    newSections: EditorSection[],
+    savedHistory?: EditorSection[][],
+    savedHistoryIndex?: number,
+  ) => void;
+  /** Popup độc lập */
+  addPopup: (def: PagePopupDef) => void;
+  updatePopup: (id: string, partial: Partial<Omit<PagePopupDef, "id">>) => void;
+  removePopup: (id: string) => void;
   setDeviceType: (device: DeviceType) => void;
   selectPage: () => void;
   selectSection: (id: number) => void;
   selectElement: (id: number) => void;
+  /** Chọn nhiều phần tử cùng lúc (primary = phần tử cuối trong danh sách) */
+  selectMultipleElements: (elementIds: number[]) => void;
+  setMultiSelectedElementIds: (ids: number[]) => void;
+  /** Gom các phần tử đang chọn (cùng section) thành một nhóm */
+  groupElements: (sectionId: number, elementIds: number[]) => void;
+  /** Tách nhóm thành các phần tử riêng */
+  ungroupElement: (groupElementId: number) => void;
   addSection: () => void;
   removeSection: (id: number) => void;
   updateSection: (id: number, partial: Partial<EditorSection>) => void;
@@ -88,32 +114,94 @@ type EditorActions = {
 };
 
 const ELEMENT_DEFAULTS: Record<EditorElementType, Partial<EditorElement>> = {
-  text: { width: 300, height: 40, content: "Text element" },
+  text: {
+    width: 320,
+    height: 44,
+    content: "Văn bản của bạn",
+    styles: {
+      fontSize: 16,
+      fontWeight: 400,
+      fontFamily: "Inter",
+      color: "#1e293b",
+      lineHeight: 1.6,
+      letterSpacing: 0,
+      textAlign: "left",
+    },
+  },
   headline: {
-    width: 500,
+    width: 540,
     height: 60,
-    content: "Headline",
-    styles: { fontSize: 32, fontWeight: 700 },
+    content: "Tiêu đề chính của bạn",
+    styles: {
+      fontSize: 36,
+      fontWeight: 700,
+      fontFamily: "Inter",
+      color: "#0f172a",
+      lineHeight: 1.2,
+      letterSpacing: -0.5,
+      textAlign: "left",
+    },
   },
   paragraph: {
-    width: 400,
-    height: 80,
-    content: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
-    styles: { fontSize: 14 },
+    width: 460,
+    height: 96,
+    content: "Đây là đoạn văn bản mô tả. Hãy nhấp để chỉnh sửa nội dung này theo ý muốn của bạn.",
+    styles: {
+      fontSize: 15,
+      fontWeight: 400,
+      fontFamily: "Inter",
+      color: "#475569",
+      lineHeight: 1.75,
+      letterSpacing: 0,
+      textAlign: "left",
+    },
   },
   button: {
-    width: 180,
-    height: 48,
-    content: "Click me",
-    styles: { backgroundColor: "#4f46e5", color: "#ffffff", borderRadius: 8, fontSize: 14, fontWeight: 600, borderWidth: 0, borderColor: "#e2e8f0" },
+    width: 200,
+    height: 52,
+    content: "Nhấn vào đây",
+    styles: {
+      backgroundColor: "#4f46e5",
+      color: "#ffffff",
+      borderRadius: 10,
+      fontSize: 15,
+      fontWeight: 600,
+      fontFamily: "Inter",
+      borderWidth: 0,
+      borderColor: "#4f46e5",
+      letterSpacing: 0.3,
+      paddingTop: 0,
+      paddingRight: 28,
+      paddingBottom: 0,
+      paddingLeft: 28,
+      hoverBackgroundColor: "#4338ca",
+      boxShadow: "0 4px 14px rgba(79,70,229,0.35)",
+    },
   },
-  image: { width: 280, height: 200, content: "", imageUrl: "" },
+  image: {
+    width: 340,
+    height: 220,
+    content: "",
+    imageUrl: "",
+    styles: {
+      objectFit: "cover",
+      objectPosition: "center",
+      borderRadius: 0,
+    },
+  },
   video: { width: 480, height: 270, content: "", videoUrl: "" },
   shape: {
-    width: 120,
-    height: 120,
+    width: 200,
+    height: 160,
     content: "[]",
-    styles: { backgroundColor: "#e0e7ff", borderRadius: 8, borderWidth: 0, borderColor: "#e2e8f0", borderStyle: "solid" },
+    styles: {
+      backgroundColor: "#e0e7ff",
+      borderRadius: 12,
+      borderWidth: 0,
+      borderColor: "#6366f1",
+      borderStyle: "solid",
+      boxShadow: "0 4px 20px rgba(99,102,241,0.15)",
+    },
   },
   icon: { width: 48, height: 48, content: "star" },
   divider: {
@@ -139,34 +227,60 @@ const ELEMENT_DEFAULTS: Record<EditorElementType, Partial<EditorElement>> = {
     height: 120,
     content: "Item 1\nItem 2\nItem 3",
   },
-  gallery: { width: 500, height: 300, content: "" },
+  gallery: {
+    width: 560,
+    height: 400,
+    content: JSON.stringify([
+      "https://picsum.photos/seed/gal1/800/600",
+      "https://picsum.photos/seed/gal2/800/600",
+      "https://picsum.photos/seed/gal3/800/600",
+      "https://picsum.photos/seed/gal4/800/600",
+    ]),
+    styles: {
+      showThumbnails: 1,
+      thumbnailPosition: "bottom",
+      thumbWidth: 80,
+      thumbHeight: 60,
+      thumbGap: 6,
+      galleryGap: 8,
+      showArrows: 1,
+      showDots: 0,
+      transition: "fade",
+      autoPlay: 1,
+      autoPlaySpeed: 5,
+      borderRadius: 8,
+      thumbnailBorderRadius: 4,
+      mainObjectFit: "cover",
+    },
+  },
   "product-detail": {
-    width: 360,
-    height: 480,
-    content: JSON.stringify({
-      images: ["https://picsum.photos/400/400?random=1"],
-      title: "Áo thun nam cao cấp",
-      price: "1.290.000đ",
-      salePrice: "990.000đ",
-      description: "Chất liệu cotton 100%, thoáng mát, form dáng chuẩn. Phù hợp mặc hàng ngày hoặc đi làm.",
-      badge: "Giảm 23%",
-    }),
-    styles: { backgroundColor: "#ffffff", borderRadius: 12 },
+    width: 660,
+    height: 340,
+    content: SIDEBAR_SAMPLE_PRODUCT_DETAIL,
+    styles: {
+      backgroundColor: "#ffffff",
+      borderRadius: 4,
+      boxShadow: "0 1px 8px rgba(0,0,0,0.1)",
+    },
   },
   "collection-list": {
     width: 600,
-    height: 340,
-    content: JSON.stringify({
-      columns: 3,
-      items: [
-        { image: "https://picsum.photos/200/200?random=2", title: "Áo Polo Basic", price: "299.000đ" },
-        { image: "https://picsum.photos/200/200?random=3", title: "Quần Jeans Slim", price: "499.000đ" },
-        { image: "https://picsum.photos/200/200?random=4", title: "Giày Sneaker", price: "890.000đ" },
-      ],
-    }),
+    height: 360,
+    content: SIDEBAR_SAMPLE_COLLECTION_LIST,
     styles: { backgroundColor: "#f8fafc", borderRadius: 12 },
   },
-  frame: { width: 400, height: 300, content: "", styles: { border: "1px solid #e2e8f0", borderRadius: 8 } },
+  frame: {
+    width: 680,
+    height: 260,
+    content: JSON.stringify(getDefaultContentForVariant("quote")),
+    styles: { border: "none", borderRadius: 12, boxShadow: "0 1px 3px rgba(15,23,42,0.08)" },
+  },
+  group: {
+    width: 320,
+    height: 200,
+    content: JSON.stringify({ v: 1, items: [] }),
+    styles: { border: "1px dashed #6366f1", borderRadius: 8, backgroundColor: "transparent" },
+  },
   accordion: { width: 500, height: 200, content: "Câu hỏi 1|Trả lời 1\nCâu hỏi 2|Trả lời 2", styles: { fontSize: 14 } },
   table: { width: 600, height: 200, content: "Col1,Col2,Col3\nR1C1,R1C2,R1C3\nR2C1,R2C2,R2C3", styles: { fontSize: 13 } },
   cart: {
@@ -210,28 +324,76 @@ const ELEMENT_DEFAULTS: Record<EditorElementType, Partial<EditorElement>> = {
     styles: { fontSize: 15 },
   },
   popup: {
-    width: 500,
-    height: 400,
+    width: 480,
+    height: 280,
     content: JSON.stringify({
-      title: "Thông báo",
-      body: "Nội dung popup — chỉnh tiêu đề và nội dung ở panel bên phải.",
+      title: "Tiêu đề popup",
+      body: "Nội dung popup — chỉnh tiêu đề, nội dung và màu sắc ở panel bên phải.",
+      layout: "flat",
+      showBtn: true,
+      btnText: "Tìm hiểu thêm",
+      btnUrl: "#",
+      animation: "fade",
+      closeOnOverlay: true,
+      trigger: "click",
+      triggerDelay: 0,
     }),
-    styles: { backgroundColor: "#ffffff", borderRadius: 12 },
+    styles: { backgroundColor: "#ffffff", borderRadius: 14, bodyTextColor: "#334155", headerTextColor: "#0f172a", btnColor: "#1e2d7d", btnTextColor: "#ffffff", btnRadius: 8 },
   },
   map: { width: 500, height: 300, content: "10.762622,106.660172" },
   "social-share": { width: 280, height: 48, content: JSON.stringify({ networks: ["facebook", "twitter", "linkedin", "link"] }) },
   rating: { width: 200, height: 40, content: "5", styles: { color: "#f59e0b" } },
   progress: { width: 400, height: 24, content: "75", styles: { backgroundColor: "#e2e8f0" } },
   carousel: {
-    width: 420,
-    height: 280,
+    width: 560,
+    height: 300,
     content: JSON.stringify({
-      layoutType: "media",
+      layoutType: "testimonial",
+      carouselStyle: {
+        autoplayMs: 5000,
+        transitionType: "slide",
+        showArrows: true,
+        showDots: true,
+        dotStyle: "pill",
+        dotActiveColor: "#6366f1",
+        dotColor: "#d1d5db",
+        quoteFontSize: 13,
+        quoteColor: "#374151",
+        quoteAlign: "center",
+        nameFontSize: 13,
+        nameColor: "#111827",
+        nameAlign: "center",
+        roleFontSize: 11,
+        roleColor: "#6b7280",
+        roleAlign: "center",
+        showRating: true,
+        ratingColor: "#f59e0b",
+      },
       items: [
-        { image: "https://picsum.photos/800/450?random=21", title: "Slide 1", desc: "Mô tả ngắn cho slide." },
+        {
+          avatar: "https://picsum.photos/seed/av1/120/120",
+          quote: "Sản phẩm chất lượng tuyệt vời, giao hàng nhanh và đóng gói cẩn thận!",
+          name: "Nguyễn Thị Lan",
+          role: "Khách hàng thân thiết",
+          rating: 5,
+        },
+        {
+          avatar: "https://picsum.photos/seed/av2/120/120",
+          quote: "Dịch vụ hỗ trợ rất nhiệt tình, phản hồi nhanh và giải quyết vấn đề triệt để.",
+          name: "Trần Văn Minh",
+          role: "CEO — StartUp ABC",
+          rating: 5,
+        },
+        {
+          avatar: "https://picsum.photos/seed/av3/120/120",
+          quote: "Tôi đặc biệt ấn tượng với UX/UI, rất dễ sử dụng ngay cả với người mới.",
+          name: "Phạm Hoàng Yến",
+          role: "Designer tự do",
+          rating: 4,
+        },
       ],
     }),
-    styles: { backgroundColor: "#f8fafc", borderRadius: 12 },
+    styles: { backgroundColor: "#f8fafc", borderRadius: 16 },
   },
   tabs: {
     width: 520,
@@ -249,7 +411,32 @@ const ELEMENT_DEFAULTS: Record<EditorElementType, Partial<EditorElement>> = {
     }),
     styles: { backgroundColor: "#ffffff", borderRadius: 8 },
   },
-  antigravity: { width: 800, height: 600, content: "Antigravity UI", styles: {} },
+  menu: {
+    width: 520,
+    height: 48,
+    content: JSON.stringify({
+      items: [
+        { label: "Trang chủ", href: "#", target: "_self" },
+        { label: "Giới thiệu", href: "#", target: "_self" },
+        { label: "Dịch vụ", href: "#", target: "_self" },
+        { label: "Liên hệ", href: "#", target: "_self" },
+      ],
+      activeIndex: 0,
+      variant: 1,
+      align: "left",
+      activeColor: "#f97316",
+      activeBgColor: "#fff7ed",
+      textColor: "#1e293b",
+      fontSize: 14,
+      fontWeight: 600,
+      fontFamily: "Inter",
+      textTransform: "none",
+      gap: 8,
+      backgroundColor: "#ffffff",
+      borderRadius: 8,
+    }),
+    styles: {},
+  },
 };
 
 const MAX_HISTORY = 50;
@@ -267,7 +454,9 @@ export const useEditorStore = create<EditorState & EditorActions>()(
     mobileFriendly: true,
     pageSettings: {},
     sections: [],
+    popups: [],
     selected: { type: "page" },
+    multiSelectedElementIds: [],
     deviceType: "web",
     dirty: false,
     history: [],
@@ -285,6 +474,9 @@ export const useEditorStore = create<EditorState & EditorActions>()(
     loadFromContent: (content) =>
       set(() => {
         const sections = normalizeSectionsElementTypes(content.sections);
+        const rawPopups =
+          content.popups ??
+          (content as { Popups?: import("@/types/editor").PagePopupDef[] }).Popups;
         return {
           pageId: content.pageId,
           workspaceId: content.workspaceId,
@@ -297,11 +489,49 @@ export const useEditorStore = create<EditorState & EditorActions>()(
           mobileFriendly: content.mobileFriendly ?? true,
           pageSettings: content.pageSettings ?? {},
           sections,
+          popups: Array.isArray(rawPopups) ? rawPopups : [],
           selected: { type: "page" },
+          multiSelectedElementIds: [],
           dirty: false,
           history: [JSON.parse(JSON.stringify(sections))],
           historyIndex: 0,
         };
+      }),
+
+    swapEditorContext: (newSections, savedHistory, savedHistoryIndex) =>
+      set((state) => {
+        const cloned = JSON.parse(JSON.stringify(newSections)) as EditorSection[];
+        state.sections = cloned;
+        state.selected = { type: "page" };
+        state.multiSelectedElementIds = [];
+        if (savedHistory !== undefined && savedHistoryIndex !== undefined) {
+          state.history = JSON.parse(JSON.stringify(savedHistory));
+          state.historyIndex = savedHistoryIndex;
+        } else {
+          state.history = [JSON.parse(JSON.stringify(cloned))];
+          state.historyIndex = 0;
+        }
+      }),
+
+    addPopup: (def) =>
+      set((state) => {
+        state.popups.push(def);
+        state.dirty = true;
+      }),
+
+    updatePopup: (id, partial) =>
+      set((state) => {
+        const popup = state.popups.find((p) => p.id === id);
+        if (popup) {
+          Object.assign(popup, partial);
+          state.dirty = true;
+        }
+      }),
+
+    removePopup: (id) =>
+      set((state) => {
+        state.popups = state.popups.filter((p) => p.id !== id);
+        state.dirty = true;
       }),
 
     setDeviceType: (device) =>
@@ -313,16 +543,137 @@ export const useEditorStore = create<EditorState & EditorActions>()(
     selectPage: () =>
       set((state) => {
         state.selected = { type: "page" };
+        state.multiSelectedElementIds = [];
       }),
 
     selectSection: (id) =>
       set((state) => {
         state.selected = { type: "section", id };
+        state.multiSelectedElementIds = [];
       }),
 
     selectElement: (id: number) =>
       set((state) => {
         state.selected = { type: "element", id };
+        state.multiSelectedElementIds = [];
+      }),
+
+    selectMultipleElements: (elementIds) =>
+      set((state) => {
+        const ids = elementIds.filter((id) => Number.isFinite(id));
+        if (ids.length === 0) return;
+        const primary = ids[ids.length - 1]!;
+        state.selected = { type: "element", id: primary };
+        state.multiSelectedElementIds = ids;
+      }),
+
+    setMultiSelectedElementIds: (ids) =>
+      set((state) => {
+        state.multiSelectedElementIds = [...ids];
+      }),
+
+    groupElements: (sectionId, elementIds) =>
+      set((state) => {
+        const uniq = [...new Set(elementIds)].filter((id) => Number.isFinite(id));
+        if (uniq.length < 2) return;
+        const section = state.sections.find((s) => s.id === sectionId);
+        if (!section) return;
+        const picked = uniq
+          .map((id) => section.elements.find((e) => e.id === id))
+          .filter((e): e is EditorElement => !!e && !e.isLocked && e.type !== "group");
+        if (picked.length < 2) return;
+
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxR = -Infinity;
+        let maxB = -Infinity;
+        for (const e of picked) {
+          const w = e.width ?? 100;
+          const h = e.height ?? 40;
+          minX = Math.min(minX, e.x);
+          minY = Math.min(minY, e.y);
+          maxR = Math.max(maxR, e.x + w);
+          maxB = Math.max(maxB, e.y + h);
+        }
+        const gw = Math.max(20, maxR - minX);
+        const gh = Math.max(10, maxB - minY);
+
+        const items: EditorElement[] = picked.map((e) => {
+          const clone = JSON.parse(JSON.stringify(e)) as EditorElement;
+          clone.x = e.x - minX;
+          clone.y = e.y - minY;
+          clone.sectionId = sectionId;
+          return clone;
+        });
+
+        const groupId = Date.now();
+        const maxOrder = Math.max(0, ...section.elements.map((e) => e.order ?? 0));
+        const maxZ = Math.max(0, ...section.elements.map((e) => e.zIndex ?? 0));
+
+        const groupEl: EditorElement = {
+          id: groupId,
+          sectionId,
+          type: "group",
+          order: maxOrder + 1,
+          x: minX,
+          y: minY,
+          width: gw,
+          height: gh,
+          zIndex: maxZ + 1,
+          rotation: 0,
+          opacity: 1,
+          isLocked: false,
+          isHidden: false,
+          content: JSON.stringify({ v: 1 as const, items }),
+          styles: { border: "none", borderRadius: 0, backgroundColor: "transparent", padding: 0 },
+        };
+
+        section.elements = section.elements.filter((e) => !uniq.includes(e.id));
+        section.elements.push(groupEl);
+        state.selected = { type: "element", id: groupId };
+        state.multiSelectedElementIds = [];
+        state.dirty = true;
+      }),
+
+    ungroupElement: (groupElementId) =>
+      set((state) => {
+        for (const section of state.sections) {
+          const gi = section.elements.findIndex((e) => e.id === groupElementId && e.type === "group");
+          if (gi < 0) continue;
+          const gel = section.elements[gi];
+          let data: { v?: number; items?: EditorElement[] } = {};
+          try {
+            data = JSON.parse(gel.content || "{}");
+          } catch {
+            return;
+          }
+          const items = data.items ?? [];
+          if (items.length === 0) {
+            section.elements.splice(gi, 1);
+            state.selected = { type: "section", id: section.id };
+            state.dirty = true;
+            return;
+          }
+          const gx = gel.x;
+          const gy = gel.y;
+          section.elements.splice(gi, 1);
+          let t = Date.now();
+          for (const child of items) {
+            const restored: EditorElement = {
+              ...JSON.parse(JSON.stringify(child)),
+              id: t++,
+              sectionId: section.id,
+              x: gx + child.x,
+              y: gy + child.y,
+            };
+            section.elements.push(restored);
+          }
+          const lastId = t - 1;
+          state.selected = { type: "element", id: lastId };
+          state.multiSelectedElementIds = [];
+          state.dirty = true;
+          return;
+        }
       }),
 
     pushHistory: () =>
@@ -627,6 +978,7 @@ export const useEditorStore = create<EditorState & EditorActions>()(
         mobileFriendly: state.mobileFriendly,
         pageSettings: state.pageSettings,
         sections: state.sections,
+        popups: state.popups,
       };
     },
 

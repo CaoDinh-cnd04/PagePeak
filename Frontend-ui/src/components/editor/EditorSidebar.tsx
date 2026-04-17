@@ -7,12 +7,36 @@ import VideoPickerPanel from "./VideoPickerPanel";
 import IconPickerPanel from "./IconPickerPanel";
 import LinePickerPanel from "./LinePickerPanel";
 import FormPickerPanel from "./FormPickerPanel";
+import type { FormPreset } from "@/lib/editor/data/formData";
 import { DraggableToolItem, PresetPreview } from "./DndCanvas";
 import type { ToolCategoryData, ToolItemData, ElementPresetData, EditorSection } from "@/types/editor";
+import { getDefaultContentForVariant, FRAME_VARIANT_LABELS } from "@/lib/editor/frameContent";
 import type { EditorElementType } from "@/types/editor";
 import { BlogSidebarPanel } from "./BlogSidebarPanel";
 import { PopupSidebarPanel } from "./PopupSidebarPanel";
 import { UtilitiesSidebarPanel } from "./UtilitiesSidebarPanel";
+
+const FRAME_SIDEBAR_ORDER = ["quote", "split-feature", "profile-cta", "numbered", "blank"] as const;
+
+function frameSidebarPreset(variant: (typeof FRAME_SIDEBAR_ORDER)[number], index: number): ElementPresetData {
+  const fc = getDefaultContentForVariant(variant);
+  const heights: Record<(typeof FRAME_SIDEBAR_ORDER)[number], number> = {
+    quote: 240,
+    "split-feature": 220,
+    "profile-cta": 280,
+    numbered: 200,
+    blank: 220,
+  };
+  return {
+    id: -(100 + index),
+    name: FRAME_VARIANT_LABELS[variant],
+    defaultContent: JSON.stringify(fc),
+    stylesJson: JSON.stringify({ border: "none", borderRadius: 12, boxShadow: "0 1px 3px rgba(15,23,42,0.08)" }),
+    defaultWidth: 680,
+    defaultHeight: heights[variant],
+    order: index,
+  };
+}
 
 type EditorSidebarProps = {
   categories: ToolCategoryData[];
@@ -26,7 +50,7 @@ type EditorSidebarProps = {
   onInsertImage: (url: string, name: string, width?: number, height?: number) => void;
   onInsertIcon?: (iconId: string, color?: string) => void;
   onInsertLine?: (preset: { style: string; color: string; thickness: number; dashArray?: number[] }) => void;
-  onInsertForm?: (preset: { formType: string; title: string; buttonText: string; fields: unknown[]; inputStyle?: string }) => void;
+  onInsertForm?: (preset: FormPreset) => void;
   onInsertVideo?: (url: string, name: string) => void;
   onOpenMedia?: () => void;
   onClose?: () => void;
@@ -35,6 +59,10 @@ type EditorSidebarProps = {
   onSelectElement?: (elementId: number) => void;
   /** Mở modal chọn mẫu popup */
   onOpenPopupLibrary?: () => void;
+  /** Tạo popup mới (popup trắng) và vào chế độ edit popup */
+  onCreatePopup?: () => void;
+  /** Mở chế độ edit popup theo ID */
+  onEditPopup?: (id: string) => void;
   /** Mở thư viện tiện ích (hiệu ứng + widget + tích hợp) */
   onOpenUtilitiesLibrary?: () => void;
 };
@@ -58,6 +86,8 @@ export function EditorSidebar({
   sections,
   onSelectElement,
   onOpenPopupLibrary,
+  onCreatePopup,
+  onEditPopup,
   onOpenUtilitiesLibrary,
 }: EditorSidebarProps) {
   const [presetTab, setPresetTab] = useState<string | null>(null);
@@ -82,6 +112,9 @@ export function EditorSidebar({
   const isLinePicker = activeItem?.elementType === "divider";
   const isFormPicker = activeItem?.elementType === "form";
   const hasPresets = activeItem && activeItem.presets.length > 0 && !isImagePicker && !isIconPicker && !isLinePicker && !isFormPicker;
+  /** Panel chọn mẫu Khung (frame) — giống luồng preset: nhấn mục → danh sách mẫu */
+  const isFrameTemplates = activeItem?.elementType === "frame";
+  const inSubPanel = Boolean(hasPresets || isFrameTemplates);
 
   const subTabs = activeItem?.hasSubTabs && activeItem.subTabs
     ? (typeof activeItem.subTabs === "string" ? (() => { try { return JSON.parse(activeItem.subTabs) as string[]; } catch { return []; } })() : (activeItem.subTabs as string[]))
@@ -109,7 +142,7 @@ export function EditorSidebar({
             ? 280
             : isFormPicker
               ? 320
-              : hasPresets
+              : hasPresets || isFrameTemplates
                 ? 320
                 : 240;
 
@@ -167,8 +200,13 @@ export function EditorSidebar({
                 onAddElement={onAddElement}
                 onOpenUtilitiesLibrary={onOpenUtilitiesLibrary}
               />
-            ) : isPopupCategory && onOpenPopupLibrary ? (
-              <PopupSidebarPanel onAddElement={onAddElement} onOpenTemplateLibrary={onOpenPopupLibrary} />
+            ) : isPopupCategory ? (
+              <PopupSidebarPanel
+                onAddElement={onAddElement}
+                onOpenTemplateLibrary={onOpenPopupLibrary ?? (() => {})}
+                onCreatePopup={onCreatePopup ?? (() => {})}
+                onEditPopup={onEditPopup ?? (() => {})}
+              />
             ) : isBlogCategory && sections && onSelectElement ? (
               <BlogSidebarPanel sections={sections} onSelectElement={onSelectElement} onAddElement={onAddElement} />
             ) : isMediaCategory && onOpenMedia ? (
@@ -238,7 +276,7 @@ export function EditorSidebar({
             ) : isIconPicker && onInsertIcon ? (
               <div className="p-2 min-h-[360px]">
                 <IconPickerPanel
-                  onSelect={(iconId, icon) => { onInsertIcon(iconId, icon.color); onSelectItem(null); }}
+                  onSelect={(iconKey) => { onInsertIcon(iconKey); onSelectItem(null); }}
                   onClose={() => onSelectItem(null)}
                   onBack={() => onSelectItem(null)}
                 />
@@ -259,7 +297,7 @@ export function EditorSidebar({
                   onBack={() => onSelectItem(null)}
                 />
               </div>
-            ) : !hasPresets ? (
+            ) : !inSubPanel ? (
               <div className="p-2 space-y-0.5">
                 {activeCat.items.length === 0 ? (
                   <div className="py-5 px-3 text-center space-y-3">
@@ -274,21 +312,24 @@ export function EditorSidebar({
                       </button>
                     ) : null}
                   </div>
-                ) : activeCat.items.map((item) => (
-                  <SidebarToolItem
-                    key={item.id}
-                    item={item}
-                    activeItemId={activeItemId}
-                    onSelect={onSelectItem}
-                    onAddElement={onAddElement}
-                    onAddSection={onAddSection}
-                    onAddSectionTemplate={onAddSectionTemplate}
-                  />
-                ))}
+                ) : (
+                  activeCat.items.map((item) => (
+                    <SidebarToolItem
+                      key={item.id}
+                      item={item}
+                      activeItemId={activeItemId}
+                      onSelect={onSelectItem}
+                      onAddElement={onAddElement}
+                      onAddSection={onAddSection}
+                      onAddSectionTemplate={onAddSectionTemplate}
+                      suppressAutoAdd={item.elementType === "frame"}
+                    />
+                  ))
+                )}
               </div>
             ) : (
               <>
-                {subTabs.length > 0 && (
+                {hasPresets && subTabs.length > 0 && (
                   <div className="flex border-b border-[#e0e0e0] shrink-0 px-2">
                     {subTabs.map((tab) => (
                       <button
@@ -305,42 +346,73 @@ export function EditorSidebar({
                   </div>
                 )}
                 <div className="p-2 border-b border-[#e0e0e0] shrink-0">
-                  <button type="button" onClick={() => { onSelectItem(null); setPresetTab(null); }} className="text-[11px] text-slate-500 hover:text-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectItem(null);
+                      setPresetTab(null);
+                    }}
+                    className="text-[11px] text-slate-500 hover:text-slate-700"
+                  >
                     ← Quay lại danh sách
                   </button>
                 </div>
                 <div className="p-2 space-y-2 overflow-y-auto max-h-[calc(100vh-220px)]">
-                  {currentPresets.map((preset) => (
-                    <PresetCard
-                      key={preset.id}
-                      preset={preset}
-                      activeItem={activeItem!}
-                      editedContent={editedPresetContent[preset.id]}
-                      onEditContent={(c) => setEditedPresetContent((prev) => ({ ...prev, [preset.id]: c }))}
-                      onAdd={(modifiedPreset) => {
-                        const p = modifiedPreset ?? preset;
-                        const elType = (activeItem?.elementType as EditorElementType) ?? (
-                          p.tabName === "Danh sách" ? "list" : p.tabName === "Đoạn văn" ? "paragraph" : p.tabName === "Tiêu đề" ? "headline" : "text"
-                        ) as EditorElementType;
-                        onAddElement(elType, p);
-                        onSelectItem(null);
-                      }}
-                      onRequestImagePicker={() =>
-                        setImagePickerForPreset({
-                          presetId: preset.id,
-                          preset,
-                          onSelect: (url) => {
-                            let pd: { images?: string[] } = {};
-                            try { pd = JSON.parse(editedPresetContent[preset.id] ?? preset.defaultContent ?? "{}"); } catch {}
-                            const imgs = Array.isArray(pd.images) ? [...pd.images] : [];
-                            imgs[0] = url;
-                            if (imgs.length === 0) imgs.push(url);
-                            setEditedPresetContent((prev) => ({ ...prev, [preset.id]: JSON.stringify({ ...pd, images: imgs }) }));
-                          },
-                        })
-                      }
-                    />
-                  ))}
+                  {hasPresets ? (
+                    currentPresets.map((preset) => (
+                      <PresetCard
+                        key={preset.id}
+                        preset={preset}
+                        activeItem={activeItem!}
+                        editedContent={editedPresetContent[preset.id]}
+                        onEditContent={(c) => setEditedPresetContent((prev) => ({ ...prev, [preset.id]: c }))}
+                        onAdd={(modifiedPreset) => {
+                          const p = modifiedPreset ?? preset;
+                          const elType = (activeItem?.elementType as EditorElementType) ?? (
+                            p.tabName === "Danh sách" ? "list" : p.tabName === "Đoạn văn" ? "paragraph" : p.tabName === "Tiêu đề" ? "headline" : "text"
+                          ) as EditorElementType;
+                          onAddElement(elType, p);
+                          onSelectItem(null);
+                        }}
+                        onRequestImagePicker={() =>
+                          setImagePickerForPreset({
+                            presetId: preset.id,
+                            preset,
+                            onSelect: (url) => {
+                              let pd: { images?: string[] } = {};
+                              try { pd = JSON.parse(editedPresetContent[preset.id] ?? preset.defaultContent ?? "{}"); } catch {}
+                              const imgs = Array.isArray(pd.images) ? [...pd.images] : [];
+                              imgs[0] = url;
+                              if (imgs.length === 0) imgs.push(url);
+                              setEditedPresetContent((prev) => ({ ...prev, [preset.id]: JSON.stringify({ ...pd, images: imgs }) }));
+                            },
+                          })
+                        }
+                      />
+                    ))
+                  ) : isFrameTemplates && activeItem ? (
+                    <div className="rounded-xl border border-slate-200 bg-white shadow-[0_1px_3px_rgba(15,23,42,0.06)] overflow-hidden">
+                      <div className="px-2.5 py-2 bg-slate-50 border-b border-slate-100">
+                        <p className="text-[10px] font-bold text-slate-700 tracking-wide">{activeItem.name}</p>
+                        <p className="text-[9px] text-slate-500 mt-0.5 leading-snug">Chọn mẫu có sẵn — kéo hoặc nhấn (giống các phần tử có mẫu)</p>
+                      </div>
+                      <div className="p-1.5 space-y-1">
+                        {FRAME_SIDEBAR_ORDER.map((variant, idx) => (
+                          <DraggableToolItem
+                            key={`${activeItem.id}-${variant}`}
+                            item={activeItem}
+                            activeItemId={activeItemId}
+                            onSelect={onSelectItem}
+                            onAddElement={onAddElement}
+                            onAddSection={onAddSection}
+                            onAddSectionTemplate={onAddSectionTemplate}
+                            forceAddWithPreset={frameSidebarPreset(variant, idx)}
+                            surfaceClassName="rounded-lg py-1.5 border border-transparent hover:border-slate-200 hover:bg-white bg-slate-50/40"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </>
             )}
@@ -358,6 +430,7 @@ function SidebarToolItem({
   onAddElement,
   onAddSection,
   onAddSectionTemplate,
+  suppressAutoAdd,
 }: {
   item: ToolItemData;
   activeItemId: number | null;
@@ -365,6 +438,7 @@ function SidebarToolItem({
   onAddElement: (elType: EditorElementType, preset?: ElementPresetData) => void;
   onAddSection: () => void;
   onAddSectionTemplate?: (template: "blank" | "hero") => void;
+  suppressAutoAdd?: boolean;
 }) {
   return (
     <DraggableToolItem
@@ -374,6 +448,7 @@ function SidebarToolItem({
       onAddElement={onAddElement}
       onAddSection={onAddSection}
       onAddSectionTemplate={onAddSectionTemplate}
+      suppressAutoAdd={suppressAutoAdd}
     />
   );
 }

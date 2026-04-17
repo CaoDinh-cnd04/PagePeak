@@ -1,5 +1,6 @@
-import { Eye, Zap, Star, LayoutGrid, Crown } from "lucide-react";
+import { Eye, Zap, Star, Crown } from "lucide-react";
 import type { TemplateItem } from "@/lib/shared/api";
+import type { StaticTemplateItem } from "@/lib/dashboard/templates/staticTemplates";
 import { CATEGORY_ICONS, Filter } from "./templateLibraryConstants";
 
 type Props = {
@@ -10,18 +11,47 @@ type Props = {
 };
 
 export function TemplateCard({ template: t, onPreview, onUse, formatUsage }: Props) {
+  const previewUrl = (t as StaticTemplateItem).previewUrl;
+
   return (
     <div className="group relative bg-white rounded-xl border border-slate-200 overflow-hidden hover:shadow-lg hover:border-primary-200 transition-all duration-300">
-      <div className="relative aspect-[4/3] bg-slate-100 overflow-hidden">
+      <div className="relative aspect-[4/3] bg-slate-100 overflow-hidden cursor-pointer" onClick={onPreview}>
         {t.thumbnailUrl ? (
           <img
             src={t.thumbnailUrl}
             alt={t.name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
           />
+        ) : previewUrl ? (
+          /* Mini iframe preview — scaled down to fit the card */
+          <div className="w-full h-full overflow-hidden pointer-events-none">
+            <iframe
+              src={previewUrl}
+              title={t.name}
+              className="border-none"
+              style={{
+                width: "200%",
+                height: "200%",
+                transform: "scale(0.5)",
+                transformOrigin: "top left",
+              }}
+              sandbox="allow-scripts allow-same-origin"
+            />
+          </div>
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-slate-400">
-            <LayoutGrid className="w-12 h-12" />
+          <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-violet-50 gap-3 px-4">
+            <div className="flex flex-col gap-1.5 w-full max-w-[140px]">
+              <div className="h-3 rounded-full bg-indigo-200 w-full" />
+              <div className="h-2 rounded-full bg-slate-200 w-4/5" />
+              <div className="h-2 rounded-full bg-slate-200 w-3/5" />
+            </div>
+            <div className="flex gap-1.5 w-full max-w-[140px]">
+              {[1,2,3].map(i => <div key={i} className="flex-1 h-10 rounded bg-indigo-100" />)}
+            </div>
+            <div className="h-2.5 rounded-full bg-indigo-300 w-[80px]" />
+            <span className="text-[10px] font-bold text-indigo-500 tracking-wider uppercase bg-indigo-100 px-2 py-0.5 rounded-full">
+              ✏️ Có thể chỉnh sửa
+            </span>
           </div>
         )}
 

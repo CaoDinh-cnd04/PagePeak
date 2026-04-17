@@ -1,21 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Upload, Search, CloudUpload } from "lucide-react";
-import { mediaApi, type MediaItem } from "@/lib/shared/api";
+import { mediaApi, stockImagesApi, type MediaItem, type StockImageApi } from "@/lib/shared/api";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
 
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml"];
 const MAX_SIZE = 10 * 1024 * 1024;
-
-const STOCK_IMAGES: { url: string; name: string; category: string; w: number; h: number }[] = [
-  { url: "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?w=800&h=600&fit=crop", name: "Văn phòng", category: "business", w: 800, h: 600 },
-  { url: "https://images.unsplash.com/photo-1553877522-43269d4ea984?w=800&h=600&fit=crop", name: "Họp nhóm", category: "business", w: 800, h: 600 },
-  { url: "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&h=600&fit=crop", name: "Núi tuyết", category: "nature", w: 800, h: 600 },
-  { url: "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=800&h=600&fit=crop", name: "Rừng xanh", category: "nature", w: 800, h: 600 },
-  { url: "https://images.unsplash.com/photo-1518770660439-4636190af475?w=800&h=600&fit=crop", name: "Công nghệ", category: "technology", w: 800, h: 600 },
-  { url: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&h=600&fit=crop", name: "Chân dung", category: "people", w: 800, h: 600 },
-  { url: "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=800&h=600&fit=crop", name: "Ẩm thực", category: "food", w: 800, h: 600 },
-];
 
 type ImagePickerTab = "upload" | "free" | "illustration" | "more";
 
@@ -35,7 +25,10 @@ export default function ImagePickerPanel({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [selectedItem, setSelectedItem] = useState<{ url: string; name: string; w?: number; h?: number } | null>(null);
+  const [stockImages, setStockImages] = useState<StockImageApi[]>([]);
+  const [stockLoading, setStockLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchMedia = useCallback(async () => {
@@ -50,9 +43,33 @@ export default function ImagePickerPanel({
     }
   }, []);
 
+  // Load ảnh mẫu từ DB khi vào tab free/illustration/more
+  const fetchStockImages = useCallback(async (q?: string) => {
+    setStockLoading(true);
+    try {
+      const imgs = q
+        ? await stockImagesApi.search(q)
+        : await stockImagesApi.list();
+      setStockImages(imgs);
+    } catch {
+      setStockImages([]);
+    } finally {
+      setStockLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (tab === "upload") fetchMedia();
-  }, [tab, fetchMedia]);
+    else if (tab === "free" || tab === "illustration" || tab === "more") {
+      void fetchStockImages();
+    }
+  }, [tab, fetchMedia, fetchStockImages]);
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    setSearch(searchInput);
+    if (tab !== "upload") void fetchStockImages(searchInput || undefined);
+  };
 
   const handleUpload = useCallback(async (files: FileList | File[]) => {
     const fileArray = Array.from(files);
@@ -105,7 +122,7 @@ export default function ImagePickerPanel({
   const tabs: { key: ImagePickerTab; label: string }[] = [
     { key: "upload", label: "Ảnh" },
     { key: "free", label: "Ảnh miễn phí" },
-    { key: "illustration", label: "Ảnh minh họa" },
+    { key: "illustration", label: "Minh họa" },
     { key: "more", label: "Xem thêm" },
   ];
 
@@ -113,21 +130,11 @@ export default function ImagePickerPanel({
     tab === "upload"
       ? items.filter((i) => !search || i.originalName.toLowerCase().includes(search.toLowerCase()))
       : [];
-  const stockItems =
-    tab === "free" || tab === "illustration"
-      ? STOCK_IMAGES.filter((i) => !search || i.name.toLowerCase().includes(search.toLowerCase()))
-      : tab === "more"
-        ? STOCK_IMAGES.filter((i) => !search || i.name.toLowerCase().includes(search.toLowerCase()))
-        : [];
 
-  const selectMediaItem = (item: MediaItem) => {
-    const url = getFullUrl(item.url);
-    setSelectedItem({ url, name: item.originalName });
-  };
-
-  const selectStockItem = (img: (typeof STOCK_IMAGES)[0]) => {
-    setSelectedItem({ url: img.url, name: img.name, w: img.w, h: img.h });
-  };
+  const displayStockItems =
+    tab !== "upload"
+      ? stockImages.filter((i) => !search || i.name.toLowerCase().includes(search.toLowerCase()))
+      : [];
 
   const isSelected = (url: string) => selectedItem?.url === url;
 
@@ -151,31 +158,45 @@ export default function ImagePickerPanel({
 
       {/* Search + Upload */}
       <div className="p-3 border-b border-[#e0e0e0] space-y-2 shrink-0">
-        <div className="flex gap-2">
+        <form className="flex gap-2" onSubmit={handleSearch}>
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
             <input
               type="text"
-              placeholder="Tìm kiếm..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              placeholder={tab === "upload" ? "Tìm kiếm..." : "Tìm ảnh miễn phí (tiếng Anh)..."}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#1e2d7d] focus:border-transparent"
             />
           </div>
-          <input ref={fileInputRef} type="file" accept={IMAGE_TYPES.join(",")} multiple className="hidden" onChange={(e) => e.target.files && handleUpload(e.target.files)} />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#1e2d7d] hover:bg-[#162558] text-white text-[11px] font-semibold rounded-lg transition disabled:opacity-60"
-          >
-            <Upload className="w-3.5 h-3.5" />
-            + Chọn tệp
-          </button>
-        </div>
-        <div className="flex gap-1">
-          <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-medium rounded">Tất cả</span>
-        </div>
+          {tab === "upload" ? (
+            <>
+              <input ref={fileInputRef} type="file" accept={IMAGE_TYPES.join(",")} multiple className="hidden" onChange={(e) => e.target.files && handleUpload(e.target.files)} />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#1e2d7d] hover:bg-[#162558] text-white text-[11px] font-semibold rounded-lg transition disabled:opacity-60"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                + Chọn tệp
+              </button>
+            </>
+          ) : (
+            <button
+              type="submit"
+              className="shrink-0 inline-flex items-center gap-1 px-3 py-1.5 bg-[#1e2d7d] hover:bg-[#162558] text-white text-[11px] font-semibold rounded-lg transition"
+            >
+              <Search className="w-3.5 h-3.5" />
+              Tìm
+            </button>
+          )}
+        </form>
+        {tab !== "upload" && (
+          <p className="text-[10px] text-slate-400">
+            Ảnh miễn phí từ Unsplash / Pexels qua backend
+          </p>
+        )}
       </div>
 
       {/* Upload progress */}
@@ -216,7 +237,7 @@ export default function ImagePickerPanel({
                     <button
                       key={item.id}
                       type="button"
-                      onClick={() => selectMediaItem(item)}
+                      onClick={() => setSelectedItem({ url, name: item.originalName })}
                       className={`relative aspect-square rounded-lg overflow-hidden border-2 transition ${
                         isSelected(url) ? "border-[#1e2d7d] ring-2 ring-[#1e2d7d]/30" : "border-slate-200 hover:border-slate-300"
                       }`}
@@ -233,28 +254,44 @@ export default function ImagePickerPanel({
           </>
         )}
 
-        {(tab === "free" || tab === "illustration" || tab === "more") && (
-          <div className="grid grid-cols-2 gap-2">
-            {stockItems.map((img, i) => (
-              <button
-                key={i}
-                type="button"
-                onClick={() => selectStockItem(img)}
-                className={`relative aspect-square rounded-lg overflow-hidden border-2 transition ${
-                  isSelected(img.url) ? "border-[#1e2d7d] ring-2 ring-[#1e2d7d]/30" : "border-slate-200 hover:border-slate-300"
-                }`}
-              >
-                <img src={img.url} alt={img.name} className="w-full h-full object-cover" loading="lazy" />
-                <p className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] px-1 py-0.5 truncate">
-                  {img.name}
-                </p>
-              </button>
-            ))}
-          </div>
+        {tab !== "upload" && (
+          <>
+            {stockLoading ? (
+              <div className="flex justify-center py-12">
+                <div className="w-8 h-8 border-2 border-[#1e2d7d] border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : displayStockItems.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                <Search className="w-10 h-10 mb-2 opacity-40" />
+                <p className="text-xs">Không tìm thấy ảnh</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {displayStockItems.map((img, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => setSelectedItem({ url: img.url, name: img.name, w: img.w, h: img.h })}
+                    className={`relative aspect-square rounded-lg overflow-hidden border-2 transition ${
+                      isSelected(img.url) ? "border-[#1e2d7d] ring-2 ring-[#1e2d7d]/30" : "border-slate-200 hover:border-slate-300"
+                    }`}
+                  >
+                    <img src={img.url} alt={img.name} className="w-full h-full object-cover" loading="lazy" />
+                    <p className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] px-1 py-0.5 truncate">
+                      {img.name}
+                    </p>
+                    {img.source === "pexels" && (
+                      <span className="absolute top-1 right-1 px-1 py-0.5 bg-green-500 text-white text-[8px] rounded font-bold">Pexels</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 
-      {/* Footer: Back + Sử dụng */}
+      {/* Footer */}
       <div className="p-3 border-t border-[#e0e0e0] shrink-0 flex items-center justify-between">
         {onBack && (
           <button type="button" onClick={onBack} className="text-[11px] text-slate-500 hover:text-slate-700">

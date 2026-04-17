@@ -33,6 +33,16 @@ public class AppDbContext : DbContext, IAppDbContext
     public DbSet<Customer> Customers { get; set; }
     public DbSet<Lead> Leads { get; set; }
     public DbSet<MomoPaymentOrder> MomoPaymentOrders { get; set; }
+    public DbSet<FormPresetTemplate> FormPresetTemplates { get; set; }
+    public DbSet<PopupTemplate> PopupTemplates { get; set; }
+    public DbSet<Province> Provinces { get; set; }
+    public DbSet<District> Districts { get; set; }
+    public DbSet<Ward> Wards { get; set; }
+    public DbSet<LoginFeatureSlide> LoginFeatureSlides { get; set; }
+    public DbSet<EditorIcon> EditorIcons { get; set; }
+    public DbSet<SampleVideo> SampleVideos { get; set; }
+    public DbSet<LinePresetDb> LinePresets { get; set; }
+    public DbSet<StockImage> StockImages { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -147,6 +157,7 @@ public class AppDbContext : DbContext, IAppDbContext
             e.Property(x => x.Ward).HasColumnName("PhuongXa").HasMaxLength(100);
             e.Property(x => x.Timezone).HasColumnName("MuiGio").HasMaxLength(100);
             e.Property(x => x.StoreCurrency).HasColumnName("DonViTienKhongGian").HasMaxLength(10);
+            e.Property(x => x.SmtpConfigJson).HasColumnName("SmtpConfigJson").HasMaxLength(2000).IsRequired(false).HasDefaultValue(null);
             // Tranh loi "multiple cascade paths": khong cascade delete Workspace khi xoa User (owner)
             e.HasOne(x => x.Owner).WithMany().HasForeignKey(x => x.OwnerId).OnDelete(DeleteBehavior.NoAction);
             e.HasOne(x => x.Plan).WithMany().HasForeignKey(x => x.PlanId);
@@ -469,6 +480,170 @@ public class AppDbContext : DbContext, IAppDbContext
             e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
             e.HasOne(x => x.Workspace).WithMany().HasForeignKey(x => x.WorkspaceId).OnDelete(DeleteBehavior.NoAction);
             e.HasIndex(x => new { x.UserId, x.CreatedAt }).IsDescending(false, true);
+        });
+
+        // FormPresetTemplate -> MauFormSanDung
+        modelBuilder.Entity<FormPresetTemplate>(e =>
+        {
+            e.ToTable("MauFormSanDung");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaMauForm");
+            e.Property(x => x.PresetId).HasColumnName("MaPreset").HasMaxLength(100);
+            e.Property(x => x.Name).HasColumnName("TenMauForm").HasMaxLength(200);
+            e.Property(x => x.FormType).HasColumnName("LoaiForm").HasMaxLength(50);
+            e.Property(x => x.TabName).HasColumnName("TenTab").HasMaxLength(100);
+            e.Property(x => x.Title).HasColumnName("TieuDe").HasMaxLength(200);
+            e.Property(x => x.ButtonText).HasColumnName("ChuNut").HasMaxLength(100);
+            e.Property(x => x.FieldsJson).HasColumnName("CacTruongJson");
+            e.Property(x => x.InputStyle).HasColumnName("KieuInput").HasMaxLength(20);
+            e.Property(x => x.Width).HasColumnName("ChieuRong");
+            e.Property(x => x.Height).HasColumnName("ChieuCao");
+            e.Property(x => x.ButtonColor).HasColumnName("MauNut").HasMaxLength(20);
+            e.Property(x => x.ButtonTextColor).HasColumnName("MauChuNut").HasMaxLength(20);
+            e.Property(x => x.BackgroundColor).HasColumnName("MauNen").HasMaxLength(20);
+            e.Property(x => x.FormBorderRadius).HasColumnName("GocBoForm");
+            e.Property(x => x.TitleColor).HasColumnName("MauTieuDe").HasMaxLength(20);
+            e.Property(x => x.InputRadius).HasColumnName("GocBoInput");
+            e.Property(x => x.AccentColor).HasColumnName("MauNhan").HasMaxLength(20);
+            e.Property(x => x.Order).HasColumnName("ThuTu");
+            e.Property(x => x.IsActive).HasColumnName("DangHoatDong");
+            e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
+            e.HasIndex(x => x.PresetId).IsUnique();
+        });
+
+        // PopupTemplate -> MauPopup
+        modelBuilder.Entity<PopupTemplate>(e =>
+        {
+            e.ToTable("MauPopup");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaMauPopup");
+            e.Property(x => x.TemplateId).HasColumnName("MaTemplate").HasMaxLength(100);
+            e.Property(x => x.Name).HasColumnName("TenMauPopup").HasMaxLength(200);
+            e.Property(x => x.Category).HasColumnName("DanhMuc").HasMaxLength(50);
+            e.Property(x => x.ThumbnailUrl).HasColumnName("AnhThuNho").HasMaxLength(500);
+            e.Property(x => x.ContentJson).HasColumnName("NoiDungJson");
+            e.Property(x => x.Width).HasColumnName("ChieuRong");
+            e.Property(x => x.Height).HasColumnName("ChieuCao");
+            e.Property(x => x.StylesJson).HasColumnName("StylesJson");
+            e.Property(x => x.Order).HasColumnName("ThuTu");
+            e.Property(x => x.IsActive).HasColumnName("DangHoatDong");
+            e.Property(x => x.CreatedAt).HasColumnName("NgayTao");
+            e.HasIndex(x => x.TemplateId).IsUnique();
+        });
+
+        // Province -> TinhThanh
+        modelBuilder.Entity<Province>(e =>
+        {
+            e.ToTable("TinhThanh");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaTinh");
+            e.Property(x => x.Name).HasColumnName("TenTinh").HasMaxLength(100);
+            e.Property(x => x.Order).HasColumnName("ThuTu");
+        });
+
+        // District -> QuanHuyen
+        modelBuilder.Entity<District>(e =>
+        {
+            e.ToTable("QuanHuyen");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaQuan");
+            e.Property(x => x.ProvinceId).HasColumnName("MaTinh");
+            e.Property(x => x.Name).HasColumnName("TenQuan").HasMaxLength(100);
+            e.Property(x => x.Order).HasColumnName("ThuTu");
+            e.HasOne(x => x.Province).WithMany(x => x.Districts).HasForeignKey(x => x.ProvinceId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Ward -> PhuongXa
+        modelBuilder.Entity<Ward>(e =>
+        {
+            e.ToTable("PhuongXa");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaPhuong");
+            e.Property(x => x.DistrictId).HasColumnName("MaQuan");
+            e.Property(x => x.Name).HasColumnName("TenPhuong").HasMaxLength(100);
+            e.Property(x => x.Order).HasColumnName("ThuTu");
+            e.HasOne(x => x.District).WithMany(x => x.Wards).HasForeignKey(x => x.DistrictId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // LoginFeatureSlide -> TinhNangDangNhap
+        modelBuilder.Entity<LoginFeatureSlide>(e =>
+        {
+            e.ToTable("TinhNangDangNhap");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaTinhNang");
+            e.Property(x => x.SlideId).HasColumnName("MaSlide").HasMaxLength(50);
+            e.Property(x => x.Title).HasColumnName("TieuDe").HasMaxLength(200);
+            e.Property(x => x.Description).HasColumnName("MoTa").HasMaxLength(500);
+            e.Property(x => x.Icon).HasColumnName("Icon").HasMaxLength(50);
+            e.Property(x => x.Order).HasColumnName("ThuTu");
+            e.Property(x => x.IsActive).HasColumnName("DangHoatDong");
+        });
+
+        // EditorIcon -> BieuTuongEditor
+        modelBuilder.Entity<EditorIcon>(e =>
+        {
+            e.ToTable("BieuTuongEditor");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaBieuTuong");
+            e.Property(x => x.IconId).HasColumnName("MaIcon").HasMaxLength(100);
+            e.Property(x => x.Name).HasColumnName("TenBieuTuong").HasMaxLength(100);
+            e.Property(x => x.Category).HasColumnName("DanhMuc").HasMaxLength(50);
+            e.Property(x => x.Char).HasColumnName("KyTu").HasMaxLength(20);
+            e.Property(x => x.Color).HasColumnName("MauSac").HasMaxLength(20);
+            e.Property(x => x.Order).HasColumnName("ThuTu");
+            e.Property(x => x.IsActive).HasColumnName("DangHoatDong");
+            e.HasIndex(x => x.IconId).IsUnique();
+        });
+
+        // SampleVideo -> VideoMau
+        modelBuilder.Entity<SampleVideo>(e =>
+        {
+            e.ToTable("VideoMau");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaVideo");
+            e.Property(x => x.Name).HasColumnName("TenVideo").HasMaxLength(200);
+            e.Property(x => x.Url).HasColumnName("DuongDan").HasMaxLength(500);
+            e.Property(x => x.EmbedUrl).HasColumnName("DuongDanNhung").HasMaxLength(500);
+            e.Property(x => x.ThumbnailUrl).HasColumnName("AnhThuNho").HasMaxLength(500);
+            e.Property(x => x.Source).HasColumnName("NguonVideo").HasMaxLength(20);
+            e.Property(x => x.Order).HasColumnName("ThuTu");
+            e.Property(x => x.IsActive).HasColumnName("DangHoatDong");
+        });
+
+        // LinePresetDb -> MauDuongKe
+        modelBuilder.Entity<LinePresetDb>(e =>
+        {
+            e.ToTable("MauDuongKe");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaDuongKe");
+            e.Property(x => x.PresetId).HasColumnName("MaPreset").HasMaxLength(100);
+            e.Property(x => x.Name).HasColumnName("TenMau").HasMaxLength(200);
+            e.Property(x => x.Style).HasColumnName("KieuDuong").HasMaxLength(20);
+            e.Property(x => x.Color).HasColumnName("MauSac").HasMaxLength(20);
+            e.Property(x => x.Thickness).HasColumnName("DoDay");
+            e.Property(x => x.DashArrayJson).HasColumnName("KieuGachJson").HasMaxLength(50);
+            e.Property(x => x.Tab).HasColumnName("Tab").HasMaxLength(20);
+            e.Property(x => x.Order).HasColumnName("ThuTu");
+            e.Property(x => x.IsActive).HasColumnName("DangHoatDong");
+            e.HasIndex(x => x.PresetId).IsUnique();
+        });
+
+        // StockImage -> AnhMauCoBan
+        modelBuilder.Entity<StockImage>(e =>
+        {
+            e.ToTable("AnhMauCoBan");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Id).HasColumnName("MaAnh");
+            e.Property(x => x.Url).HasColumnName("DuongDan").HasMaxLength(1000);
+            e.Property(x => x.Name).HasColumnName("TenAnh").HasMaxLength(200);
+            e.Property(x => x.Category).HasColumnName("DanhMuc").HasMaxLength(50);
+            e.Property(x => x.Width).HasColumnName("ChieuRong");
+            e.Property(x => x.Height).HasColumnName("ChieuCao");
+            e.Property(x => x.Author).HasColumnName("TacGia").HasMaxLength(100);
+            e.Property(x => x.AuthorUrl).HasColumnName("DuongDanTacGia").HasMaxLength(500);
+            e.Property(x => x.Source).HasColumnName("NguonAnh").HasMaxLength(20);
+            e.Property(x => x.Order).HasColumnName("ThuTu");
+            e.Property(x => x.IsActive).HasColumnName("DangHoatDong");
         });
     }
 }

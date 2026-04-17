@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { FORM_PRESETS, FORM_TABS, type FormPreset } from "@/lib/editor/data/formData";
+import { useState, useEffect } from "react";
+import { fetchFormPresets, fetchFormTabs, FORM_TABS, type FormPreset } from "@/lib/editor/data/formData";
 
 function FormPresetPreview({ preset }: { preset: FormPreset }) {
   const style = preset.inputStyle ?? "outlined";
@@ -56,7 +56,6 @@ function FormPresetPreview({ preset }: { preset: FormPreset }) {
       )}
 
       {isLogin && preset.fields.length > 1 ? (
-        // Login inline layout
         <div style={{ display: "flex", gap: 4 }}>
           <div style={{ flex: 1, height: 20, ...inputStyle }} />
           <div
@@ -112,14 +111,43 @@ export default function FormPickerPanel({
   onClose?: () => void;
   onBack?: () => void;
 }) {
+  const [tabs, setTabs] = useState<string[]>(FORM_TABS);
   const [activeTab, setActiveTab] = useState(FORM_TABS[0]);
-  const presets = FORM_PRESETS.filter((p) => p.tabName === activeTab);
+  const [allPresets, setAllPresets] = useState<FormPreset[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [presets, loadedTabs] = await Promise.all([fetchFormPresets(), fetchFormTabs()]);
+        if (!cancelled) {
+          setAllPresets(presets);
+          if (loadedTabs.length > 0) {
+            setTabs(loadedTabs);
+            setActiveTab(loadedTabs[0]);
+          }
+        }
+      } catch (err) {
+        if (!cancelled) setError("Không thể tải mẫu form. Vui lòng thử lại.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void load();
+    return () => { cancelled = true; };
+  }, []);
+
+  const presets = allPresets.filter((p) => p.tabName === activeTab);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Tabs */}
       <div className="flex border-b border-slate-200 shrink-0 overflow-x-auto">
-        {FORM_TABS.map((tab) => (
+        {tabs.map((tab) => (
           <button
             key={tab}
             type="button"
@@ -137,21 +165,42 @@ export default function FormPickerPanel({
 
       {/* Grid */}
       <div className="flex-1 overflow-y-auto p-2 min-h-0">
-        <div className="grid grid-cols-2 gap-2">
-          {presets.map((preset) => (
+        {loading ? (
+          <div className="flex items-center justify-center h-24 text-[11px] text-slate-400">
+            Đang tải mẫu form...
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center h-24 gap-2">
+            <span className="text-[11px] text-red-500">{error}</span>
             <button
-              key={preset.id}
               type="button"
-              onClick={() => onSelect(preset)}
-              className="text-left rounded-lg border border-transparent hover:border-[#1e2d7d]/40 hover:shadow-sm transition group"
+              onClick={() => { setLoading(true); void fetchFormPresets().then(setAllPresets).finally(() => setLoading(false)); }}
+              className="text-[10px] text-[#1e2d7d] underline"
             >
-              <FormPresetPreview preset={preset} />
-              <div className="px-1 py-1.5 text-[10px] text-slate-500 group-hover:text-[#1e2d7d] truncate font-medium transition">
-                {preset.name}
-              </div>
+              Thử lại
             </button>
-          ))}
-        </div>
+          </div>
+        ) : presets.length === 0 ? (
+          <div className="flex items-center justify-center h-24 text-[11px] text-slate-400">
+            Không có mẫu form nào.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            {presets.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => onSelect(preset)}
+                className="text-left rounded-lg border border-transparent hover:border-[#1e2d7d]/40 hover:shadow-sm transition group"
+              >
+                <FormPresetPreview preset={preset} />
+                <div className="px-1 py-1.5 text-[10px] text-slate-500 group-hover:text-[#1e2d7d] truncate font-medium transition">
+                  {preset.name}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {(onBack || onClose) && (

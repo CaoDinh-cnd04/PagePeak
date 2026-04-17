@@ -245,6 +245,17 @@ export type WorkspaceGeneralUpdate = {
   currency: string;
 };
 
+export type SmtpSettings = {
+  enabled: boolean;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  fromEmail: string;
+  fromName: string;
+  useSsl: boolean;
+};
+
 export const settingsApi = {
   getWorkspaceGeneral: (workspaceId: number) =>
     api<WorkspaceGeneralDto>(`/api/workspaces/${workspaceId}/general-settings`),
@@ -253,6 +264,21 @@ export const settingsApi = {
     api<WorkspaceGeneralDto>(`/api/workspaces/${workspaceId}/general-settings`, {
       method: "PUT",
       body: JSON.stringify(body),
+    }),
+
+  getSmtp: (workspaceId: number) =>
+    api<{ ownerEmail: string; smtp: SmtpSettings }>(`/api/workspaces/${workspaceId}/smtp`),
+
+  updateSmtp: (workspaceId: number, smtp: SmtpSettings) =>
+    api<{ ok: boolean }>(`/api/workspaces/${workspaceId}/smtp`, {
+      method: "PUT",
+      body: JSON.stringify(smtp),
+    }),
+
+  testSmtp: (workspaceId: number, smtp: SmtpSettings) =>
+    api<{ ok: boolean; sentTo?: string; error?: string }>(`/api/workspaces/${workspaceId}/smtp/test`, {
+      method: "POST",
+      body: JSON.stringify(smtp),
     }),
 
   updateProfile: (data: { fullName?: string; phone?: string; avatarUrl?: string }) =>
@@ -372,10 +398,10 @@ export const mediaApi = {
 export const pagesApi = {
   list: (workspaceId: number) =>
     api<PageItem[]>(`/api/pages?workspaceId=${workspaceId}`, { cache: "no-store" } as RequestInit),
-  create: (workspaceId: number, name: string, slug: string, templateId?: number) =>
+  create: (workspaceId: number, name: string, slug: string, templateId?: number, jsonContent?: string) =>
     api<PageItem>("/api/pages", {
       method: "POST",
-      body: JSON.stringify({ workspaceId, name, slug, templateId: templateId ?? null }),
+      body: JSON.stringify({ workspaceId, name, slug, templateId: templateId ?? null, jsonContent: jsonContent ?? null }),
     }),
   update: (id: number, name: string, slug: string) =>
     api<PageItem>(`/api/pages/${id}`, {
@@ -407,6 +433,34 @@ export const pagesApi = {
     const ri = (n: number | null | undefined, fb: number) => Math.round(Number(n ?? fb));
     const riOpt = (n: number | null | undefined) => (n == null ? null : Math.round(Number(n)));
 
+    const mapElement = (e: import("@/types/editor").EditorElement) => {
+      const stylesJson =
+        typeof e.styles === "object" && e.styles != null
+          ? JSON.stringify(e.styles)
+          : "{}";
+      return {
+        id: e.id,
+        sectionId: e.sectionId,
+        type: e.type,
+        order: e.order,
+        x: ri(e.x, 0),
+        y: ri(e.y, 0),
+        width: riOpt(e.width ?? undefined),
+        height: riOpt(e.height ?? undefined),
+        zIndex: ri(e.zIndex, 0),
+        rotation: Number(e.rotation ?? 0),
+        opacity: Number(e.opacity ?? 1),
+        isLocked: e.isLocked,
+        isHidden: e.isHidden,
+        content: e.content ?? null,
+        href: e.href ?? null,
+        target: e.target ?? null,
+        imageUrl: e.imageUrl ?? null,
+        videoUrl: e.videoUrl ?? null,
+        stylesJson,
+      };
+    };
+
     const payload = {
       pageId: content.pageId,
       workspaceId: content.workspaceId,
@@ -429,33 +483,15 @@ export const pagesApi = {
         isVisible: (s as { visible?: boolean }).visible ?? (s as { isVisible?: boolean }).isVisible ?? true,
         isLocked: s.isLocked,
         customClass: s.customClass ?? null,
-        elements: (s.elements ?? []).map((e: import("@/types/editor").EditorElement) => {
-          const stylesJson =
-            typeof e.styles === "object" && e.styles != null
-              ? JSON.stringify(e.styles)
-              : "{}";
-          return {
-            id: e.id,
-            sectionId: e.sectionId,
-            type: e.type,
-            order: e.order,
-            x: ri(e.x, 0),
-            y: ri(e.y, 0),
-            width: riOpt(e.width ?? undefined),
-            height: riOpt(e.height ?? undefined),
-            zIndex: ri(e.zIndex, 0),
-            rotation: Number(e.rotation ?? 0),
-            opacity: Number(e.opacity ?? 1),
-            isLocked: e.isLocked,
-            isHidden: e.isHidden,
-            content: e.content ?? null,
-            href: e.href ?? null,
-            target: e.target ?? null,
-            imageUrl: e.imageUrl ?? null,
-            videoUrl: e.videoUrl ?? null,
-            stylesJson,
-          };
-        }),
+        elements: (s.elements ?? []).map(mapElement),
+      })),
+      popups: (content.popups ?? []).map((p) => ({
+        id: p.id,
+        name: p.name,
+        width: ri(p.width, 480),
+        height: ri(p.height, 400),
+        backgroundColor: p.backgroundColor ?? "#ffffff",
+        elements: (p.elements ?? []).map(mapElement),
       })),
     };
     return api<{ ok: boolean }>(`/api/pages/${id}/content`, {
@@ -710,5 +746,181 @@ export const sectionTemplatesApi = {
 };
 
 export const fontsApi = {
-  list: () => api<string[]>("/api/fonts"),
+  /** Lấy danh sách font từ backend (proxy Bunny Fonts API — miễn phí, không cần auth) */
+  list: (limit = 200) => api<string[]>(`/api/fonts?limit=${limit}`),
+};
+
+// ─── Login Feature Slides API ─────────────────────────────────────────────
+
+export type LoginFeatureSlideApi = {
+  id: string;
+  title: string;
+  description: string;
+  icon?: "drag" | "template" | "publish" | "lead" | "analytics" | "seo";
+};
+
+export const loginFeaturesApi = {
+  list: () => api<LoginFeatureSlideApi[]>("/api/login-features"),
+};
+
+// ─── Editor Icons API ─────────────────────────────────────────────────────
+
+export type EditorIconApi = {
+  id: string;
+  name: string;
+  category: string;
+  char: string;
+  color?: string;
+};
+
+export type IconCategoryApi = { id: string; label: string };
+
+export const editorIconsApi = {
+  list: (category?: string) => {
+    const qs = category ? `?category=${encodeURIComponent(category)}` : "";
+    return api<EditorIconApi[]>(`/api/editor-icons${qs}`);
+  },
+  categories: () => api<IconCategoryApi[]>("/api/editor-icons/categories"),
+};
+
+// ─── Sample Videos API ───────────────────────────────────────────────────
+
+export type SampleVideoApi = {
+  name: string;
+  url: string;
+  embedUrl: string;
+  thumbnailUrl: string;
+  source: string;
+};
+
+export const sampleVideosApi = {
+  list: (source?: string) => {
+    const qs = source ? `?source=${encodeURIComponent(source)}` : "";
+    return api<SampleVideoApi[]>(`/api/sample-videos${qs}`);
+  },
+};
+
+// ─── Line Presets API ────────────────────────────────────────────────────
+
+export type LinePresetApi = {
+  id: string;
+  name: string;
+  style: "solid" | "dashed" | "dotted" | "double";
+  color: string;
+  thickness: number;
+  dashArray?: number[];
+  tab: string;
+};
+
+export const linePresetsApi = {
+  list: (tab?: string) => {
+    const qs = tab ? `?tab=${encodeURIComponent(tab)}` : "";
+    return api<LinePresetApi[]>(`/api/line-presets${qs}`);
+  },
+};
+
+// ─── Stock Images API ────────────────────────────────────────────────────
+
+export type StockImageApi = {
+  url: string;
+  name: string;
+  category: string;
+  w: number;
+  h: number;
+  author?: string;
+  source: string;
+};
+
+export const stockImagesApi = {
+  list: (category?: string) => {
+    const qs = category ? `?category=${encodeURIComponent(category)}` : "";
+    return api<StockImageApi[]>(`/api/stock-images${qs}`);
+  },
+  search: (q: string, page = 1, perPage = 20) =>
+    api<StockImageApi[]>(`/api/stock-images/search?q=${encodeURIComponent(q)}&page=${page}&perPage=${perPage}`),
+  categories: () => api<{ id: string; label: string; count: number }[]>("/api/stock-images/categories"),
+};
+
+// ─── Form Presets API ─────────────────────────────────────────────────────
+
+export type FormFieldApi = {
+  id: string;
+  name: string;
+  label: string;
+  placeholder: string;
+  type: string;
+  required?: boolean;
+  options?: string[];
+};
+
+export type FormPresetApi = {
+  id: string;
+  name: string;
+  formType: string;
+  tabName: string;
+  title: string;
+  buttonText: string;
+  fields: FormFieldApi[];
+  inputStyle?: "filled" | "outlined" | "underlined";
+  width: number;
+  height: number;
+  buttonColor?: string;
+  buttonTextColor?: string;
+  backgroundColor?: string;
+  formBorderRadius?: number;
+  titleColor?: string;
+  inputRadius?: number;
+  accentColor?: string;
+};
+
+export const formPresetsApi = {
+  list: (params?: { formType?: string; tabName?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.formType) qs.set("formType", params.formType);
+    if (params?.tabName) qs.set("tabName", params.tabName);
+    const query = qs.toString() ? `?${qs.toString()}` : "";
+    return api<FormPresetApi[]>(`/api/form-presets${query}`);
+  },
+  tabs: () => api<{ tabName: string; count: number }[]>("/api/form-presets/tabs"),
+};
+
+// ─── Popup Templates API ──────────────────────────────────────────────────
+
+export type PopupTemplateApi = {
+  id: string;
+  name: string;
+  category: string;
+  thumbnailUrl?: string;
+  content: string;
+  width: number;
+  height: number;
+  styles: Record<string, string | number>;
+};
+
+export type PopupCategoryApi = { id: string; label: string };
+
+export const popupTemplatesApi = {
+  list: (category?: string) => {
+    const qs = category && category !== "all" ? `?category=${encodeURIComponent(category)}` : "";
+    return api<PopupTemplateApi[]>(`/api/popup-templates${qs}`);
+  },
+  categories: () => api<PopupCategoryApi[]>("/api/popup-templates/categories"),
+};
+
+// ─── Vietnam Address API ──────────────────────────────────────────────────
+
+export type ProvinceApi = { id: number; name: string };
+export type DistrictApi = { id: number; name: string };
+export type WardApi = { id: number; name: string };
+export type ProvinceFullApi = ProvinceApi & {
+  districts: Array<DistrictApi & { wards: WardApi[] }>;
+};
+
+export const vnAddressApi = {
+  provinces: () => api<ProvinceApi[]>("/api/vn-address/provinces"),
+  districts: (provinceId: number) =>
+    api<DistrictApi[]>(`/api/vn-address/provinces/${provinceId}/districts`),
+  wards: (districtId: number) =>
+    api<WardApi[]>(`/api/vn-address/districts/${districtId}/wards`),
+  all: () => api<ProvinceFullApi[]>("/api/vn-address/all"),
 };

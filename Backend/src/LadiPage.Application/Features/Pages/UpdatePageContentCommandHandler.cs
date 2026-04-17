@@ -1,3 +1,4 @@
+using System.Text.Json;
 using LadiPage.Domain.Entities;
 using LadiPage.Domain.Interfaces;
 using MediatR;
@@ -7,6 +8,12 @@ namespace LadiPage.Application.Features.Pages;
 
 public class UpdatePageContentCommandHandler : IRequestHandler<UpdatePageContentCommand, bool>
 {
+    /// <summary>Đồng bộ với ASP.NET JSON (camelCase) và GetPageContentQueryHandler (đọc "popups", "pageSettings").</summary>
+    private static readonly JsonSerializerOptions JsonContentOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+    };
+
     private readonly IAppDbContext _db;
     private readonly ICurrentUser _currentUser;
 
@@ -107,7 +114,7 @@ public class UpdatePageContentCommandHandler : IRequestHandler<UpdatePageContent
         if (newElements.Count > 0)
             _db.PageElements.AddRange(newElements);
 
-        page.JsonContent = System.Text.Json.JsonSerializer.Serialize(request.Content);
+        page.JsonContent = JsonSerializer.Serialize(request.Content, JsonContentOptions);
         page.MetaTitle = request.Content.MetaTitle;
         page.MetaDescription = request.Content.MetaDescription;
         page.MobileFriendly = request.Content.MobileFriendly;

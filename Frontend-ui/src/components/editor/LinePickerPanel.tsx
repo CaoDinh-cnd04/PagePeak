@@ -1,5 +1,9 @@
-import { useState } from "react";
-import { LINE_PRESETS, type LinePreset } from "@/lib/editor/data/lineData";
+import { useState, useEffect } from "react";
+import { loadLinePresets, type LinePreset } from "@/lib/editor/data/lineData";
+
+function getPresetsForTabLocal(presets: LinePreset[], tab: string): LinePreset[] {
+  return presets.filter((p) => !p.tab || p.tab === tab);
+}
 
 function LinePreview({ preset }: { preset: LinePreset }) {
   const isDouble = preset.style === "double";
@@ -43,6 +47,18 @@ export default function LinePickerPanel({
   onBack?: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<"line" | "pen">("line");
+  const [presets, setPresets] = useState<LinePreset[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadLinePresets()
+      .then(setPresets)
+      .catch(() => setPresets([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const linePresets = getPresetsForTabLocal(presets, "line");
+  const penPresets = getPresetsForTabLocal(presets, "pen");
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -68,9 +84,13 @@ export default function LinePickerPanel({
       </div>
 
       <div className="flex-1 overflow-y-auto p-2 min-h-0">
-        {activeTab === "line" ? (
+        {loading ? (
+          <div className="flex items-center justify-center py-10">
+            <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : activeTab === "line" ? (
           <div className="space-y-0.5">
-            {LINE_PRESETS.map((preset) => (
+            {linePresets.map((preset) => (
               <button
                 key={preset.id}
                 type="button"
@@ -80,10 +100,27 @@ export default function LinePickerPanel({
                 <LinePreview preset={preset} />
               </button>
             ))}
+            {linePresets.length === 0 && (
+              <p className="text-center text-[11px] text-slate-400 py-8">Không có mẫu đường kẻ</p>
+            )}
           </div>
         ) : (
-          <div className="py-8 text-center text-[11px] text-slate-500">
-            Pen Tool – vẽ đường tự do (sắp ra mắt)
+          <div className="space-y-0.5">
+            {penPresets.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => onSelect(preset)}
+                className="w-full text-left rounded hover:bg-slate-50"
+              >
+                <LinePreview preset={preset} />
+              </button>
+            ))}
+            {penPresets.length === 0 && (
+              <div className="py-8 text-center text-[11px] text-slate-500">
+                Pen Tool – vẽ đường tự do (sắp ra mắt)
+              </div>
+            )}
           </div>
         )}
       </div>

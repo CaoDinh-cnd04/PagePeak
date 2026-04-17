@@ -7,6 +7,20 @@ namespace LadiPage.Application.Features.Pages;
 
 public class GetPageContentQueryHandler : IRequestHandler<GetPageContentQuery, PageContentDto?>
 {
+    private static bool TryGetPropertyIgnoreCase(JsonElement root, string name, out JsonElement value)
+    {
+        foreach (var p in root.EnumerateObject())
+        {
+            if (string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = p.Value;
+                return true;
+            }
+        }
+        value = default;
+        return false;
+    }
+
     private readonly IAppDbContext _db;
     private readonly ICurrentUser _currentUser;
     private readonly IWorkspaceAccessService _workspaceAccess;
@@ -83,12 +97,15 @@ public class GetPageContentQueryHandler : IRequestHandler<GetPageContentQuery, P
             .ToList();
 
         PageSettingsDto? pageSettings = null;
+        IReadOnlyList<PagePopupDto>? popups = null;
+        var jsonDeserializeOpts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
         if (!string.IsNullOrWhiteSpace(page.JsonContent))
         {
             try
             {
-                var json = JsonDocument.Parse(page.JsonContent);
-                if (json.RootElement.TryGetProperty("pageSettings", out var psEl))
+                using var json = JsonDocument.Parse(page.JsonContent);
+                var root = json.RootElement;
+                if (TryGetPropertyIgnoreCase(root, "pageSettings", out var psEl))
                 {
                     pageSettings = new PageSettingsDto(
                         psEl.TryGetProperty("metaKeywords", out var mk) ? mk.GetString() : null,
@@ -107,6 +124,12 @@ public class GetPageContentQueryHandler : IRequestHandler<GetPageContentQuery, P
                         psEl.TryGetProperty("useLazyload", out var ull) && ull.ValueKind == JsonValueKind.True ? true : null
                     );
                 }
+
+                if (TryGetPropertyIgnoreCase(root, "popups", out var popsEl) && popsEl.ValueKind == JsonValueKind.Array)
+                {
+                    var parsed = JsonSerializer.Deserialize<List<PagePopupDto>>(popsEl.GetRawText(), jsonDeserializeOpts);
+                    popups = parsed ?? new List<PagePopupDto>();
+                }
             }
             catch
             {
@@ -118,7 +141,8 @@ public class GetPageContentQueryHandler : IRequestHandler<GetPageContentQuery, P
             page.Id, page.WorkspaceId, page.Name, page.Slug, page.Status,
             page.MetaTitle, page.MetaDescription, page.PageType, page.MobileFriendly,
             sectionDtos,
-            pageSettings
+            pageSettings,
+            popups
         );
     }
 }

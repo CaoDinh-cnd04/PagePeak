@@ -4,7 +4,7 @@ import { useAuthStore } from "@/stores/shared/authStore";
 import { Button } from "@/components/shared/ui/Button";
 import { Input } from "@/components/shared/ui/Input";
 import { LoginFeatureCarousel } from "@/components/public/auth/LoginFeatureCarousel";
-import { defaultLoginFeatureSlides } from "@/lib/shared/data/loginFeatureSlides";
+import { fetchLoginFeatureSlides, type LoginFeatureSlide } from "@/lib/shared/data/loginFeatureSlides";
 import { ThemeToggle } from "@/components/shared/ui/ThemeToggle";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
@@ -57,6 +57,7 @@ function LoginInner() {
   const [email, setEmail] = useState("");
   const [countryCode, setCountryCode] = useState("+84");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [featureSlides, setFeatureSlides] = useState<LoginFeatureSlide[]>([]);
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -82,6 +83,10 @@ function LoginInner() {
       document.body.appendChild(script);
       return () => { document.body.removeChild(script); };
     }
+  }, []);
+
+  useEffect(() => {
+    void fetchLoginFeatureSlides().then(setFeatureSlides);
   }, []);
 
   const getRecaptchaToken = (): string | undefined => {
@@ -137,13 +142,13 @@ function LoginInner() {
         <div className="hidden lg:flex lg:w-[50%] lg:min-w-0 lg:flex-col lg:justify-center lg:px-12 xl:px-16 lg:py-12 bg-gradient-to-br from-primary-50 to-slate-100 border-r border-slate-200 dark:from-slate-900 dark:to-slate-950 dark:border-slate-800">
           <div className="lg:max-w-md xl:max-w-lg w-full">
             <p className="text-[46px] font-bold text-primary-600 uppercase tracking-wider mb-4 text-center leading-tight">Tính năng mới</p>
-            <LoginFeatureCarousel slides={defaultLoginFeatureSlides} />
+            <LoginFeatureCarousel slides={featureSlides} />
           </div>
         </div>
         <div className="lg:hidden py-6 px-4 bg-gradient-to-b from-primary-50/80 to-transparent dark:from-slate-900/80">
           <p className="text-center text-2xl font-bold text-primary-600 uppercase tracking-wider mb-3">Tính năng PagePeak</p>
           <div className="max-w-sm mx-auto h-[200px] overflow-hidden rounded-lg">
-            <LoginFeatureCarousel slides={defaultLoginFeatureSlides} />
+            <LoginFeatureCarousel slides={featureSlides} />
           </div>
         </div>
 

@@ -23,7 +23,7 @@ public record ChangePasswordRequest(
 public record ResendVerificationRequest(string Email);
 
 public record CreateWorkspaceRequest(string Name, string Slug);
-public record CreatePageRequest(long WorkspaceId, string Name, string Slug, long? TemplateId);
+public record CreatePageRequest(long WorkspaceId, string Name, string Slug, long? TemplateId, string? JsonContent = null);
 public record UpdatePageRequest(string Name, string Slug);
 
 public record CreateTagRequest(long WorkspaceId, string Name, string? Color);

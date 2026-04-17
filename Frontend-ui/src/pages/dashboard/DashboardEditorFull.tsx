@@ -10,13 +10,14 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/shared/ui/Button";
 import { useEditorStore } from "@/stores/editor/editorStore";
-import { pagesApi, editorToolsApi, domainsApi, type PublishCheck } from "@/lib/shared/api";
+import { pagesApi, editorToolsApi, domainsApi, formsApi, type PublishCheck } from "@/lib/shared/api";
 import MediaPanel from "@/components/editor/MediaPanel";
 import ImagePickerPanel from "@/components/editor/ImagePickerPanel";
 import VideoPickerPanel from "@/components/editor/VideoPickerPanel";
 import IconPickerPanel from "@/components/editor/IconPickerPanel";
 import LinePickerPanel from "@/components/editor/LinePickerPanel";
 import FormPickerPanel from "@/components/editor/FormPickerPanel";
+import type { FormPreset } from "@/lib/editor/data/formData";
 import { generatePreviewHtml, downloadHtml } from "@/lib/editor/generatePreviewHtml";
 import { parseProductDetailContent } from "@/lib/editor/productDetailContent";
 import { parseTabsContent, parseCarouselContent } from "@/lib/editor/tabsContent";
@@ -36,9 +37,27 @@ import type { PopupTemplateEntry, MySavedPopup } from "@/lib/editor/popupTemplat
 import { exportCanvasToPng } from "@/lib/editor/exportPng";
 import { exportCanvasToPdf } from "@/lib/editor/exportPdf";
 import { loadFontsFromSections } from "@/lib/editor/fontLoader";
-import type { EditorElementType, ToolCategoryData, ToolItemData, ElementPresetData } from "@/types/editor";
+import type { EditorElement, EditorElementType, ToolCategoryData, ToolItemData, ElementPresetData, PagePopupDef, EditorSection } from "@/types/editor";
 import { ZOOM_PRESETS } from "@/types/editor";
-import { normalizeToolCategories } from "@/lib/editor/normalizeElementType";
+import { normalizeToolCategories, normalizeElementType } from "@/lib/editor/normalizeElementType";
+
+/** ID ảo cho popup section khi ở chế độ edit popup */
+const POPUP_VIRTUAL_SECTION_ID = -999;
+
+function buildPopupVirtualSection(popup: PagePopupDef): EditorSection {
+  return {
+    id: POPUP_VIRTUAL_SECTION_ID,
+    pageId: 0,
+    order: 1,
+    name: popup.name,
+    backgroundColor: popup.backgroundColor,
+    backgroundImageUrl: null,
+    height: popup.height,
+    visible: true,
+    isLocked: false,
+    elements: popup.elements.map((el: EditorElement) => ({ ...el, sectionId: POPUP_VIRTUAL_SECTION_ID })),
+  };
+}
 
 /** Fallback khi API editor-tools lỗi hoặc trả về rỗng */
 const DEFAULT_TOOL_CATEGORIES: ToolCategoryData[] = [
@@ -219,6 +238,38 @@ function ensureUtilitiesCategory(cats: ToolCategoryData[]): ToolCategoryData[] {
 
 /** Phase 3: Blog / Popup / chia sẻ MXH / iframe Maps — parser `blogContent`, xuất HTML `generatePreviewHtml`, vẽ canvas `FabricCanvas`, chỉnh panel `PropertyPanelLadi`. */
 
+/* ─── Popup Name Badge (editable inline) ─── */
+function PopupNameBadge({ popupId, name, onRename }: { popupId: string | null; name: string; onRename: (name: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(name);
+  useEffect(() => { setDraft(name); }, [name]);
+  if (!popupId) return null;
+  return (
+    <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-[#6366f1]/10">
+      <div className="w-2 h-2 rounded-full bg-[#6366f1] animate-pulse shrink-0" />
+      {editing ? (
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => { if (draft.trim()) onRename(draft.trim()); setEditing(false); }}
+          onKeyDown={(e) => { if (e.key === "Enter") { if (draft.trim()) onRename(draft.trim()); setEditing(false); } if (e.key === "Escape") { setDraft(name); setEditing(false); } }}
+          className="text-[12px] font-semibold text-[#4f46e5] bg-transparent border-b border-[#6366f1] outline-none min-w-[80px] max-w-[180px]"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="text-[12px] font-semibold text-[#4f46e5] hover:underline"
+          title="Nhấn để đổi tên popup"
+        >
+          Popup: {name}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ─── Toast ─── */
 function Toast({ toast, onClose }: { toast: ToastState; onClose: () => void }) {
   useEffect(() => {
@@ -292,6 +343,8 @@ function EditorInner() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState<ToastState>({ show: false, message: "", type: "info" });
   const [toolCategories, setToolCategories] = useState<ToolCategoryData[]>([]);
+  const elementPresetsMap = useMemo<Record<string, ElementPresetData[]>>(() => { return {};
+  }, [toolCategories]);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showHistoryPopover, setShowHistoryPopover] = useState(false);
@@ -299,6 +352,20 @@ function EditorInner() {
   const [isDocFullscreen, setIsDocFullscreen] = useState(false);
   const [showPopupManageModal, setShowPopupManageModal] = useState(false);
   const [showUtilitiesHubModal, setShowUtilitiesHubModal] = useState(false);
+  /** formConfigId → fieldsJson — dùng để nhúng cấu hình Google Form vào preview HTML */
+  const [formConfigsMap, setFormConfigsMap] = useState<Record<number, string>>({});
+
+  /** ID popup đang được chỉnh sửa (null = đang ở chế độ trang chính) */
+  const [editingPopupId, setEditingPopupId] = useState<string | null>(null);
+  /** Bộ nhớ tạm khi vào chế độ edit popup */
+  const savedMainContextRef = useRef<{
+    sections: EditorSection[];
+    history: EditorSection[][];
+    historyIndex: number;
+    desktopCanvasWidth: number;
+  } | null>(null);
+  /** Tránh gọi lưu chồng (Ctrl+S + tự động lưu). */
+  const saveInFlightRef = useRef(false);
 
   const canvasRef = useRef<DomCanvasHandle | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
@@ -310,10 +377,12 @@ function EditorInner() {
   const {
     sections, deviceType, setDeviceType, loadFromContent, addSection, addElement, updateSection,
     selectSection, selectElement, selectPage, selected, toContentPayload, markSaved,
-    canvasWidth, desktopCanvasWidth,
+    canvasWidth, desktopCanvasWidth, setDesktopCanvasWidth,
     undo, redo, pushHistory, dirty, zoom, setZoom, copyElement, pasteElement, cutElement,
     snapToGrid, setSnapToGrid, updateElement,
     history, historyIndex,
+    workspaceId: storeWorkspaceId,
+    popups: storePopups, addPopup, updatePopup: updatePopupDef, swapEditorContext,
   } = useEditorStore();
 
   const effectiveZoom = deviceType === "mobile" ? zoom * (420 / desktopCanvasWidth) : zoom;
@@ -400,12 +469,97 @@ function EditorInner() {
             return normalized as import("@/types/editor").EditorSection;
           });
         }
+        const rawPopups = content.popups ?? (content as { Popups?: PagePopupDef[] }).Popups;
+        if (Array.isArray(rawPopups) && rawPopups.length > 0) {
+          content.popups = rawPopups.map((p) => {
+            const pop = p as {
+              id?: string;
+              Id?: string;
+              name?: string;
+              Name?: string;
+              width?: number;
+              height?: number;
+              backgroundColor?: string;
+              BackgroundColor?: string;
+              elements?: unknown[];
+              Elements?: unknown[];
+            };
+            const rawEls = pop.elements ?? pop.Elements ?? [];
+            return {
+              id: String(pop.id ?? pop.Id ?? ""),
+              name: String(pop.name ?? pop.Name ?? "Popup"),
+              width: Number(pop.width ?? 480),
+              height: Number(pop.height ?? 400),
+              backgroundColor: String(pop.backgroundColor ?? pop.BackgroundColor ?? "#ffffff"),
+              elements: rawEls.map((e) => {
+                const el = e as {
+                  stylesJson?: string;
+                  styles?: Record<string, string | number>;
+                  content?: string;
+                  Content?: string;
+                  imageUrl?: string;
+                  ImageUrl?: string;
+                  videoUrl?: string;
+                  VideoUrl?: string;
+                  x?: number;
+                  X?: number;
+                  y?: number;
+                  Y?: number;
+                  width?: number;
+                  Width?: number;
+                  height?: number;
+                  Height?: number;
+                  type?: string;
+                  Type?: string;
+                  sectionId?: number;
+                  SectionId?: number;
+                } & Record<string, unknown>;
+                let styles: Record<string, string | number> = {};
+                if (typeof el.stylesJson === "string") {
+                  try {
+                    styles = JSON.parse(el.stylesJson) || {};
+                  } catch {
+                    /* ignore */
+                  }
+                } else if (el.styles && typeof el.styles === "object") {
+                  styles = el.styles;
+                }
+                const rawType = typeof el.type === "string" ? el.type : (el.Type as string | undefined);
+                return {
+                  ...el,
+                  type: normalizeElementType(rawType),
+                  sectionId: Number(el.sectionId ?? el.SectionId ?? POPUP_VIRTUAL_SECTION_ID),
+                  styles,
+                  content: el.content ?? el.Content ?? "",
+                  imageUrl: el.imageUrl ?? el.ImageUrl ?? null,
+                  videoUrl: el.videoUrl ?? el.VideoUrl ?? null,
+                  x: Number(el.x ?? el.X ?? 0),
+                  y: Number(el.y ?? el.Y ?? 0),
+                  width: el.width ?? el.Width,
+                  height: el.height ?? el.Height,
+                } as EditorElement;
+              }),
+            };
+          });
+        }
         if (!cancelled) { await loadFontsFromSections(content.sections); loadFromContent(content); }
       } catch (err) { console.error(err); setError("Không tải được nội dung trang."); }
       finally { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };
   }, [pageId, loadFromContent]);
+
+  // Load all form configs for the workspace so Google Form mappings can be embedded in preview HTML
+  useEffect(() => {
+    if (!storeWorkspaceId) return;
+    formsApi.list(storeWorkspaceId)
+      .then((list) => {
+        const map: Record<number, string> = {};
+        for (const fc of list) { if (fc.fieldsJson) map[fc.id] = fc.fieldsJson; }
+        setFormConfigsMap(map);
+      })
+      .catch(() => {});
+  }, [storeWorkspaceId]);
 
   const handleAddElement = useCallback((elType: EditorElementType, preset?: ElementPresetData, x?: number, y?: number) => {
     let sid = selected.type === "section" ? selected.id : selected.type === "element" ? (() => { for (const s of sections) { if (s.elements.some((e) => e.id === selected.id)) return s.id; } return sections[0]?.id; })() : sections[0]?.id;
@@ -461,6 +615,77 @@ function EditorInner() {
   const openPopupLibrary = useCallback(() => setShowPopupManageModal(true), []);
   const openUtilitiesLibrary = useCallback(() => setShowUtilitiesHubModal(true), []);
 
+  /** Vào chế độ chỉnh sửa popup (dùng chung cho tạo mới và edit) */
+  const handleEnterPopupEditMode = useCallback((popupId: string, popup: PagePopupDef) => {
+    const state = useEditorStore.getState();
+    // Lưu context trang chính
+    savedMainContextRef.current = {
+      sections: JSON.parse(JSON.stringify(state.sections)),
+      history: JSON.parse(JSON.stringify(state.history)),
+      historyIndex: state.historyIndex,
+      desktopCanvasWidth: state.desktopCanvasWidth,
+    };
+    // Tạo virtual section từ popup
+    const popupSection = buildPopupVirtualSection(popup);
+    // Hoán đổi canvas sang popup context
+    swapEditorContext([popupSection]);
+    setDesktopCanvasWidth(popup.width);
+    selectPage();
+    setEditingPopupId(popupId);
+    // Đổi tab sang Phần tử để dễ thêm element
+    const phanTuCat = toolCategories.find((c) => c.name === "Phần tử");
+    if (phanTuCat) setActiveCatId(phanTuCat.id);
+  }, [swapEditorContext, setDesktopCanvasWidth, selectPage, toolCategories]);
+
+  /** Tạo popup mới và vào chế độ edit popup */
+  const handleCreatePopup = useCallback(() => {
+    const id = `popup_${Date.now()}`;
+    const newPopup: PagePopupDef = {
+      id,
+      name: `Popup ${useEditorStore.getState().popups.length + 1}`,
+      width: 480,
+      height: 500,
+      backgroundColor: "#ffffff",
+      elements: [],
+    };
+    addPopup(newPopup);
+    handleEnterPopupEditMode(id, newPopup);
+  }, [addPopup, handleEnterPopupEditMode]);
+
+  /** Vào chế độ chỉnh sửa popup theo ID */
+  const handleEditPopup = useCallback((popupId: string) => {
+    const popup = useEditorStore.getState().popups.find((p) => p.id === popupId);
+    if (!popup) return;
+    handleEnterPopupEditMode(popupId, popup);
+  }, [handleEnterPopupEditMode]);
+
+  /** Thoát chế độ edit popup, lưu lại nội dung */
+  const handleExitPopupEditMode = useCallback(() => {
+    if (!editingPopupId) return;
+    const state = useEditorStore.getState();
+    // Lấy elements và tên từ virtual section
+    const popupSection = state.sections.find((s) => s.id === POPUP_VIRTUAL_SECTION_ID);
+    if (popupSection) {
+      updatePopupDef(editingPopupId, {
+        elements: popupSection.elements,
+        backgroundColor: popupSection.backgroundColor ?? "#ffffff",
+        height: popupSection.height ?? 500,
+      });
+    }
+    // Khôi phục context trang chính
+    const saved = savedMainContextRef.current;
+    if (saved) {
+      swapEditorContext(saved.sections, saved.history, saved.historyIndex);
+      setDesktopCanvasWidth(saved.desktopCanvasWidth);
+      savedMainContextRef.current = null;
+    }
+    selectPage();
+    setEditingPopupId(null);
+    // Quay về tab Popup
+    const popupCat = toolCategories.find((c) => c.sidebarAction === "popup");
+    if (popupCat) setActiveCatId(popupCat.id);
+  }, [editingPopupId, updatePopupDef, swapEditorContext, setDesktopCanvasWidth, selectPage, toolCategories]);
+
   const handleDropFromTool = useCallback((sectionId: number, elType: EditorElementType, x: number, y: number, preset?: ElementPresetData) => {
     const base = { type: elType, x, y };
     if (preset) {
@@ -474,7 +699,11 @@ function EditorInner() {
     selectSection(sectionId);
   }, [addElement, pushHistory, selectSection]);
 
-  const handleAddSection = useCallback(() => { addSection(); pushHistory(); }, [addSection, pushHistory]);
+  const handleAddSection = useCallback(() => {
+    if (editingPopupId) return; // Không thêm section khi đang edit popup
+    addSection();
+    pushHistory();
+  }, [addSection, pushHistory, editingPopupId]);
 
   const handleAddSectionTemplate = useCallback(
     (template: "blank" | "hero") => {
@@ -567,12 +796,26 @@ function EditorInner() {
     pushHistory(); showToast("Đã chèn biểu tượng", "success");
   }, [selected, sections, addElement, pushHistory, showToast]);
 
-  const handleInsertForm = useCallback((preset: { formType: string; title: string; buttonText: string; fields: unknown[]; inputStyle?: string }) => {
+  const handleInsertForm = useCallback((preset: FormPreset) => {
     const sid = selected.type === "section" ? selected.id : selected.type === "element" ? sections.find((s) => s.elements.some((e) => e.id === selected.id))?.id ?? sections[0]?.id : sections[0]?.id;
     if (!sid) return;
-    const content = JSON.stringify({ formType: preset.formType, title: preset.title, buttonText: preset.buttonText, fields: preset.fields, inputStyle: preset.inputStyle ?? "outlined" });
-    const size = preset.formType === "login" ? { width: 360, height: 56 } : preset.formType === "otp" ? { width: 400, height: 180 } : { width: 400, height: 320 };
-    addElement(sid, { type: "form", content, ...size, styles: { fontSize: 14 } });
+    // Serialize ALL preset fields so DomCanvas and generatePreviewHtml can render correctly
+    const content = JSON.stringify({
+      formType: preset.formType,
+      title: preset.title,
+      buttonText: preset.buttonText,
+      fields: preset.fields,
+      inputStyle: preset.inputStyle ?? "outlined",
+      buttonColor: preset.buttonColor,
+      buttonTextColor: preset.buttonTextColor,
+      backgroundColor: preset.backgroundColor,
+      titleColor: preset.titleColor,
+      formBorderRadius: preset.formBorderRadius,
+      inputRadius: preset.inputRadius,
+      accentColor: preset.accentColor,
+    });
+    // Use each preset's own dimensions
+    addElement(sid, { type: "form", content, width: preset.width, height: preset.height, styles: { fontSize: 14 } });
     pushHistory(); showToast("Đã chèn form", "success");
   }, [selected, sections, addElement, pushHistory, showToast]);
 
@@ -604,9 +847,44 @@ function EditorInner() {
     showToast("Đã thêm trường", "success");
   }, [sections, updateElement, pushHistory, showToast]);
 
-  const handleSaveFormData = useCallback((_elementId: number) => {
-    showToast("Lưu cấu hình data form (webhook, email) - đang phát triển", "info");
-  }, [showToast]);
+  const handleSaveFormData = useCallback(async (elementId: number) => {
+    const el = sections.flatMap((s) => s.elements).find((e) => e.id === elementId);
+    if (!el || el.type !== "form") return;
+
+    let cfg: {
+      formType?: string; title?: string; buttonText?: string;
+      fields?: unknown[]; inputStyle?: string;
+      buttonColor?: string; buttonTextColor?: string; backgroundColor?: string;
+      titleColor?: string; formBorderRadius?: number; inputRadius?: number;
+      accentColor?: string; webhookUrl?: string; emailNotify?: boolean;
+      emailNotifyRecipient?: string; sendConfirmationEmail?: boolean;
+      successMessage?: string; formConfigId?: number;
+    } = {};
+    try { cfg = JSON.parse(el.content || "{}"); } catch {}
+
+    const wsId = useEditorStore.getState().workspaceId;
+    if (!wsId) { showToast("Không tìm thấy workspace", "error"); return; }
+
+    const name = cfg.title || `Form ${elementId}`;
+    const fieldsJson = JSON.stringify(cfg.fields ?? []);
+    const webhookUrl = cfg.webhookUrl;
+    const emailNotify = cfg.emailNotify ?? false;
+
+    try {
+      let formConfigId = cfg.formConfigId;
+      if (formConfigId) {
+        await formsApi.update(formConfigId, { name, fieldsJson, webhookUrl, emailNotify });
+      } else {
+        const created = await formsApi.create(wsId, name, fieldsJson, webhookUrl, emailNotify);
+        formConfigId = created.id;
+        updateElement(elementId, { content: JSON.stringify({ ...cfg, formConfigId }) });
+        pushHistory();
+      }
+      showToast("Đã lưu cấu hình form!", "success");
+    } catch {
+      showToast("Lưu thất bại, vui lòng thử lại", "error");
+    }
+  }, [sections, updateElement, pushHistory, showToast]);
 
   const handleChangeIcon = useCallback((iconId: string, color?: string) => {
     if (!changeIconForElementId) return;
@@ -714,13 +992,65 @@ function EditorInner() {
     showToast("Đã thêm ảnh", "success");
   }, [addImageContext, sections, updateElement, pushHistory, showToast]);
 
-  const handleSave = useCallback(async () => {
-    const p = toContentPayload(); if (!p) return;
-    setSaving(true); setError("");
-    try { await pagesApi.updateContent(pageId, p); markSaved(); showToast("Đã lưu thành công!", "success"); }
-    catch (err) { const msg = err instanceof Error ? err.message : "Lưu thất bại."; setError(msg); showToast(msg, "error"); }
-    finally { setSaving(false); }
-  }, [pageId, toContentPayload, markSaved, showToast]);
+  const handleSave = useCallback(async (opts?: { silent?: boolean }) => {
+    if (saveInFlightRef.current) return;
+    // Nếu đang ở chế độ edit popup, sync elements trước khi lấy payload
+    if (editingPopupId) {
+      const state = useEditorStore.getState();
+      const popupSection = state.sections.find((s) => s.id === POPUP_VIRTUAL_SECTION_ID);
+      if (popupSection) {
+        updatePopupDef(editingPopupId, { elements: popupSection.elements });
+      }
+    }
+    // Lấy payload (bao gồm cả popups từ store, sections từ savedMainContext nếu đang edit popup)
+    let payload: ReturnType<typeof toContentPayload>;
+    if (editingPopupId && savedMainContextRef.current) {
+      // Build payload manually vì store.sections đang là popup sections
+      const st = useEditorStore.getState();
+      payload = {
+        pageId: st.pageId!,
+        workspaceId: st.workspaceId!,
+        name: st.name,
+        slug: st.slug,
+        status: st.status,
+        metaTitle: st.metaTitle || null,
+        metaDescription: st.metaDescription || null,
+        pageType: st.pageType,
+        mobileFriendly: st.mobileFriendly,
+        pageSettings: st.pageSettings,
+        sections: savedMainContextRef.current.sections,
+        popups: st.popups,
+      };
+    } else {
+      payload = toContentPayload();
+    }
+    if (!payload) return;
+    saveInFlightRef.current = true;
+    setSaving(true);
+    setError("");
+    try {
+      await pagesApi.updateContent(pageId, payload);
+      markSaved();
+      if (!opts?.silent) showToast("Đã lưu thành công!", "success");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Lưu thất bại.";
+      setError(msg);
+      showToast(msg, "error");
+    } finally {
+      saveInFlightRef.current = false;
+      setSaving(false);
+    }
+  }, [pageId, toContentPayload, markSaved, showToast, editingPopupId, updatePopupDef]);
+
+  /** Tự động lưu lên API sau ~2.5s kể từ thay đổi cuối (popups, section, v.v.) để F5 không mất dữ liệu. */
+  useEffect(() => {
+    if (!dirty || saving) return;
+    const id = window.setTimeout(() => {
+      if (!useEditorStore.getState().dirty) return;
+      void handleSave({ silent: true });
+    }, 2500);
+    return () => window.clearTimeout(id);
+  }, [dirty, saving, sections, storePopups, handleSave]);
 
   const handleDuplicatePage = useCallback(async () => {
     try {
@@ -766,12 +1096,31 @@ function EditorInner() {
   }, [selected, deviceType, desktopCanvasWidth, zoom]);
 
   const handlePreview = useCallback(async () => {
+    // Đồng bộ nội dung popup đang sửa (giống handleSave) trước khi build HTML
+    if (editingPopupId) {
+      const state = useEditorStore.getState();
+      const popupSection = state.sections.find((sec) => sec.id === POPUP_VIRTUAL_SECTION_ID);
+      if (popupSection) {
+        updatePopupDef(editingPopupId, {
+          elements: popupSection.elements,
+          backgroundColor: popupSection.backgroundColor ?? "#ffffff",
+          height: popupSection.height ?? 500,
+        });
+      }
+    }
     const s = useEditorStore.getState();
     let rawSections = (s.sections ?? []) as import("@/types/editor").EditorSection[];
+    // Khi đang chỉnh popup, store.sections là canvas popup — dùng trang chính đã lưu trong ref (giống payload lưu)
+    if (editingPopupId && savedMainContextRef.current?.sections?.length) {
+      rawSections = savedMainContextRef.current.sections;
+    }
+    let popupsForPreview = s.popups ?? [];
     // Fallback: nếu store rỗng, thử tải từ API (trường hợp store chưa sync hoặc đã lưu trước đó)
     if (!Array.isArray(rawSections) || rawSections.length === 0) {
       try {
         const content = await pagesApi.getContent(pageId);
+        const rawPop = content.popups ?? (content as { Popups?: PagePopupDef[] }).Popups;
+        if (Array.isArray(rawPop) && rawPop.length > 0) popupsForPreview = rawPop;
         const apiSections = content.sections ?? (content as { Sections?: unknown[] }).Sections ?? [];
         rawSections = Array.isArray(apiSections) ? apiSections.map((sec: unknown) => {
           const s = sec as { elements?: unknown[]; Elements?: unknown[]; isVisible?: boolean; visible?: boolean; height?: number; Height?: number } & Record<string, unknown>;
@@ -844,12 +1193,22 @@ function EditorInner() {
       apiBaseUrl: import.meta.env.VITE_API_URL,
       pageId: s.pageId ?? undefined,
       workspaceId: s.workspaceId ?? undefined,
+      formConfigsMap,
+      // Truyền danh sách popup standalone để render overlay trong preview
+      popups: popupsForPreview.map((p) => ({
+        id: p.id,
+        name: p.name,
+        width: p.width,
+        height: p.height,
+        backgroundColor: p.backgroundColor,
+        elements: p.elements,
+      })),
     });
     setPreviewHtml(html);
     setPreviewDeviceType(s.deviceType);
     setShowPreviewModal(true);
     showToast("Đang mở xem trước...", "info");
-  }, [showToast, pageId]);
+  }, [showToast, pageId, formConfigsMap, editingPopupId, updatePopupDef]);
 
   const openPublishModal = useCallback(() => {
     const s = useEditorStore.getState();
@@ -936,9 +1295,10 @@ function EditorInner() {
       apiBaseUrl: import.meta.env.VITE_API_URL,
       pageId: s.pageId ?? undefined,
       workspaceId: s.workspaceId ?? undefined,
+      formConfigsMap,
     });
     showToast("Đang tải HTML...", "info");
-  }, [showToast]);
+  }, [showToast, formConfigsMap]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -1046,8 +1406,22 @@ function EditorInner() {
       <PopupManageModal
         open={showPopupManageModal}
         onClose={() => setShowPopupManageModal(false)}
-        onPickBlank={() => handleAddElement("popup")}
-        onPickEntry={handleAddPopupFromEntry}
+        onPickBlank={() => { setShowPopupManageModal(false); handleCreatePopup(); }}
+        onPickEntry={(entry) => {
+          setShowPopupManageModal(false);
+          const id = `popup_${Date.now()}`;
+          const st = useEditorStore.getState();
+          const newPopup: PagePopupDef = {
+            id,
+            name: entry.name || `Popup ${st.popups.length + 1}`,
+            width: entry.width ?? 480,
+            height: entry.height ?? 500,
+            backgroundColor: (entry.styles?.backgroundColor as string) ?? "#ffffff",
+            elements: [],
+          };
+          addPopup(newPopup);
+          handleEnterPopupEditMode(id, newPopup);
+        }}
       />
 
       <UtilitiesHubModal
@@ -1058,30 +1432,59 @@ function EditorInner() {
       />
 
       {/* ═══ TOP NAV BAR (LadiPage style) ═══ */}
-      <div className="h-12 bg-white border-b border-[#e0e0e0] px-4 flex items-center justify-between shrink-0 z-50">
+      <div className={`h-12 bg-white border-b px-4 flex items-center justify-between shrink-0 z-50 transition-colors ${editingPopupId ? "border-[#6366f1]/50 bg-gradient-to-r from-[#f5f3ff] to-white" : "border-[#e0e0e0]"}`}>
         {/* Left - Logo + actions */}
         <div className="flex items-center gap-2">
-          <Link to="/dashboard/pages" className="w-8 h-8 rounded flex items-center justify-center hover:bg-slate-100" title="Quay lại">
-            <ChevronLeft className="w-4 h-4 text-slate-600" />
-          </Link>
-          <div className="w-px h-5 bg-[#e0e0e0]" />
-          <button type="button" onClick={handleAddSection} className="w-8 h-8 rounded flex items-center justify-center hover:bg-slate-100 text-slate-600" title="Thêm">
-            <Plus className="w-4 h-4" />
-          </button>
-          <button type="button" onClick={() => { setShowLayers(!showLayers); setShowMedia(false); setActiveCatId(null); }} className={`w-8 h-8 rounded flex items-center justify-center ${showLayers ? "bg-slate-100 text-[#1e2d7d]" : "hover:bg-slate-100 text-slate-600"}`} title="Layers">
-            <Layers className="w-4 h-4" />
-          </button>
-          <button type="button" onClick={() => { const c = toolCategories.find((x) => x.name === "Section"); if (c) setActiveCatId(c.id); setShowLayers(false); setShowMedia(false); }} className={`w-8 h-8 rounded flex items-center justify-center ${activeCatId && toolCategories.find((c) => c.id === activeCatId)?.name === "Section" ? "bg-slate-100 text-[#1e2d7d]" : "hover:bg-slate-100 text-slate-600"}`} title="Section">
-            <LayoutGrid className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={handleDuplicatePage}
-            className="w-8 h-8 rounded flex items-center justify-center hover:bg-slate-100 text-slate-600"
-            title="Sao chép trang"
-          >
-            <Copy className="w-4 h-4" />
-          </button>
+          {editingPopupId ? (
+            /* Popup edit mode breadcrumb */
+            <>
+              <button
+                type="button"
+                onClick={handleExitPopupEditMode}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#6366f1]/10 hover:bg-[#6366f1]/20 text-[#4f46e5] text-[12px] font-medium transition"
+                title="Quay lại trang chính"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Trang chính
+              </button>
+              <div className="w-px h-5 bg-[#e0e0e0]" />
+              <PopupNameBadge
+                popupId={editingPopupId}
+                name={storePopups.find((p) => p.id === editingPopupId)?.name ?? ""}
+                onRename={(name) => {
+                  updatePopupDef(editingPopupId, { name });
+                  // Also update virtual section name
+                  const s = useEditorStore.getState().sections.find((sec) => sec.id === POPUP_VIRTUAL_SECTION_ID);
+                  if (s) useEditorStore.getState().updateSection(POPUP_VIRTUAL_SECTION_ID, { name });
+                }}
+              />
+            </>
+          ) : (
+            /* Normal page edit mode */
+            <>
+              <Link to="/dashboard/pages" className="w-8 h-8 rounded flex items-center justify-center hover:bg-slate-100" title="Quay lại">
+                <ChevronLeft className="w-4 h-4 text-slate-600" />
+              </Link>
+              <div className="w-px h-5 bg-[#e0e0e0]" />
+              <button type="button" onClick={handleAddSection} className="w-8 h-8 rounded flex items-center justify-center hover:bg-slate-100 text-slate-600" title="Thêm">
+                <Plus className="w-4 h-4" />
+              </button>
+              <button type="button" onClick={() => { setShowLayers(!showLayers); setShowMedia(false); setActiveCatId(null); }} className={`w-8 h-8 rounded flex items-center justify-center ${showLayers ? "bg-slate-100 text-[#1e2d7d]" : "hover:bg-slate-100 text-slate-600"}`} title="Layers">
+                <Layers className="w-4 h-4" />
+              </button>
+              <button type="button" onClick={() => { const c = toolCategories.find((x) => x.name === "Section"); if (c) setActiveCatId(c.id); setShowLayers(false); setShowMedia(false); }} className={`w-8 h-8 rounded flex items-center justify-center ${activeCatId && toolCategories.find((c) => c.id === activeCatId)?.name === "Section" ? "bg-slate-100 text-[#1e2d7d]" : "hover:bg-slate-100 text-slate-600"}`} title="Section">
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleDuplicatePage}
+                className="w-8 h-8 rounded flex items-center justify-center hover:bg-slate-100 text-slate-600"
+                title="Sao chép trang"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
+            </>
+          )}
         </div>
 
         {/* Center - Device Toggle */}
@@ -1215,15 +1618,43 @@ function EditorInner() {
 
           <div className="w-px h-5 bg-[#e0e0e0] mx-1" />
 
-          <button type="button" onClick={handleSave} className="px-3 py-1.5 text-[12px] font-medium text-slate-600 hover:text-slate-800">
-            Lưu{dirty && <span className="ml-1 w-1.5 h-1.5 rounded-full bg-amber-400 inline-block align-middle" />}
-          </button>
-          <button type="button" onClick={handlePreview} className="px-3 py-1.5 text-[12px] font-medium text-slate-600 hover:text-slate-800">
-            Xem trước
-          </button>
-          <Button className="bg-[#1e2d7d] hover:bg-[#162558] text-white text-[12px] h-8 px-4" loading={publishing} onClick={handlePublish} disabled={saving}>
-            <Eye className="w-4 h-4 mr-1" />Xem và xuất bản
-          </Button>
+          {editingPopupId ? (
+            /* Chế độ edit popup: chỉ hiển thị nút Xong nổi bật */
+            <>
+              <button
+                type="button"
+                onClick={() => void handleSave()}
+                className="px-3 py-1.5 text-[12px] font-medium text-slate-500 hover:text-slate-700 flex items-center gap-1.5"
+                title="Lưu tất cả (Ctrl+S)"
+              >
+                <Save className="w-3.5 h-3.5" />
+                Lưu{dirty && <span className="ml-0.5 w-1.5 h-1.5 rounded-full bg-amber-400 inline-block align-middle" />}
+              </button>
+              <button
+                type="button"
+                onClick={handleExitPopupEditMode}
+                className="flex items-center gap-2 px-4 py-1.5 bg-[#6366f1] hover:bg-[#4f46e5] active:bg-[#4338ca] text-white text-[12px] font-semibold rounded-lg shadow-sm shadow-indigo-200 transition-all"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                Xong — Quay lại trang
+              </button>
+            </>
+          ) : (
+            /* Chế độ edit trang bình thường */
+            <>
+              <button type="button" onClick={() => void handleSave()} className="px-3 py-1.5 text-[12px] font-medium text-slate-600 hover:text-slate-800">
+                Lưu{dirty && <span className="ml-1 w-1.5 h-1.5 rounded-full bg-amber-400 inline-block align-middle" />}
+              </button>
+              <button type="button" onClick={handlePreview} className="px-3 py-1.5 text-[12px] font-medium text-slate-600 hover:text-slate-800">
+                Xem trước
+              </button>
+              <Button className="bg-[#1e2d7d] hover:bg-[#162558] text-white text-[12px] h-8 px-4" loading={publishing} onClick={handlePublish} disabled={saving}>
+                <Eye className="w-4 h-4 mr-1" />Xem và xuất bản
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -1249,6 +1680,8 @@ function EditorInner() {
           sections={sections}
           onSelectElement={selectElement}
           onOpenPopupLibrary={openPopupLibrary}
+          onCreatePopup={handleCreatePopup}
+          onEditPopup={handleEditPopup}
           onOpenUtilitiesLibrary={openUtilitiesLibrary}
         />
 
@@ -1274,12 +1707,28 @@ function EditorInner() {
                     <div className="w-24 h-1.5 rounded-full bg-slate-600" />
                   </div>
                 )}
+                {editingPopupId && (
+                  <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-[#6366f1]/10 border border-[#6366f1]/20 text-[12px] text-[#4f46e5] font-medium"
+                    style={{ width: desktopCanvasWidth * effectiveZoom }}>
+                    <div className="w-2 h-2 rounded-full bg-[#6366f1] shrink-0" />
+                    Đang chỉnh sửa popup — kéo & thêm phần tử từ sidebar trái
+                    <button
+                      type="button"
+                      onClick={handleExitPopupEditMode}
+                      className="ml-auto text-[11px] underline hover:no-underline text-[#4f46e5]/70"
+                    >
+                      ← Quay lại trang
+                    </button>
+                  </div>
+                )}
                 <DroppableCanvas id="canvas-drop">
                   {/* White canvas paper */}
                   <div
                     className="relative"
                     style={{
-                      boxShadow: "0 4px 24px rgba(0,0,0,0.18)",
+                      boxShadow: editingPopupId
+                        ? "0 4px 32px rgba(99,102,241,0.25), 0 0 0 2px rgba(99,102,241,0.3)"
+                        : "0 4px 24px rgba(0,0,0,0.18)",
                       display: "inline-block",
                       lineHeight: 0,
                     }}
@@ -1293,15 +1742,17 @@ function EditorInner() {
                       onRequestSaveFormData={handleSaveFormData}
                       onOpenSettings={() => setShowElementPanel(true)}
                     />
-                    <PageUtilityFxPreview />
+                    {!editingPopupId && <PageUtilityFxPreview />}
                   </div>
                 </DroppableCanvas>
-                <button type="button" onClick={handleAddSection}
-                  className="flex items-center gap-2 px-6 py-3 mt-4 border-2 border-dashed border-[#bbb] hover:border-[#1e2d7d] text-slate-400 hover:text-[#1e2d7d] rounded-lg transition text-sm font-medium bg-white/70"
-                  style={{ width: Math.min(canvasWidth * effectiveZoom, 400) }}
-                >
-                  <Plus className="w-4 h-4 shrink-0" /> Thêm Section mới
-                </button>
+                {!editingPopupId && (
+                  <button type="button" onClick={handleAddSection}
+                    className="flex items-center gap-2 px-6 py-3 mt-4 border-2 border-dashed border-[#bbb] hover:border-[#1e2d7d] text-slate-400 hover:text-[#1e2d7d] rounded-lg transition text-sm font-medium bg-white/70"
+                    style={{ width: Math.min(canvasWidth * effectiveZoom, 400) }}
+                  >
+                    <Plus className="w-4 h-4 shrink-0" /> Thêm Section mới
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -1405,7 +1856,7 @@ function EditorInner() {
             </div>
             <div className="flex-1 overflow-hidden min-h-0 p-2">
               <IconPickerPanel
-                onSelect={(iconId, icon) => handleChangeIcon(iconId, icon.color)}
+                onSelect={(iconKey) => handleChangeIcon(iconKey)}
                 onClose={() => setChangeIconForElementId(null)}
                 onBack={() => setChangeIconForElementId(null)}
               />

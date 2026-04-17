@@ -27,7 +27,7 @@ public class PageController : ControllerBase
     {
         try
         {
-            var created = await _mediator.Send(new CreatePageCommand(req.WorkspaceId, req.Name, req.Slug, req.TemplateId), ct);
+            var created = await _mediator.Send(new CreatePageCommand(req.WorkspaceId, req.Name, req.Slug, req.TemplateId, req.JsonContent), ct);
             return Ok(created);
         }
         catch (FluentValidation.ValidationException ex)

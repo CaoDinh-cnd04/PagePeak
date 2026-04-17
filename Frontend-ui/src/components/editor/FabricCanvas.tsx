@@ -13,7 +13,7 @@ import { parseBlogListContent, parseBlogDetailContent, parsePopupContent } from 
 import { parseCartContent, getCartDisplayItems } from "@/lib/editor/cartContent";
 import { mergeInlineContent, mergeInlineTextStyle, getInlineTextStyleForFabric, type InlineEditMeta } from "@/lib/editor/inlineEditMerge";
 import { normalizeElementType } from "@/lib/editor/normalizeElementType";
-import { loadGoogleFont, GOOGLE_FONTS } from "@/lib/editor/fontLoader";
+import { loadGoogleFont, fetchFontList } from "@/lib/editor/fontLoader";
 import type { TextFormatToolbarState } from "./ElementActionToolbar";
 
 const SECTION_LABEL_HEIGHT = 0;
@@ -814,18 +814,34 @@ function buildFabricObject(
     }
 
     case "icon": {
-      const iconData = el.content ? getIconById(el.content) : null;
-      const iconChar = iconData?.char ?? (el.content === "star" ? "★" : el.content || "★");
-      const iconColor = (el.styles?.color as string) ?? iconData?.color ?? "#4f46e5";
-      obj = new fabric.Textbox(iconChar, {
-        ...commonProps,
-        width: w,
-        fontSize: Math.min(w, h) * 0.65,
-        fontFamily: "Inter, sans-serif",
-        fill: iconColor,
-        textAlign: "center",
-        editable: false,
-      });
+      const iconColor = (el.styles?.color as string) ?? "#4f46e5";
+      const content = el.content ?? "";
+
+      if (content.includes(":")) {
+        // Iconify format: dùng Textbox placeholder (★) vì FabricCanvas là legacy renderer
+        // DomCanvas là renderer chính và đã hiển thị SVG đúng
+        obj = new fabric.Textbox("◈", {
+          ...commonProps,
+          width: w,
+          fontSize: Math.min(w, h) * 0.65,
+          fontFamily: "Inter, sans-serif",
+          fill: iconColor,
+          textAlign: "center",
+          editable: false,
+        });
+      } else {
+        const iconData = content ? getIconById(content) : null;
+        const iconChar = iconData?.char ?? (content === "star" ? "★" : content || "★");
+        obj = new fabric.Textbox(iconChar, {
+          ...commonProps,
+          width: w,
+          fontSize: Math.min(w, h) * 0.65,
+          fontFamily: "Inter, sans-serif",
+          fill: iconColor,
+          textAlign: "center",
+          editable: false,
+        });
+      }
       break;
     }
 
@@ -2763,6 +2779,11 @@ export default function FabricCanvas({ onCanvasReady, containerRef, onRequestAdd
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   /** Bắt buộc re-render khi chỉ selection trên Fabric đổi (click vào chữ con trong Group mà id phần tử không đổi). */
   const [selectionTick, setSelectionTick] = useState(0);
+  const [fontOptions, setFontOptions] = useState<string[]>([]);
+
+  useEffect(() => {
+    void fetchFontList().then((f) => setFontOptions(f.slice(0, 48)));
+  }, []);
 
   const {
     sections,
@@ -3340,7 +3361,7 @@ export default function FabricCanvas({ onCanvasReady, containerRef, onRequestAdd
             isLocked={selEl.el.isLocked}
             isHidden={selEl.el.isHidden}
             textFormat={textFormatToolbar}
-            fontOptions={GOOGLE_FONTS.slice(0, 48)}
+            fontOptions={fontOptions}
             onDuplicate={() => {
               duplicateElement(selEl.el.id);
               pushHistory();

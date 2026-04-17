@@ -55,6 +55,16 @@ public record PageSectionDto(
     IReadOnlyList<PageElementDto> Elements
 );
 
+/// <summary>Popup độc lập (không gắn section) — đồng bộ với PageContent.popups phía frontend.</summary>
+public record PagePopupDto(
+    string Id,
+    string Name,
+    int Width,
+    int Height,
+    string BackgroundColor,
+    IReadOnlyList<PageElementDto> Elements
+);
+
 public record PageContentDto(
     long PageId,
     long WorkspaceId,
@@ -66,5 +76,6 @@ public record PageContentDto(
     string PageType,
     bool MobileFriendly,
     IReadOnlyList<PageSectionDto> Sections,
-    [property: JsonPropertyName("pageSettings")] PageSettingsDto? PageSettings
+    [property: JsonPropertyName("pageSettings")] PageSettingsDto? PageSettings,
+    [property: JsonPropertyName("popups")] IReadOnlyList<PagePopupDto>? Popups = null
 );

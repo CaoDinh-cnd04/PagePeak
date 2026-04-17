@@ -1,4 +1,12 @@
-/** Line preset data for LinePickerPanel - styles, colors, thickness */
+/**
+ * Line preset data — Types, cache và API loader.
+ * Dữ liệu KHÔNG còn hardcode ở đây; tất cả lưu trong SQL Server
+ * và truy xuất qua GET /api/line-presets
+ *
+ * getLinePresetById() vẫn là sync nhờ dùng module-level cache.
+ */
+
+import { linePresetsApi, type LinePresetApi } from "@/lib/shared/api";
 
 export type LineStyle = "solid" | "dashed" | "dotted" | "double";
 
@@ -8,31 +16,42 @@ export type LinePreset = {
   style: LineStyle;
   color: string;
   thickness: number;
-  dashArray?: number[]; // e.g. [8, 4] for dashed
+  dashArray?: number[];
+  tab?: string;
 };
 
-export const LINE_PRESETS: LinePreset[] = [
-  { id: "solid-m-black", name: "Nét liền đen vừa", style: "solid", color: "#000000", thickness: 2 },
-  { id: "dashed-thick-black", name: "Nét đứt đen đậm", style: "dashed", color: "#000000", thickness: 4, dashArray: [8, 4] },
-  { id: "dotted-black", name: "Nét chấm đen", style: "dotted", color: "#000000", thickness: 2, dashArray: [2, 4] },
-  { id: "double-black", name: "Đường kép đen", style: "double", color: "#000000", thickness: 2 },
-  { id: "solid-xthick-black", name: "Nét liền đen rất đậm", style: "solid", color: "#000000", thickness: 6 },
-  { id: "solid-thick-gray", name: "Nét liền xám đậm", style: "solid", color: "#94a3b8", thickness: 4 },
-  { id: "solid-thin-black", name: "Nét liền đen mảnh", style: "solid", color: "#000000", thickness: 1 },
-  { id: "dashed-thin-black", name: "Nét đứt đen mảnh", style: "dashed", color: "#000000", thickness: 1, dashArray: [6, 3] },
-  { id: "solid-thin-gray", name: "Nét liền xám mảnh", style: "solid", color: "#64748b", thickness: 1 },
-  { id: "solid-mthick-black", name: "Nét liền đen vừa đậm", style: "solid", color: "#000000", thickness: 3 },
-  { id: "solid-thick-black", name: "Nét liền đen đậm", style: "solid", color: "#000000", thickness: 4 },
-  { id: "solid-xthick-black2", name: "Nét liền đen rất đậm 2", style: "solid", color: "#000000", thickness: 5 },
-  { id: "dotted-blue", name: "Nét chấm xanh", style: "dotted", color: "#2563eb", thickness: 3, dashArray: [3, 4] },
-  { id: "dashed-green", name: "Nét đứt xanh lá", style: "dashed", color: "#16a34a", thickness: 4, dashArray: [10, 5] },
-  { id: "dashed-orange", name: "Nét đứt cam", style: "dashed", color: "#ea580c", thickness: 2, dashArray: [6, 3] },
-  { id: "dotted-orange", name: "Nét chấm cam", style: "dotted", color: "#ea580c", thickness: 2, dashArray: [2, 3] },
-  { id: "double-orange", name: "Đường kép cam", style: "double", color: "#ea580c", thickness: 2 },
-];
+// ─── Module-level cache ───────────────────────────────────────────────────
+
+let _presetsCache: LinePreset[] = [];
+
+/** Populate cache — gọi khi LinePickerPanel mount */
+export async function loadLinePresets(): Promise<LinePreset[]> {
+  try {
+    const presets = await linePresetsApi.list();
+    _presetsCache = presets.map((p) => ({
+      id: p.id,
+      name: p.name,
+      style: p.style as LineStyle,
+      color: p.color,
+      thickness: p.thickness,
+      dashArray: p.dashArray,
+      tab: p.tab,
+    }));
+    return _presetsCache;
+  } catch (err) {
+    console.warn("[LineData] Không thể tải từ API:", err);
+    return _presetsCache;
+  }
+}
+
+export function getLinePresetsForTab(tab: string): LinePreset[] {
+  return _presetsCache.filter((p) => !p.tab || p.tab === tab);
+}
+
+// ─── Sync helpers ─────────────────────────────────────────────────────────
 
 export function getLinePresetById(id: string): LinePreset | undefined {
-  return LINE_PRESETS.find((p) => p.id === id);
+  return _presetsCache.find((p) => p.id === id);
 }
 
 export function getStrokeDashArray(style: LineStyle, dashArray?: number[]): number[] | undefined {
@@ -41,3 +60,6 @@ export function getStrokeDashArray(style: LineStyle, dashArray?: number[]): numb
   if (style === "dotted") return [2, 4];
   return undefined;
 }
+
+/** @deprecated Dùng loadLinePresets() thay thế */
+export const LINE_PRESETS = _presetsCache;

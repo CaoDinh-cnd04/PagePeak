@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { ChevronDown, Search, Check } from "lucide-react";
-import { GOOGLE_FONTS, loadGoogleFont } from "@/lib/editor/fontLoader";
+import { fetchFontList, loadGoogleFont } from "@/lib/editor/fontLoader";
 
 interface FontPickerProps {
   value: string;
@@ -10,8 +10,14 @@ interface FontPickerProps {
 export default function FontPicker({ value, onChange }: FontPickerProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [fonts, setFonts] = useState<string[]>([]);
   const ref = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Tải danh sách font từ backend (Bunny Fonts proxy) — chỉ 1 lần
+    void fetchFontList().then(setFonts);
+  }, []);
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -23,17 +29,17 @@ export default function FontPicker({ value, onChange }: FontPickerProps) {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return GOOGLE_FONTS.filter((f) => f.toLowerCase().includes(q));
-  }, [search]);
+    return fonts.filter((f) => f.toLowerCase().includes(q));
+  }, [search, fonts]);
 
   useEffect(() => {
     if (!open) return;
     const visible = filtered.slice(0, 20);
-    visible.forEach((f) => loadGoogleFont(f));
+    visible.forEach((f) => void loadGoogleFont(f));
   }, [open, filtered]);
 
   const handleSelect = (font: string) => {
-    loadGoogleFont(font);
+    void loadGoogleFont(font);
     onChange(font);
     setOpen(false);
     setSearch("");
@@ -67,23 +73,31 @@ export default function FontPicker({ value, onChange }: FontPickerProps) {
             </div>
           </div>
           <div ref={listRef} className="max-h-60 overflow-y-auto">
-            {filtered.map((font) => (
-              <button
-                key={font}
-                type="button"
-                onClick={() => handleSelect(font)}
-                onMouseEnter={() => loadGoogleFont(font)}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-primary-50 dark:hover:bg-primary-500/10 transition flex items-center justify-between ${
-                  value === font ? "bg-primary-50 dark:bg-primary-500/10 text-primary-700" : "text-slate-700 dark:text-slate-200"
-                }`}
-                style={{ fontFamily: font }}
-              >
-                <span className="truncate">{font}</span>
-                {value === font && <Check className="w-3.5 h-3.5 text-primary-600 shrink-0" />}
-              </button>
-            ))}
-            {filtered.length === 0 && (
-              <p className="text-xs text-slate-400 text-center py-4">Không tìm thấy font</p>
+            {fonts.length === 0 ? (
+              <div className="flex justify-center py-6">
+                <div className="w-5 h-5 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : (
+              <>
+                {filtered.map((font) => (
+                  <button
+                    key={font}
+                    type="button"
+                    onClick={() => handleSelect(font)}
+                    onMouseEnter={() => void loadGoogleFont(font)}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-primary-50 dark:hover:bg-primary-500/10 transition flex items-center justify-between ${
+                      value === font ? "bg-primary-50 dark:bg-primary-500/10 text-primary-700" : "text-slate-700 dark:text-slate-200"
+                    }`}
+                    style={{ fontFamily: font }}
+                  >
+                    <span className="truncate">{font}</span>
+                    {value === font && <Check className="w-3.5 h-3.5 text-primary-600 shrink-0" />}
+                  </button>
+                ))}
+                {filtered.length === 0 && (
+                  <p className="text-xs text-slate-400 text-center py-4">Không tìm thấy font</p>
+                )}
+              </>
             )}
           </div>
         </div>

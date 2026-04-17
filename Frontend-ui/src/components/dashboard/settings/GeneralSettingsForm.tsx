@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { settingsApi, type WorkspaceGeneralDto } from "@/lib/shared/api";
 import { useT } from "@/lib/shared/i18n";
-import { DEFAULT_COUNTRY, PROVINCES, findDistrict, findProvince } from "@/lib/shared/vnAddressData";
+import { DEFAULT_COUNTRY, fetchProvinces, fetchDistricts, fetchWards, type ProvinceApi, type DistrictApi, type WardApi } from "@/lib/shared/vnAddressData";
 
 const TIMEZONES = [
   { value: "Asia/Bangkok", label: "(GMT+07:00) Bangkok, Hanoi" },
@@ -34,10 +34,43 @@ export function GeneralSettingsForm({ workspaceId, onSaved }: Props) {
   const [timezone, setTimezone] = useState("Asia/Bangkok");
   const [currency, setCurrency] = useState("đ");
 
-  const provinceData = useMemo(() => findProvince(province), [province]);
-  const districts = provinceData?.districts ?? [];
-  const districtData = useMemo(() => findDistrict(province, district), [province, district]);
-  const wards = districtData?.wards ?? [];
+  // Dữ liệu địa giới từ API
+  const [provinces, setProvinces] = useState<ProvinceApi[]>([]);
+  const [districts, setDistricts] = useState<DistrictApi[]>([]);
+  const [wards, setWards] = useState<WardApi[]>([]);
+  const [selectedProvinceId, setSelectedProvinceId] = useState<number | null>(null);
+  const [selectedDistrictId, setSelectedDistrictId] = useState<number | null>(null);
+
+  // Load danh sách tỉnh/thành khi mount
+  useEffect(() => {
+    void fetchProvinces().then(setProvinces);
+  }, []);
+
+  // Load quận/huyện khi chọn tỉnh
+  useEffect(() => {
+    if (selectedProvinceId == null) { setDistricts([]); return; }
+    void fetchDistricts(selectedProvinceId).then(setDistricts);
+  }, [selectedProvinceId]);
+
+  // Load phường/xã khi chọn quận
+  useEffect(() => {
+    if (selectedDistrictId == null) { setWards([]); return; }
+    void fetchWards(selectedDistrictId).then(setWards);
+  }, [selectedDistrictId]);
+
+  // Đồng bộ province name → provinceId khi load dữ liệu settings
+  useEffect(() => {
+    if (!province || provinces.length === 0) return;
+    const found = provinces.find((p) => p.name === province);
+    if (found) setSelectedProvinceId(found.id);
+  }, [province, provinces]);
+
+  // Đồng bộ district name → districtId khi load dữ liệu settings
+  useEffect(() => {
+    if (!district || districts.length === 0) return;
+    const found = districts.find((d) => d.name === district);
+    if (found) setSelectedDistrictId(found.id);
+  }, [district, districts]);
 
   const load = useCallback(async () => {
     if (workspaceId == null) return;
@@ -71,11 +104,19 @@ export function GeneralSettingsForm({ workspaceId, onSaved }: Props) {
     setProvince(v);
     setDistrict("");
     setWard("");
+    setDistricts([]);
+    setWards([]);
+    const found = provinces.find((p) => p.name === v);
+    setSelectedProvinceId(found?.id ?? null);
+    setSelectedDistrictId(null);
   };
 
   const onDistrictChange = (v: string) => {
     setDistrict(v);
     setWard("");
+    setWards([]);
+    const found = districts.find((d) => d.name === v);
+    setSelectedDistrictId(found?.id ?? null);
   };
 
   const handleSave = async () => {
@@ -203,8 +244,8 @@ export function GeneralSettingsForm({ workspaceId, onSaved }: Props) {
                     <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">{t("settings.general.province")}</label>
                     <select value={province} onChange={(e) => onProvinceChange(e.target.value)} className={fieldClass}>
                       <option value="">{t("settings.general.selectProvince")}</option>
-                      {PROVINCES.map((p) => (
-                        <option key={p.name} value={p.name}>
+                      {provinces.map((p) => (
+                        <option key={p.id} value={p.name}>
                           {p.name}
                         </option>
                       ))}
@@ -217,7 +258,7 @@ export function GeneralSettingsForm({ workspaceId, onSaved }: Props) {
                     <select value={district} onChange={(e) => onDistrictChange(e.target.value)} className={fieldClass} disabled={!province}>
                       <option value="">{t("settings.general.selectDistrict")}</option>
                       {districts.map((d) => (
-                        <option key={d.name} value={d.name}>
+                        <option key={d.id} value={d.name}>
                           {d.name}
                         </option>
                       ))}
@@ -228,8 +269,8 @@ export function GeneralSettingsForm({ workspaceId, onSaved }: Props) {
                     <select value={ward} onChange={(e) => setWard(e.target.value)} className={fieldClass} disabled={!district}>
                       <option value="">{t("settings.general.selectWard")}</option>
                       {wards.map((w) => (
-                        <option key={w} value={w}>
-                          {w}
+                        <option key={w.id} value={w.name}>
+                          {w.name}
                         </option>
                       ))}
                     </select>

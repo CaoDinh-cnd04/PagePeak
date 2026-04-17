@@ -119,14 +119,16 @@ public class EmailService : IEmailService
         }
     }
 
-    public async Task SendNotificationEmailAsync(string toEmail, string fullName, string title, string message, CancellationToken cancellationToken = default)
+    public async Task SendNotificationEmailAsync(string toEmail, string fullName, string title, string message, CancellationToken cancellationToken = default, LadiPage.Domain.Interfaces.SmtpOverride? smtpOverride = null)
     {
-        var smtpHost = _config["Email:SmtpHost"] ?? "smtp.gmail.com";
-        var smtpPort = int.Parse(_config["Email:SmtpPort"] ?? "587");
-        var smtpUser = _config["Email:SmtpUser"] ?? "";
-        var smtpPass = _config["Email:SmtpPass"] ?? "";
-        var fromName = _config["Email:FromName"] ?? "PagePeak";
-        var fromEmail = _config["Email:FromEmail"] ?? smtpUser;
+        // Ưu tiên workspace SMTP nếu được truyền vào, nếu không dùng global config
+        var smtpHost  = smtpOverride?.Host     ?? _config["Email:SmtpHost"] ?? "smtp.gmail.com";
+        var smtpPort  = smtpOverride?.Port     ?? int.Parse(_config["Email:SmtpPort"] ?? "587");
+        var smtpUser  = smtpOverride?.Username ?? _config["Email:SmtpUser"] ?? "";
+        var smtpPass  = smtpOverride?.Password ?? _config["Email:SmtpPass"] ?? "";
+        var fromName  = smtpOverride?.FromName  ?? _config["Email:FromName"] ?? "PagePeak";
+        var fromEmail = smtpOverride?.FromEmail ?? _config["Email:FromEmail"] ?? smtpUser;
+        var useSsl    = smtpOverride?.UseSsl   ?? true;
 
         if (string.IsNullOrEmpty(smtpUser) || string.IsNullOrEmpty(smtpPass))
         {
@@ -169,7 +171,7 @@ public class EmailService : IEmailService
         using var client = new SmtpClient(smtpHost, smtpPort)
         {
             Credentials = new NetworkCredential(smtpUser, smtpPass),
-            EnableSsl = true,
+            EnableSsl = useSsl,
         };
 
         var msg = new MailMessage
@@ -185,6 +187,14 @@ public class EmailService : IEmailService
         {
             await client.SendMailAsync(msg, cancellationToken);
             _logger.LogInformation("Notification email sent to {Email}: {Title}", toEmail, title);
+        }
+        catch (System.Net.Mail.SmtpException ex)
+        {
+            var hint = ex.Message.Contains("5.7.0") || ex.Message.Contains("Authentication") || ex.Message.Contains("535")
+                ? " [Gmail hint: Use App Password, not regular password — myaccount.google.com/apppasswords]"
+                : "";
+            _logger.LogError(ex, "Failed to send notification email to {Email}{Hint}", toEmail, hint);
+            throw;
         }
         catch (Exception ex)
         {

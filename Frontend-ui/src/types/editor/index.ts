@@ -29,7 +29,18 @@ export type EditorElementType =
   | "progress"
   | "carousel"
   | "tabs"
-  | "antigravity";
+  | "menu"
+  | "group";
+
+/** Popup độc lập (chỉnh trong trang edit popup), lưu trong PageContent.popups */
+export type PagePopupDef = {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  backgroundColor: string;
+  elements: EditorElement[];
+};
 
 export type EditorElement = {
   id: number;
@@ -155,6 +166,8 @@ export type PageContent = {
   pageType: string;
   mobileFriendly: boolean;
   sections: EditorSection[];
+  /** Popup độc lập (không gắn section) — chỉnh trong editor popup */
+  popups?: PagePopupDef[];
   pageSettings?: PageSettings | null;
 };
 

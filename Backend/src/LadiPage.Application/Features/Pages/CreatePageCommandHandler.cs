@@ -1,3 +1,4 @@
+using System.Text.Json;
 using LadiPage.Domain.Entities;
 using LadiPage.Domain.Interfaces;
 using MediatR;
@@ -59,13 +60,19 @@ public class CreatePageCommandHandler : IRequestHandler<CreatePageCommand, PageD
             UpdatedAt = now
         };
 
+        // Resolve template JsonContent — from DB template or direct payload
+        string? templateJson = null;
+
         if (request.TemplateId is > 0)
         {
             var tpl = await _db.Templates.AsNoTracking()
                 .FirstOrDefaultAsync(t => t.Id == request.TemplateId.Value, cancellationToken);
             if (tpl != null)
-                page.JsonContent = tpl.JsonContent;
+                templateJson = tpl.JsonContent;
         }
+
+        if (templateJson == null && !string.IsNullOrWhiteSpace(request.JsonContent))
+            templateJson = request.JsonContent;
 
         _db.Pages.Add(page);
         try
@@ -74,11 +81,77 @@ public class CreatePageCommandHandler : IRequestHandler<CreatePageCommand, PageD
         }
         catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("IX_Trang_MaKhongGian_DuongDan") == true)
         {
-            // Duplicate key (slug trùng trong cùng workspace)
             throw new InvalidOperationException("Slug đã tồn tại trong workspace này. Vui lòng chọn slug khác.");
+        }
+
+        // Parse template JSON and create PageSection + PageElement records
+        if (!string.IsNullOrWhiteSpace(templateJson))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(templateJson);
+                var root = doc.RootElement;
+
+                if (root.TryGetProperty("sections", out var sectionsEl) && sectionsEl.ValueKind == JsonValueKind.Array)
+                {
+                    int sectionOrder = 1;
+                    foreach (var sEl in sectionsEl.EnumerateArray())
+                    {
+                        var section = new PageSection
+                        {
+                            PageId = page.Id,
+                            Order = sEl.TryGetProperty("order", out var ord) ? ord.GetInt32() : sectionOrder,
+                            Name = sEl.TryGetProperty("name", out var sName) ? sName.GetString() : "Section",
+                            BackgroundColor = sEl.TryGetProperty("backgroundColor", out var bgc) && bgc.ValueKind != JsonValueKind.Null ? bgc.GetString() : null,
+                            BackgroundImageUrl = sEl.TryGetProperty("backgroundImageUrl", out var bgi) && bgi.ValueKind != JsonValueKind.Null ? bgi.GetString() : null,
+                            Height = sEl.TryGetProperty("height", out var ht) ? ht.GetInt32() : 600,
+                            IsVisible = !sEl.TryGetProperty("visible", out var vis) || vis.GetBoolean(),
+                            IsLocked = sEl.TryGetProperty("isLocked", out var slk) && slk.GetBoolean(),
+                        };
+                        _db.PageSections.Add(section);
+                        await _db.SaveChangesAsync(cancellationToken);
+
+                        if (sEl.TryGetProperty("elements", out var elsEl) && elsEl.ValueKind == JsonValueKind.Array)
+                        {
+                            int elOrder = 1;
+                            foreach (var eEl in elsEl.EnumerateArray())
+                            {
+                                var stylesJson = "{}";
+                                if (eEl.TryGetProperty("styles", out var stylesEl))
+                                    stylesJson = stylesEl.GetRawText();
+
+                                var element = new PageElement
+                                {
+                                    SectionId = section.Id,
+                                    Type = eEl.TryGetProperty("type", out var tp) ? tp.GetString() ?? "text" : "text",
+                                    Order = eEl.TryGetProperty("order", out var eOrd) ? eOrd.GetInt32() : elOrder,
+                                    X = eEl.TryGetProperty("x", out var ex) ? ex.GetInt32() : 0,
+                                    Y = eEl.TryGetProperty("y", out var ey) ? ey.GetInt32() : 0,
+                                    Width = eEl.TryGetProperty("width", out var ew) ? ew.GetInt32() : null,
+                                    Height = eEl.TryGetProperty("height", out var eh) ? eh.GetInt32() : null,
+                                    ZIndex = eEl.TryGetProperty("zIndex", out var zi) ? zi.GetInt32() : 0,
+                                    Rotation = eEl.TryGetProperty("rotation", out var rot) ? rot.GetDouble() : 0,
+                                    Opacity = eEl.TryGetProperty("opacity", out var op) ? op.GetDouble() : 1.0,
+                                    IsLocked = eEl.TryGetProperty("isLocked", out var elk) && elk.GetBoolean(),
+                                    IsHidden = eEl.TryGetProperty("isHidden", out var ehi) && ehi.GetBoolean(),
+                                    Content = eEl.TryGetProperty("content", out var cnt) ? cnt.GetString() : null,
+                                    StylesJson = stylesJson,
+                                };
+                                _db.PageElements.Add(element);
+                                elOrder++;
+                            }
+                            await _db.SaveChangesAsync(cancellationToken);
+                        }
+                        sectionOrder++;
+                    }
+                }
+            }
+            catch
+            {
+                // If template JSON parsing fails, page is still created (just empty)
+            }
         }
 
         return new PageDto(page.Id, page.WorkspaceId, page.Name, page.Slug, page.Status, page.UpdatedAt);
     }
 }
-

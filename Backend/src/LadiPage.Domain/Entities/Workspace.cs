@@ -21,6 +21,8 @@ public class Workspace
     public string? Ward { get; set; }
     public string? Timezone { get; set; }
     public string? StoreCurrency { get; set; }
+    /** Cấu hình SMTP riêng của workspace (JSON). Null = dùng SMTP global từ appsettings. */
+    public string? SmtpConfigJson { get; set; }
 
     public User Owner { get; set; } = null!;
     public Plan? Plan { get; set; }

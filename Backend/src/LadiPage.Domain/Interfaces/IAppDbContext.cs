@@ -29,6 +29,16 @@ public interface IAppDbContext
     DbSet<Customer> Customers { get; }
     DbSet<Lead> Leads { get; }
     DbSet<MomoPaymentOrder> MomoPaymentOrders { get; }
+    DbSet<FormPresetTemplate> FormPresetTemplates { get; }
+    DbSet<PopupTemplate> PopupTemplates { get; }
+    DbSet<Province> Provinces { get; }
+    DbSet<District> Districts { get; }
+    DbSet<Ward> Wards { get; }
+    DbSet<LoginFeatureSlide> LoginFeatureSlides { get; }
+    DbSet<EditorIcon> EditorIcons { get; }
+    DbSet<SampleVideo> SampleVideos { get; }
+    DbSet<LinePresetDb> LinePresets { get; }
+    DbSet<StockImage> StockImages { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

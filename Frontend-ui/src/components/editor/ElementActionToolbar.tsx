@@ -3,7 +3,11 @@ import {
   ImagePlus, Settings, HelpCircle, MoreHorizontal,
   Lock, Unlock, EyeOff, Eye, Smile, Code2,
   Bold, AlignLeft, AlignCenter, AlignRight,
+  Layers2,
 } from "lucide-react";
+import type { EditorElementType } from "@/types/editor";
+
+export type ImageObjectFit = "cover" | "contain" | "fill" | "scale-down";
 
 export type TextFormatToolbarState = {
   fontSize: number;
@@ -19,7 +23,7 @@ export type TextFormatToolbarState = {
 };
 
 interface ElementActionToolbarProps {
-  elementType: string;
+  elementType: EditorElementType | string;
   isLocked: boolean;
   isHidden: boolean;
   /** Hiển thị cỡ chữ / font / màu / đậm / căn khi đang chọn Textbox (headline, paragraph, …). */
@@ -44,6 +48,12 @@ interface ElementActionToolbarProps {
   onEditHtmlCode?: () => void;
   showMoreMenu: boolean;
   onToggleMore: () => void;
+  /** Ảnh: object-fit */
+  imageObjectFit?: ImageObjectFit;
+  onImageObjectFitChange?: (fit: ImageObjectFit) => void;
+  /** Nhóm: hiện nút huỷ nhóm */
+  groupAction?: "none" | "ungroup";
+  onUngroup?: () => void;
 }
 
 export function ElementActionToolbar({
@@ -70,6 +80,10 @@ export function ElementActionToolbar({
   onEditHtmlCode,
   showMoreMenu,
   onToggleMore,
+  imageObjectFit,
+  onImageObjectFitChange,
+  groupAction = "none",
+  onUngroup,
 }: ElementActionToolbarProps) {
   const showAddImage =
     elementType === "gallery" ||
@@ -103,6 +117,37 @@ export function ElementActionToolbar({
       <button type="button" onClick={onDelete} className="p-1.5 rounded hover:bg-red-50 text-red-500" title="Xóa">
         <Trash2 className="w-4 h-4" />
       </button>
+      {elementType === "image" && imageObjectFit != null && onImageObjectFitChange && (
+        <>
+          <div className="w-px h-5 bg-slate-200 mx-0.5" />
+          <span className="text-[10px] text-slate-500 whitespace-nowrap">Vừa khung</span>
+          <select
+            value={imageObjectFit}
+            onChange={(e) => onImageObjectFitChange(e.target.value as ImageObjectFit)}
+            className="max-w-[100px] text-[11px] border border-slate-200 rounded px-1 py-0.5 text-slate-800 bg-white"
+            title="Object fit"
+          >
+            <option value="cover">Cover</option>
+            <option value="contain">Contain</option>
+            <option value="fill">Fill</option>
+            <option value="scale-down">Scale down</option>
+          </select>
+        </>
+      )}
+      {groupAction === "ungroup" && onUngroup && (
+        <>
+          <div className="w-px h-5 bg-slate-200 mx-0.5" />
+          <button
+            type="button"
+            onClick={onUngroup}
+            className="flex items-center gap-1 px-2 py-1 rounded hover:bg-slate-100 text-[11px] font-medium text-slate-700"
+            title="Huỷ nhóm"
+          >
+            <Layers2 className="w-3.5 h-3.5" />
+            Huỷ nhóm
+          </button>
+        </>
+      )}
       {textFormat && (
         <>
           <div className="w-px h-5 bg-slate-200 mx-0.5" />
@@ -196,7 +241,7 @@ export function ElementActionToolbar({
             className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-[#1e2d7d] hover:bg-[#162558] text-white text-[11px] font-medium"
           >
             <ImagePlus className="w-3.5 h-3.5" />
-            Thêm ảnh
+            {elementType === "image" ? "Đổi ảnh" : "Thêm ảnh"}
           </button>
         </>
       )}
@@ -304,6 +349,41 @@ export function ElementActionToolbar({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Toolbar khi chọn ≥2 phần tử — Tạo nhóm / Xóa */
+export function MultiSelectionToolbar({
+  count,
+  onCreateGroup,
+  onDelete,
+}: {
+  count: number;
+  onCreateGroup: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1 bg-white rounded-lg shadow-lg border border-slate-200 py-1 px-2">
+      <span className="text-[11px] text-slate-600 px-1 tabular-nums">{count} phần tử</span>
+      <div className="w-px h-5 bg-slate-200 mx-0.5" />
+      <button
+        type="button"
+        onClick={onCreateGroup}
+        className="flex items-center gap-1 px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-[11px] font-medium border border-indigo-200"
+        title="Tạo nhóm"
+      >
+        <Layers2 className="w-3.5 h-3.5" />
+        Tạo nhóm
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        className="p-1.5 rounded hover:bg-red-50 text-red-500"
+        title="Xóa các phần tử đã chọn"
+      >
+        <Trash2 className="w-4 h-4" />
+      </button>
     </div>
   );
 }

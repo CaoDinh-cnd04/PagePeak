@@ -112,6 +112,90 @@ namespace LadiPage.Infrastructure.Migrations
                     b.ToTable("KhachHang", (string)null);
                 });
 
+            modelBuilder.Entity("LadiPage.Domain.Entities.District", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasColumnName("MaQuan");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("TenQuan");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("int")
+                        .HasColumnName("ThuTu");
+
+                    b.Property<int>("ProvinceId")
+                        .HasColumnType("int")
+                        .HasColumnName("MaTinh");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProvinceId");
+
+                    b.ToTable("QuanHuyen", (string)null);
+                });
+
+            modelBuilder.Entity("LadiPage.Domain.Entities.EditorIcon", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasColumnName("MaBieuTuong");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("DanhMuc");
+
+                    b.Property<string>("Char")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("KyTu");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("MauSac");
+
+                    b.Property<string>("IconId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("MaIcon");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit")
+                        .HasColumnName("DangHoatDong");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("TenBieuTuong");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("int")
+                        .HasColumnName("ThuTu");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IconId")
+                        .IsUnique();
+
+                    b.ToTable("BieuTuongEditor", (string)null);
+                });
+
             modelBuilder.Entity("LadiPage.Domain.Entities.ElementPreset", b =>
                 {
                     b.Property<long>("Id")
@@ -208,6 +292,122 @@ namespace LadiPage.Infrastructure.Migrations
                     b.ToTable("CauHinhForm", (string)null);
                 });
 
+            modelBuilder.Entity("LadiPage.Domain.Entities.FormPresetTemplate", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("MaMauForm");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("AccentColor")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("MauNhan");
+
+                    b.Property<string>("BackgroundColor")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("MauNen");
+
+                    b.Property<string>("ButtonColor")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("MauNut");
+
+                    b.Property<string>("ButtonText")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("ChuNut");
+
+                    b.Property<string>("ButtonTextColor")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("MauChuNut");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("NgayTao");
+
+                    b.Property<string>("FieldsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("CacTruongJson");
+
+                    b.Property<int?>("FormBorderRadius")
+                        .HasColumnType("int")
+                        .HasColumnName("GocBoForm");
+
+                    b.Property<string>("FormType")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("LoaiForm");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("int")
+                        .HasColumnName("ChieuCao");
+
+                    b.Property<int?>("InputRadius")
+                        .HasColumnType("int")
+                        .HasColumnName("GocBoInput");
+
+                    b.Property<string>("InputStyle")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("KieuInput");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit")
+                        .HasColumnName("DangHoatDong");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("TenMauForm");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("int")
+                        .HasColumnName("ThuTu");
+
+                    b.Property<string>("PresetId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("MaPreset");
+
+                    b.Property<string>("TabName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("TenTab");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("TieuDe");
+
+                    b.Property<string>("TitleColor")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("MauTieuDe");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("int")
+                        .HasColumnName("ChieuRong");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PresetId")
+                        .IsUnique();
+
+                    b.ToTable("MauFormSanDung", (string)null);
+                });
+
             modelBuilder.Entity("LadiPage.Domain.Entities.Lead", b =>
                 {
                     b.Property<long>("Id")
@@ -252,6 +452,115 @@ namespace LadiPage.Infrastructure.Migrations
                     b.HasIndex("WorkspaceId");
 
                     b.ToTable("DuLieuLead", (string)null);
+                });
+
+            modelBuilder.Entity("LadiPage.Domain.Entities.LinePresetDb", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasColumnName("MaDuongKe");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Color")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("MauSac");
+
+                    b.Property<string>("DashArrayJson")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("KieuGachJson");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit")
+                        .HasColumnName("DangHoatDong");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("TenMau");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("int")
+                        .HasColumnName("ThuTu");
+
+                    b.Property<string>("PresetId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("MaPreset");
+
+                    b.Property<string>("Style")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("KieuDuong");
+
+                    b.Property<string>("Tab")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("Tab");
+
+                    b.Property<int>("Thickness")
+                        .HasColumnType("int")
+                        .HasColumnName("DoDay");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PresetId")
+                        .IsUnique();
+
+                    b.ToTable("MauDuongKe", (string)null);
+                });
+
+            modelBuilder.Entity("LadiPage.Domain.Entities.LoginFeatureSlide", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasColumnName("MaTinhNang");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("MoTa");
+
+                    b.Property<string>("Icon")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("Icon");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit")
+                        .HasColumnName("DangHoatDong");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("int")
+                        .HasColumnName("ThuTu");
+
+                    b.Property<string>("SlideId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("MaSlide");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("TieuDe");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("TinhNangDangNhap", (string)null);
                 });
 
             modelBuilder.Entity("LadiPage.Domain.Entities.Media", b =>
@@ -937,6 +1246,76 @@ namespace LadiPage.Infrastructure.Migrations
                     b.ToTable("DangKyGoi", (string)null);
                 });
 
+            modelBuilder.Entity("LadiPage.Domain.Entities.PopupTemplate", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("MaMauPopup");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("DanhMuc");
+
+                    b.Property<string>("ContentJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("NoiDungJson");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2")
+                        .HasColumnName("NgayTao");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("int")
+                        .HasColumnName("ChieuCao");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit")
+                        .HasColumnName("DangHoatDong");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("TenMauPopup");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("int")
+                        .HasColumnName("ThuTu");
+
+                    b.Property<string>("StylesJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("StylesJson");
+
+                    b.Property<string>("TemplateId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("MaTemplate");
+
+                    b.Property<string>("ThumbnailUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("AnhThuNho");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("int")
+                        .HasColumnName("ChieuRong");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TemplateId")
+                        .IsUnique();
+
+                    b.ToTable("MauPopup", (string)null);
+                });
+
             modelBuilder.Entity("LadiPage.Domain.Entities.Product", b =>
                 {
                     b.Property<long>("Id")
@@ -1001,6 +1380,82 @@ namespace LadiPage.Infrastructure.Migrations
                     b.ToTable("SanPham", (string)null);
                 });
 
+            modelBuilder.Entity("LadiPage.Domain.Entities.Province", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasColumnName("MaTinh");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("TenTinh");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("int")
+                        .HasColumnName("ThuTu");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("TinhThanh", (string)null);
+                });
+
+            modelBuilder.Entity("LadiPage.Domain.Entities.SampleVideo", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasColumnName("MaVideo");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("EmbedUrl")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("DuongDanNhung");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit")
+                        .HasColumnName("DangHoatDong");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("TenVideo");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("int")
+                        .HasColumnName("ThuTu");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("NguonVideo");
+
+                    b.Property<string>("ThumbnailUrl")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("AnhThuNho");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("DuongDan");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("VideoMau", (string)null);
+                });
+
             modelBuilder.Entity("LadiPage.Domain.Entities.Session", b =>
                 {
                     b.Property<long>("Id")
@@ -1048,6 +1503,70 @@ namespace LadiPage.Infrastructure.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("PhienDangNhap", (string)null);
+                });
+
+            modelBuilder.Entity("LadiPage.Domain.Entities.StockImage", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasColumnName("MaAnh");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Author")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("TacGia");
+
+                    b.Property<string>("AuthorUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("DuongDanTacGia");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasColumnName("DanhMuc");
+
+                    b.Property<int>("Height")
+                        .HasColumnType("int")
+                        .HasColumnName("ChieuCao");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("bit")
+                        .HasColumnName("DangHoatDong");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("TenAnh");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("int")
+                        .HasColumnName("ThuTu");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("NguonAnh");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("DuongDan");
+
+                    b.Property<int>("Width")
+                        .HasColumnType("int")
+                        .HasColumnName("ChieuRong");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AnhMauCoBan", (string)null);
                 });
 
             modelBuilder.Entity("LadiPage.Domain.Entities.Tag", b =>
@@ -1353,6 +1872,36 @@ namespace LadiPage.Infrastructure.Migrations
                     b.ToTable("NguoiDung", (string)null);
                 });
 
+            modelBuilder.Entity("LadiPage.Domain.Entities.Ward", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasColumnName("MaPhuong");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("DistrictId")
+                        .HasColumnType("int")
+                        .HasColumnName("MaQuan");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("TenPhuong");
+
+                    b.Property<int>("Order")
+                        .HasColumnType("int")
+                        .HasColumnName("ThuTu");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DistrictId");
+
+                    b.ToTable("PhuongXa", (string)null);
+                });
+
             modelBuilder.Entity("LadiPage.Domain.Entities.Workspace", b =>
                 {
                     b.Property<long>("Id")
@@ -1414,6 +1963,11 @@ namespace LadiPage.Infrastructure.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)")
                         .HasColumnName("DuongDan");
+
+                    b.Property<string>("SmtpConfigJson")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("SmtpConfigJson");
 
                     b.Property<string>("StoreAddress")
                         .HasMaxLength(500)
@@ -1517,6 +2071,17 @@ namespace LadiPage.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Workspace");
+                });
+
+            modelBuilder.Entity("LadiPage.Domain.Entities.District", b =>
+                {
+                    b.HasOne("LadiPage.Domain.Entities.Province", "Province")
+                        .WithMany("Districts")
+                        .HasForeignKey("ProvinceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Province");
                 });
 
             modelBuilder.Entity("LadiPage.Domain.Entities.ElementPreset", b =>
@@ -1756,6 +2321,17 @@ namespace LadiPage.Infrastructure.Migrations
                     b.Navigation("CurrentPlan");
                 });
 
+            modelBuilder.Entity("LadiPage.Domain.Entities.Ward", b =>
+                {
+                    b.HasOne("LadiPage.Domain.Entities.District", "District")
+                        .WithMany("Wards")
+                        .HasForeignKey("DistrictId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("District");
+                });
+
             modelBuilder.Entity("LadiPage.Domain.Entities.Workspace", b =>
                 {
                     b.HasOne("LadiPage.Domain.Entities.User", "Owner")
@@ -1792,6 +2368,11 @@ namespace LadiPage.Infrastructure.Migrations
                     b.Navigation("Workspace");
                 });
 
+            modelBuilder.Entity("LadiPage.Domain.Entities.District", b =>
+                {
+                    b.Navigation("Wards");
+                });
+
             modelBuilder.Entity("LadiPage.Domain.Entities.Page", b =>
                 {
                     b.Navigation("Sections");
@@ -1800,6 +2381,11 @@ namespace LadiPage.Infrastructure.Migrations
             modelBuilder.Entity("LadiPage.Domain.Entities.PageSection", b =>
                 {
                     b.Navigation("Elements");
+                });
+
+            modelBuilder.Entity("LadiPage.Domain.Entities.Province", b =>
+                {
+                    b.Navigation("Districts");
                 });
 
             modelBuilder.Entity("LadiPage.Domain.Entities.ToolCategory", b =>

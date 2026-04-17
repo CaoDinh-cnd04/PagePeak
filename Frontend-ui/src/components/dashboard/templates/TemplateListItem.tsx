@@ -1,5 +1,6 @@
-import { Eye, Zap, Star, LayoutGrid, Crown } from "lucide-react";
+import { Eye, Zap, Star, Crown } from "lucide-react";
 import type { TemplateItem } from "@/lib/shared/api";
+import type { StaticTemplateItem } from "@/lib/dashboard/templates/staticTemplates";
 
 type Props = {
   template: TemplateItem;
@@ -9,14 +10,38 @@ type Props = {
 };
 
 export function TemplateListItem({ template: t, onPreview, onUse, formatUsage }: Props) {
+  const previewUrl = (t as StaticTemplateItem).previewUrl;
+
   return (
     <div className="group flex items-center gap-4 p-3 bg-white rounded-xl border border-slate-200 hover:shadow-md hover:border-primary-200 transition-all">
-      <div className="relative w-32 h-20 flex-shrink-0 rounded-lg overflow-hidden bg-slate-100">
+      <div
+        className="relative w-32 h-20 flex-shrink-0 rounded-lg overflow-hidden bg-slate-100 cursor-pointer"
+        onClick={onPreview}
+      >
         {t.thumbnailUrl ? (
           <img src={t.thumbnailUrl} alt={t.name} className="w-full h-full object-cover" />
+        ) : previewUrl ? (
+          <div className="w-full h-full overflow-hidden pointer-events-none">
+            <iframe
+              src={previewUrl}
+              title={t.name}
+              className="border-none"
+              style={{
+                width: "266%",
+                height: "266%",
+                transform: "scale(0.375)",
+                transformOrigin: "top left",
+              }}
+              sandbox="allow-scripts allow-same-origin"
+            />
+          </div>
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-slate-400">
-            <LayoutGrid className="w-6 h-6" />
+          <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-indigo-50 to-violet-50 gap-1">
+            <div className="space-y-0.5 w-full px-2">
+              <div className="w-full h-1.5 rounded-full bg-indigo-200" />
+              <div className="w-4/5 h-1 rounded-full bg-slate-200" />
+            </div>
+            <span className="text-[8px] font-bold text-indigo-500 uppercase tracking-wide">✏️ Editable</span>
           </div>
         )}
         {t.isFeatured ? (

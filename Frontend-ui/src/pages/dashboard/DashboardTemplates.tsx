@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { templatesApi, pagesApi, workspacesApi, type TemplateItem } from "@/lib/shared/api";
+import { pagesApi, workspacesApi, templatesApi, type TemplateItem } from "@/lib/shared/api";
 import { Button } from "@/components/shared/ui/Button";
 import { Search, Zap, X } from "lucide-react";
 import {
@@ -16,6 +16,11 @@ import {
   TemplateLibraryFullSkeleton,
   type SortValue,
 } from "@/components/dashboard/templates";
+import {
+  STATIC_TEMPLATES,
+  getStaticCategories,
+  type StaticTemplateItem,
+} from "@/lib/dashboard/templates/staticTemplates";
 
 type Workspace = { id: number; name: string; slug: string; isDefault: boolean };
 
@@ -39,7 +44,7 @@ export function DashboardTemplatesPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  const [templates, setTemplates] = useState<TemplateItem[]>([]);
+  const [templates, setTemplates] = useState<(StaticTemplateItem | TemplateItem)[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,11 +61,11 @@ export function DashboardTemplatesPage() {
     return l === "list" ? "list" : "grid";
   });
 
-  const [previewTemplate, setPreviewTemplate] = useState<TemplateItem | null>(null);
+  const [previewTemplate, setPreviewTemplate] = useState<StaticTemplateItem | TemplateItem | null>(null);
   const [creatingId, setCreatingId] = useState<number | null>(null);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [createTargetTemplate, setCreateTargetTemplate] = useState<TemplateItem | null>(null);
+  const [createTargetTemplate, setCreateTargetTemplate] = useState<StaticTemplateItem | TemplateItem | null>(null);
   const [createName, setCreateName] = useState("");
   const [createSlug, setCreateSlug] = useState("");
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<number | null>(null);
@@ -95,18 +100,30 @@ export function DashboardTemplatesPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [tpls, cats, ws] = await Promise.all([
-          templatesApi.list(),
-          templatesApi.categories(),
+        const [ws, apiTemplates] = await Promise.all([
           workspacesApi.list(),
+          templatesApi.list().catch(() => [] as TemplateItem[]),
         ]);
-        setTemplates(tpls);
-        setCategories(cats);
+
+        // Tách editor templates (tên bắt đầu bằng "[editor]") ra đầu danh sách
+        const editorTemplates = apiTemplates.filter((t) => t.name.startsWith("[editor]")).map((t) => ({
+          ...t,
+          name: t.name.replace(/^\[editor\]\s*/, ""),
+          isFeatured: t.isFeatured ?? false,
+        }));
+
+        const merged = [...editorTemplates, ...STATIC_TEMPLATES];
+        setTemplates(merged);
+
+        const apiCats = editorTemplates.map((t) => t.category).filter(Boolean);
+        const allCats = [...new Set([...apiCats, ...getStaticCategories()])].sort();
+        setCategories(allCats);
+
         setWorkspaces(ws);
         const defaultWs = ws.find((w) => w.isDefault) ?? ws[0];
         setActiveWorkspaceId(defaultWs?.id ?? null);
       } catch {
-        setError("Không tải được dữ liệu. Vui lòng thử lại.");
+        setError("Không tải được workspace. Vui lòng đăng nhập lại.");
       } finally {
         setLoading(false);
       }
@@ -151,7 +168,7 @@ export function DashboardTemplatesPage() {
     return out;
   }, [templates, activeTab, selectedCategory, designType, searchQuery, sortBy]);
 
-  const openUseModal = useCallback((tpl: TemplateItem) => {
+  const openUseModal = useCallback((tpl: StaticTemplateItem | TemplateItem) => {
     setCreateTargetTemplate(tpl);
     setCreateName(tpl.name);
     setCreateSlug(
@@ -173,7 +190,14 @@ export function DashboardTemplatesPage() {
         .toLowerCase()
         .replace(/\s+/g, "-")
         .replace(/[^a-z0-9]/g, "");
-      const p = await pagesApi.create(activeWorkspaceId, name, slug, createTargetTemplate.id);
+
+      // Static templates (ID >= 1000) gửi jsonContent trực tiếp thay vì templateId
+      const tplWithJson = createTargetTemplate as StaticTemplateItem;
+      const hasLocalJson = typeof tplWithJson.jsonContent === "string";
+      const templateId = hasLocalJson ? undefined : createTargetTemplate.id;
+      const jsonContent = hasLocalJson ? tplWithJson.jsonContent : undefined;
+
+      const p = await pagesApi.create(activeWorkspaceId, name, slug, templateId, jsonContent);
       setShowCreateModal(false);
       if (p?.id) {
         navigate(`/dashboard/editor/${p.id}?type=responsive`);
